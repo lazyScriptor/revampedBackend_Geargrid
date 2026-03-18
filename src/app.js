@@ -1,30 +1,34 @@
 import express from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import authRoutes from "./routes/authRoutes.js";
+import customerRoutes from "./routes/customerRoutes.js";
 import errorHandler from "./middlewares/errorHandler.js";
 import AppError from "./utils/AppError.js";
 
 const app = express();
 
-app.use(cors());
+// CORS Configuration
+app.use(
+  cors({
+    origin: "http://localhost:5173",
+    credentials: true,
+  }),
+);
+
 app.use(express.json());
+app.use(cookieParser());
 
-app.get("/api/health", (req, res) => {
-  res.status(200).json({
-    status: "success",
-    message: "The revamped backend is alive and well! 🚀",
-  });
-});
-
-// Main route mounting
+// Routes
 app.use("/api/auth", authRoutes);
+app.use("/api/customers", customerRoutes);
 
-// Catch-all for unhandled routes (Updated for Express v5)
-app.all(/(.*)/, (req, res, next) => {
+// Catch-all for 404s (Express v5 safe)
+app.use((req, res, next) => {
   next(new AppError(`Can't find ${req.originalUrl} on this server!`, 404));
 });
 
-// Global Error Handler must be the last middleware
+// Global Error Handler
 app.use(errorHandler);
 
 export default app;

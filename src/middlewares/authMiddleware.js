@@ -2,34 +2,23 @@ import jwt from "jsonwebtoken";
 import AppError from "../utils/AppError.js";
 
 export const verifyToken = (req, res, next) => {
-  // Check for token in your custom header OR the standard Authorization header
-  const token =
-    req.headers["x-access-token"] || req.headers.authorization?.split(" ")[1];
+  // Read the token directly from the parsed cookies!
+  const token = req.cookies.accessToken;
 
   if (!token) {
-    // If no token, reject immediately
-    return next(new AppError("No token provided. Please log in.", 401));
+    return next(new AppError("No token provided.", 401));
   }
 
-  // Verify the token
   jwt.verify(
     token,
     process.env.JWT_SECRET || "fallback_secret",
     (err, decoded) => {
       if (err) {
-        return next(
-          new AppError(
-            "Failed to authenticate token. It might be expired or invalid.",
-            403,
-          ),
-        );
+        // We send a specific message so the frontend knows it's an expired token
+        return next(new AppError("TokenExpired", 401));
       }
-
-      // Attach the decoded token payload (which contains userRole) to the request object
-      // This allows subsequent controllers to know WHO made the request
       req.user = decoded;
-
-      next(); // Proceed to the actual controller
+      next();
     },
   );
 };
