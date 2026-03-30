@@ -1,24 +1,27 @@
 import jwt from "jsonwebtoken";
 import AppError from "../utils/AppError.js";
 
-export const verifyToken = (req, res, next) => {
-  // Read the token directly from the parsed cookies!
+export const protect = (req, res, next) => {
+  // 1. Check if the accessToken cookie exists
   const token = req.cookies.accessToken;
 
   if (!token) {
-    return next(new AppError("No token provided.", 401));
+    return next(
+      new AppError("You are not logged in. Please log in to get access.", 401),
+    );
   }
 
-  jwt.verify(
-    token,
-    process.env.JWT_SECRET || "fallback_secret",
-    (err, decoded) => {
-      if (err) {
-        // We send a specific message so the frontend knows it's an expired token
-        return next(new AppError("TokenExpired", 401));
-      }
-      req.user = decoded;
-      next();
-    },
-  );
+  try {
+    // 2. Verify the token signature
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    // 3. Attach the decoded user data (including the tenantDbName!) to the request
+    req.user = decoded;
+
+    next();
+  } catch (error) {
+    return next(
+      new AppError("Invalid or expired token. Please log in again.", 401),
+    );
+  }
 };

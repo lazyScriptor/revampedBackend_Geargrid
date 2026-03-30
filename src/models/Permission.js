@@ -1,26 +1,26 @@
 import { DataTypes } from "sequelize";
 
 export default (sequelize) => {
-  const Role = sequelize.define(
-    "Role",
+  const Permission = sequelize.define(
+    "Permission",
     {
-      role_id: {
+      permission_id: {
         type: DataTypes.UUID,
         defaultValue: DataTypes.UUIDV4,
         primaryKey: true,
       },
-      role_name: {
+      permission_code: {
         type: DataTypes.STRING(100),
         allowNull: false,
         unique: true,
       },
+      module_name: { type: DataTypes.STRING(100), allowNull: false },
       description: { type: DataTypes.TEXT, allowNull: true },
-      is_system_default: { type: DataTypes.BOOLEAN, defaultValue: false },
     },
     {
-      tableName: "ROLES",
+      tableName: "PERMISSIONS",
       timestamps: false,
     },
   );
-  return Role;
+  return Permission;
 };

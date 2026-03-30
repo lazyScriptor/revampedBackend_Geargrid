@@ -1,48 +1,33 @@
 import { DataTypes } from "sequelize";
-import sequelize from "../config/database.js";
+// ❌ REMOVE THIS LINE: import sequelize from '../config/database.js';
 
-const User = sequelize.define(
-  "User",
-  {
-    user_id: {
-      type: DataTypes.TINYINT, // Mapped accurately to tinyint(2) from your SQL dump
-      primaryKey: true,
-      autoIncrement: true,
+// ✅ Wrap the definition in an exported function
+export default (sequelize) => {
+  const User = sequelize.define(
+    "User",
+    {
+      user_id: {
+        type: DataTypes.UUID,
+        defaultValue: DataTypes.UUIDV4,
+        primaryKey: true,
+      },
+      warehouse_id: { type: DataTypes.UUID, allowNull: true },
+      username: { type: DataTypes.STRING(100), allowNull: false, unique: true },
+      email: { type: DataTypes.STRING(255), allowNull: false, unique: true },
+      password_hash: { type: DataTypes.STRING(255), allowNull: false },
+      first_name: { type: DataTypes.STRING(100), allowNull: false },
+      last_name: { type: DataTypes.STRING(100), allowNull: false },
+      nic_no: { type: DataTypes.STRING(20), allowNull: false, unique: true },
+      phone_number: { type: DataTypes.STRING(50) },
+      address_line1: { type: DataTypes.STRING(255) },
+      address_line2: { type: DataTypes.STRING(255) },
+      is_active: { type: DataTypes.BOOLEAN, defaultValue: true },
     },
-    user_first_name: {
-      type: DataTypes.STRING(20),
-      allowNull: false,
+    {
+      tableName: "USERS",
+      timestamps: false,
     },
-    user_last_name: {
-      type: DataTypes.STRING(20),
-      allowNull: true, // DEFAULT NULL in SQL
-    },
-    username: {
-      type: DataTypes.STRING(15),
-      allowNull: false,
-      unique: true, // Essential for login fields
-    },
-    nic: {
-      type: DataTypes.STRING(12),
-      allowNull: false,
-    },
-    user_phone_number: {
-      type: DataTypes.STRING(12),
-      allowNull: false,
-    },
-    user_address1: {
-      type: DataTypes.STRING(30),
-      allowNull: false,
-    },
-    user_address2: {
-      type: DataTypes.STRING(30),
-      allowNull: true, // DEFAULT NULL in SQL
-    },
-  },
-  {
-    tableName: "users",
-    timestamps: false, // Set to false because your schema lacks created_at/updated_at columns
-  },
-);
+  );
 
-export default User;
+  return User;
+};

@@ -1,64 +1,169 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-import { User, Role, UserRoleMap } from "../models/index.js";
+import { masterSequelize, getTenantConnection } from "../config/database.js";
+import { initTenantModels } from "../models/index.js";
 import AppError from "../utils/AppError.js";
+import { QueryTypes } from "sequelize";
+import crypto from 'crypto';
 
-export const loginUser = async (username, password, roleName) => {
-  const user = await User.findOne({
-    where: { username },
+export const loginUser = async (email, password) => {
+  // 1. Query the MASTER Database
+  const globalUsers = await masterSequelize.query(
+    `SELECT gu.*, t.db_name, t.db_host, t.db_user, t.encrypted_db_pass 
+     FROM GLOBAL_USERS gu 
+     JOIN TENANTS t ON gu.target_tenant_id = t.tenant_id 
+     WHERE gu.email = :email`,
+    {
+      replacements: { email: email },
+      type: QueryTypes.SELECT,
+    },
+  );
+
+  if (globalUsers.length === 0) {
+    throw new AppError("Invalid email or account does not exist.", 401);
+  }
+
+  const globalUser = globalUsers[0];
+
+  const isPasswordValid = await bcrypt.compare(
+    password,
+    globalUser.password_hash,
+  );
+  if (!isPasswordValid) {
+    throw new AppError("Invalid password.", 401);
+  }
+
+  // 2. Connect to the user's specific TENANT Database
+  const tenantConnection = await getTenantConnection(
+    globalUser.db_name,
+    globalUser.db_user,
+    globalUser.encrypted_db_pass,
+    globalUser.db_host,
+  );
+
+  const { User, Role } = initTenantModels(tenantConnection);
+
+  // 3. Get user roles from Tenant DB
+  const tenantUser = await User.findOne({
+    where: { email: globalUser.email, is_active: true },
     include: [
       {
         model: Role,
-        where: { ur_role: roleName },
-        through: { attributes: ["urm_password"] },
+        attributes: ["role_name"],
+        through: { attributes: [] },
       },
     ],
   });
 
-  if (!user || user.Roles.length === 0) {
-    throw new AppError("Incorrect username or role", 401);
+  if (!tenantUser) {
+    throw new AppError(
+      "Account is disabled or missing in the tenant database.",
+      403,
+    );
   }
 
-  const hashedPassword = user.Roles[0].UserRoleMap.urm_password;
-  const isPasswordValid = await bcrypt.compare(password, hashedPassword);
+  const roles = tenantUser.Roles.map((role) => role.role_name);
 
-  if (!isPasswordValid) throw new AppError("Incorrect password", 401);
+  if (roles.length === 0) {
+    throw new AppError(
+      "Your account has no assigned roles. Contact an admin.",
+      403,
+    );
+  }
 
-  // Generate BOTH Tokens
-  const accessToken = jwt.sign(
-    { userRole: roleName, username: user.username },
-    process.env.JWT_SECRET || "fallback_secret",
-    { expiresIn: "15m" }, // 15 Minutes
-  );
+  // 4. Generate Multi-Tenant JWTs
+  const tokenPayload = {
+    userId: tenantUser.user_id,
+    username: tenantUser.username,
+    roles: roles,
+    warehouseId: tenantUser.warehouse_id,
+    tenantDbName: globalUser.db_name,
+  };
 
-  const refreshToken = jwt.sign(
-    { userRole: roleName, username: user.username },
-    process.env.JWT_REFRESH_SECRET || "fallback_refresh_secret",
-    { expiresIn: "7d" }, // 7 Days
-  );
+  const accessToken = jwt.sign(tokenPayload, process.env.JWT_SECRET, {
+    expiresIn: "15m",
+  });
+  const refreshToken = jwt.sign(tokenPayload, process.env.JWT_REFRESH_SECRET, {
+    expiresIn: "7d",
+  });
 
   return {
     accessToken,
     refreshToken,
-    result: roleName,
-    username: user.username,
+    user: {
+      id: tenantUser.user_id,
+      username: tenantUser.username,
+      email: tenantUser.email,
+      roles: roles,
+      warehouseId: tenantUser.warehouse_id,
+    },
   };
 };
 
-export const getUserRoles = async (username) => {
-  const user = await User.findOne({
-    where: { username },
-    include: [
-      {
-        model: Role,
-        attributes: ["ur_role"],
-        through: { attributes: [] }, // We don't need the junction table data here
-      },
-    ],
+// ... existing loginUser function ...
+
+export const registerUser = async (
+  tenantId,
+  email,
+  username,
+  password,
+  firstName,
+  lastName,
+  nicNo,
+) => {
+  // 1. Check if the tenant exists in the Master DB
+  const tenants = await masterSequelize.query(
+    `SELECT * FROM TENANTS WHERE tenant_id = :tenantId`,
+    { replacements: { tenantId }, type: QueryTypes.SELECT },
+  );
+
+  if (tenants.length === 0) {
+    throw new AppError("Tenant business not found.", 404);
+  }
+  const tenant = tenants[0];
+
+  // 2. Hash the password
+  const hashedPassword = await bcrypt.hash(password, 12);
+
+  // 3. Insert into MASTER DB (GLOBAL_USERS)
+  // We use UUID for global_user_id
+  const globalUserId = crypto.randomUUID();
+  await masterSequelize.query(
+    `INSERT INTO GLOBAL_USERS (global_user_id, email, password_hash, target_tenant_id) 
+     VALUES (:id, :email, :pass, :tenantId)`,
+    {
+      replacements: { id: globalUserId, email, pass: hashedPassword, tenantId },
+    },
+  );
+
+  // 4. Connect to the specific TENANT DB
+  const tenantConnection = await getTenantConnection(
+    tenant.db_name,
+    tenant.db_user,
+    tenant.encrypted_db_pass,
+    tenant.db_host,
+  );
+  const { User, Role } = initTenantModels(tenantConnection);
+
+  // 5. Create the user in the TENANT DB
+  const newUser = await User.create({
+    user_id: globalUserId, // Keep IDs matching between Master and Tenant
+    username,
+    email,
+    password_hash: hashedPassword,
+    first_name: firstName,
+    last_name: lastName,
+    nic_no: nicNo,
+    is_active: true,
   });
 
-  if (!user) return []; // Return empty array if user doesn't exist
+  // 6. Assign them an 'admin' role (creates the role if it doesn't exist yet)
+  const [adminRole] = await Role.findOrCreate({
+    where: { role_name: "admin" },
+    defaults: { description: "System Administrator", is_system_default: true },
+  });
 
-  // Format to match your old raw SQL output for the frontend
-  return user.Roles.map((role) => ({ ur_role: role.ur_role }));
+  await newUser.addRole(adminRole);
+
+  return newUser;
 };
