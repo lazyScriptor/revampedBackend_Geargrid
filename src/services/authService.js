@@ -4,7 +4,7 @@ import { masterSequelize, getTenantConnection } from "../config/database.js";
 import { initTenantModels } from "../models/index.js";
 import AppError from "../utils/AppError.js";
 import { QueryTypes } from "sequelize";
-import crypto from 'crypto';
+import crypto from "crypto";
 
 export const loginUser = async (email, password) => {
   // 1. Query the MASTER Database
@@ -41,8 +41,16 @@ export const loginUser = async (email, password) => {
     globalUser.db_host,
   );
 
-  const { User, Role } = initTenantModels(tenantConnection);
+  const { User, Role, TenantConfig } = initTenantModels(tenantConnection);
 
+  const configData = await TenantConfig.findOne({
+    where: {
+      status: 1,
+    },
+    order: [
+      ["updatedAt", "DESC"], // Sorts by updated_at in descending order to get the latest
+    ],
+  });
   // 3. Get user roles from Tenant DB
   const tenantUser = await User.findOne({
     where: { email: globalUser.email, is_active: true },
@@ -96,6 +104,7 @@ export const loginUser = async (email, password) => {
       email: tenantUser.email,
       roles: roles,
       warehouseId: tenantUser.warehouse_id,
+      configData: configData,
     },
   };
 };

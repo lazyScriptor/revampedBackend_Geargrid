@@ -10,6 +10,7 @@ import InvoiceLineFactory from "./InvoiceLine.js";
 import PaymentFactory from "./Payment.js";
 import DefectLogFactory from "./DefectLog.js";
 import InvoiceTraceFactory from "./InvoiceTrace.js";
+import TenantConfigFactory from "./TenantConfig.js";
 
 export const initTenantModels = (tenantConnection) => {
   const User = UserFactory(tenantConnection);
@@ -24,6 +25,7 @@ export const initTenantModels = (tenantConnection) => {
   const Payment = PaymentFactory(tenantConnection);
   const DefectLog = DefectLogFactory(tenantConnection);
   const InvoiceTrace = InvoiceTraceFactory(tenantConnection);
+  const TenantConfig = TenantConfigFactory(tenantConnection);
 
   // ==========================================
   // AUTH & USERS
@@ -105,6 +107,7 @@ export const initTenantModels = (tenantConnection) => {
     Payment,
     DefectLog,
     InvoiceTrace,
+    TenantConfig,
     sequelize: tenantConnection,
   };
 };

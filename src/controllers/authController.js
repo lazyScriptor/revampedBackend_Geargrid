@@ -7,9 +7,6 @@ const cookieOptions = {
   sameSite: "lax",
 };
 
-// ==========================================
-// 1. REGISTER (Setup First User)
-// ==========================================
 export const register = catchAsync(async (req, res, next) => {
   const { tenantId, email, username, password, firstName, lastName, nicNo } =
     req.body;
@@ -31,9 +28,6 @@ export const register = catchAsync(async (req, res, next) => {
   });
 });
 
-// ==========================================
-// 2. LOGIN
-// ==========================================
 export const login = catchAsync(async (req, res, next) => {
   const { email, password } = req.body;
 
@@ -55,9 +49,6 @@ export const login = catchAsync(async (req, res, next) => {
   res.status(200).json({ auth: true, user });
 });
 
-// ==========================================
-// 3. VERIFY TOKEN (Protected Route)
-// ==========================================
 export const verifyAuth = (req, res) => {
   // If the request made it past the `protect` middleware, the cookie is valid!
   res.status(200).json({
