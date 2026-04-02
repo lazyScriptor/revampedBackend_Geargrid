@@ -7,11 +7,11 @@ export default (sequelize) => {
     "User",
     {
       user_id: {
-        type: DataTypes.UUID,
-        defaultValue: DataTypes.UUIDV4,
+        type: DataTypes.INTEGER,
+        autoIncrement: true,
         primaryKey: true,
       },
-      warehouse_id: { type: DataTypes.UUID, allowNull: true },
+      warehouse_id: { type: DataTypes.INTEGER, allowNull: true },
       username: { type: DataTypes.STRING(100), allowNull: false, unique: true },
       email: { type: DataTypes.STRING(255), allowNull: false, unique: true },
       password_hash: { type: DataTypes.STRING(255), allowNull: false },

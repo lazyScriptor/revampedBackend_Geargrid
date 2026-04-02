@@ -58,3 +58,10 @@ export  const getTenantConnection = async (
     throw error;
   }
 };
+// Add this exported function near your other connection logic
+export const getCachedTenantConnection = (dbName) => {
+  if (!tenantConnections[dbName]) {
+    throw new Error(`Tenant connection lost for ${dbName}. Please log in again.`);
+  }
+  return tenantConnections[dbName];
+};

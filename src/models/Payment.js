@@ -5,11 +5,11 @@ export default (sequelize) => {
     "Payment",
     {
       payment_id: {
-        type: DataTypes.UUID,
-        defaultValue: DataTypes.UUIDV4,
+        type: DataTypes.INTEGER,
+        autoIncrement: true,
         primaryKey: true,
       },
-      invoice_id: { type: DataTypes.UUID, allowNull: false },
+      invoice_id: { type: DataTypes.INTEGER, allowNull: false },
       payment_amount: { type: DataTypes.DECIMAL(12, 2), allowNull: false },
       payment_date: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
       method: { type: DataTypes.STRING(50), allowNull: false },

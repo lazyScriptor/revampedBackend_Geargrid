@@ -5,8 +5,8 @@ export default (sequelize) => {
     "Customer",
     {
       customer_id: {
-        type: DataTypes.UUID,
-        defaultValue: DataTypes.UUIDV4,
+        type: DataTypes.INTEGER,
+        autoIncrement: true,
         primaryKey: true,
       },
       nic_number: {

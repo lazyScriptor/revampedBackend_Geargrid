@@ -5,12 +5,12 @@ export default (sequelize) => {
     "Invoice",
     {
       invoice_id: {
-        type: DataTypes.UUID,
-        defaultValue: DataTypes.UUIDV4,
+        type: DataTypes.INTEGER,
+        autoIncrement: true,
         primaryKey: true,
       },
-      customer_id: { type: DataTypes.UUID, allowNull: false },
-      issued_by_user_id: { type: DataTypes.UUID, allowNull: true },
+      customer_id: { type: DataTypes.INTEGER, allowNull: false },
+      issued_by_user_id: { type: DataTypes.INTEGER, allowNull: true },
       total_amount: {
         type: DataTypes.DECIMAL(12, 2),
         allowNull: false,

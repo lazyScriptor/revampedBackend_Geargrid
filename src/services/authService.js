@@ -134,18 +134,7 @@ export const registerUser = async (
   // 2. Hash the password
   const hashedPassword = await bcrypt.hash(password, 12);
 
-  // 3. Insert into MASTER DB (GLOBAL_USERS)
-  // We use UUID for global_user_id
-  const globalUserId = crypto.randomUUID();
-  await masterSequelize.query(
-    `INSERT INTO GLOBAL_USERS (global_user_id, email, password_hash, target_tenant_id) 
-     VALUES (:id, :email, :pass, :tenantId)`,
-    {
-      replacements: { id: globalUserId, email, pass: hashedPassword, tenantId },
-    },
-  );
-
-  // 4. Connect to the specific TENANT DB
+  // 3. Connect to the specific TENANT DB FIRST
   const tenantConnection = await getTenantConnection(
     tenant.db_name,
     tenant.db_user,
@@ -154,9 +143,9 @@ export const registerUser = async (
   );
   const { User, Role } = initTenantModels(tenantConnection);
 
-  // 5. Create the user in the TENANT DB
+  // 4. Create the user in the TENANT DB 
+  // We do NOT pass user_id so MySQL handles the auto-increment automatically
   const newUser = await User.create({
-    user_id: globalUserId, // Keep IDs matching between Master and Tenant
     username,
     email,
     password_hash: hashedPassword,
@@ -166,7 +155,19 @@ export const registerUser = async (
     is_active: true,
   });
 
-  // 6. Assign them an 'admin' role (creates the role if it doesn't exist yet)
+  // 5. Retrieve the newly generated Auto-Increment ID
+  const newUserId = newUser.user_id;
+
+  // 6. Insert into MASTER DB (GLOBAL_USERS) using the generated ID
+  await masterSequelize.query(
+    `INSERT INTO GLOBAL_USERS (global_user_id, email, password_hash, target_tenant_id) 
+     VALUES (:id, :email, :pass, :tenantId)`,
+    {
+      replacements: { id: newUserId, email, pass: hashedPassword, tenantId },
+    },
+  );
+
+  // 7. Assign them an 'admin' role (creates the role if it doesn't exist yet)
   const [adminRole] = await Role.findOrCreate({
     where: { role_name: "admin" },
     defaults: { description: "System Administrator", is_system_default: true },

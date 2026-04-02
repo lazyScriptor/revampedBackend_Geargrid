@@ -5,9 +5,10 @@ export default (sequelize) => {
     "TenantConfig",
     {
       config_id: {
-        type: DataTypes.STRING(36),
+        type: DataTypes.INTEGER,
         allowNull: false,
         primaryKey: true,
+        autoincrement: true,
       },
       business_display_name: { type: DataTypes.STRING(255), allowNull: false },
       primary_color: { type: DataTypes.STRING(7), defaultValue: "#1976d2" },

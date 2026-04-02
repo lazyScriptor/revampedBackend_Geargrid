@@ -5,12 +5,12 @@ export default (sequelize) => {
     "InvoiceTrace",
     {
       trace_id: {
-        type: DataTypes.UUID,
-        defaultValue: DataTypes.UUIDV4,
+        type: DataTypes.INTEGER,
+        autoIncrement: true,
         primaryKey: true,
       },
-      invoice_id: { type: DataTypes.UUID, allowNull: false },
-      actor_user_id: { type: DataTypes.UUID, allowNull: true },
+      invoice_id: { type: DataTypes.INTEGER, allowNull: false },
+      actor_user_id: { type: DataTypes.INTEGER, allowNull: true },
       event_category: { type: DataTypes.STRING(50), allowNull: false },
       event_action: { type: DataTypes.STRING(50), allowNull: false },
       entity_reference_id: { type: DataTypes.STRING(36), allowNull: true },

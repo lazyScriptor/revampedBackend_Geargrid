@@ -5,8 +5,8 @@ export default (sequelize) => {
     "Warehouse",
     {
       warehouse_id: {
-        type: DataTypes.UUID,
-        defaultValue: DataTypes.UUIDV4,
+        type: DataTypes.INTEGER,
+        autoIncrement: true,
         primaryKey: true,
       },
       location_name: { type: DataTypes.STRING(255), allowNull: false },

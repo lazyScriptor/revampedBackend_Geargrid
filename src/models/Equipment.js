@@ -5,12 +5,12 @@ export default (sequelize) => {
     "Equipment",
     {
       equipment_id: {
-        type: DataTypes.UUID,
-        defaultValue: DataTypes.UUIDV4,
+        type: DataTypes.INTEGER,
+        autoIncrement: true,
         primaryKey: true,
       },
-      category_id: { type: DataTypes.UUID, allowNull: false },
-      warehouse_id: { type: DataTypes.UUID, allowNull: false },
+      category_id: { type: DataTypes.INTEGER, allowNull: false },
+      warehouse_id: { type: DataTypes.INTEGER, allowNull: false },
       is_bulk_item: { type: DataTypes.BOOLEAN, defaultValue: false },
       equipment_name: { type: DataTypes.STRING(255), allowNull: false },
       serial_number: { type: DataTypes.STRING(100), allowNull: true },

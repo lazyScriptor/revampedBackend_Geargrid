@@ -5,8 +5,8 @@ export default (sequelize) => {
     "EquipmentCategory",
     {
       category_id: {
-        type: DataTypes.UUID,
-        defaultValue: DataTypes.UUIDV4,
+        type: DataTypes.INTEGER,
+        autoIncrement: true,
         primaryKey: true,
       },
       category_name: { type: DataTypes.STRING(150), allowNull: false },

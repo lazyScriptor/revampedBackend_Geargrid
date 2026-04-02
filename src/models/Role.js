@@ -5,8 +5,8 @@ export default (sequelize) => {
     "Role",
     {
       role_id: {
-        type: DataTypes.UUID,
-        defaultValue: DataTypes.UUIDV4,
+        type: DataTypes.INTEGER,
+        autoIncrement: true,
         primaryKey: true,
       },
       role_name: {

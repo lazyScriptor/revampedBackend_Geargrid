@@ -14,7 +14,7 @@ const startServer = async () => {
     console.log("✅ Successfully connected to the geargrid_master database.");
 
     // Give Sequelize authority to auto-create/update Master tables
-    await masterSequelize.sync({ alter: true });
+    await masterSequelize.sync({  alter:true});
     console.log("✅ Master Database structure synced.");
 
     // =================================================================
@@ -43,10 +43,10 @@ const startServer = async () => {
         initTenantModels(tenantConnection);
 
         // Give Sequelize authority to alter this specific client's tables
-        await tenantConnection.sync({ alter: true });
-        console.log(`   ✅ Successfully synced: ${tenant.db_name}`);
+        await tenantConnection.sync({  alter:true });
+        console.log(`***Successfully synced: ${tenant.db_name}`);
       } catch (tenantErr) {
-        console.error(`   ❌ Failed to sync: ${tenant.db_name}`, tenantErr.message);
+        console.error(`❌Failed to sync: ${tenant.db_name}`, tenantErr.message);
       }
     }
 
@@ -56,10 +56,10 @@ const startServer = async () => {
     // 3. START EXPRESS SERVER
     // =================================================================
     app.listen(PORT, () => {
-      console.log(`🚀 Revamped Production Backend is running on port ${PORT}`);
+      console.log(`Revamped Production Backend is running on port ${PORT}`);
     });
   } catch (error) {
-    console.error("❌ Critical Startup Error:", error);
+    console.error("❌Critical Startup Error:", error);
     process.exit(1); // Stop the server if the master DB is down
   }
 };

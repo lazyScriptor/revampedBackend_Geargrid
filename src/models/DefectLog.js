@@ -5,12 +5,12 @@ export default (sequelize) => {
     "DefectLog",
     {
       log_id: {
-        type: DataTypes.UUID,
-        defaultValue: DataTypes.UUIDV4,
+        type: DataTypes.INTEGER,
+        autoIncrement: true,
         primaryKey: true,
       },
-      equipment_id: { type: DataTypes.UUID, allowNull: false },
-      reported_on_invoice_id: { type: DataTypes.UUID, allowNull: true },
+      equipment_id: { type: DataTypes.INTEGER, allowNull: false },
+      reported_on_invoice_id: { type: DataTypes.INTEGER, allowNull: true },
       defective_quantity: { type: DataTypes.INTEGER, allowNull: false },
       defect_description: { type: DataTypes.TEXT, allowNull: false },
       repair_status: {

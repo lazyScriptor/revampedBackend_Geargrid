@@ -4,7 +4,6 @@ import AppError from "../utils/AppError.js";
 export const protect = (req, res, next) => {
   // 1. Check if the accessToken cookie exists
   const token = req.cookies.accessToken;
-
   if (!token) {
     return next(
       new AppError("You are not logged in. Please log in to get access.", 401),

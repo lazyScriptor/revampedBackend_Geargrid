@@ -5,13 +5,13 @@ export default (sequelize) => {
     "InvoiceLine",
     {
       line_id: {
-        type: DataTypes.UUID,
-        defaultValue: DataTypes.UUIDV4,
+        type: DataTypes.INTEGER,
+        autoIncrement: true,
         primaryKey: true,
       },
-      invoice_id: { type: DataTypes.UUID, allowNull: false },
-      equipment_id: { type: DataTypes.UUID, allowNull: false },
-      parent_line_id: { type: DataTypes.UUID, allowNull: true },
+      invoice_id: { type: DataTypes.INTEGER, allowNull: false },
+      equipment_id: { type: DataTypes.INTEGER, allowNull: false },
+      parent_line_id: { type: DataTypes.INTEGER, allowNull: true },
       borrow_date: { type: DataTypes.DATEONLY, allowNull: false },
       expected_return_date: { type: DataTypes.DATEONLY, allowNull: false },
       actual_return_date: { type: DataTypes.DATEONLY, allowNull: true },
