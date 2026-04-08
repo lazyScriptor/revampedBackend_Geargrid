@@ -48,7 +48,7 @@ export default (sequelize) => {
     },
     {
       tableName: "EQUIPMENT",
-      timestamps: false,
+      timestamps: true,
     },
   );
   return Equipment;

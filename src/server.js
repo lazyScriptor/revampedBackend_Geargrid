@@ -14,7 +14,7 @@ const startServer = async () => {
     console.log("✅ Successfully connected to the geargrid_master database.");
 
     // Give Sequelize authority to auto-create/update Master tables
-    await masterSequelize.sync({  alter:true});
+    await masterSequelize.sync({ alter:true});
     console.log("✅ Master Database structure synced.");
 
     // =================================================================
@@ -43,7 +43,7 @@ const startServer = async () => {
         initTenantModels(tenantConnection);
 
         // Give Sequelize authority to alter this specific client's tables
-        await tenantConnection.sync({  alter:true });
+        await tenantConnection.sync({alter:true });
         console.log(`***Successfully synced: ${tenant.db_name}`);
       } catch (tenantErr) {
         console.error(`❌Failed to sync: ${tenant.db_name}`, tenantErr.message);
