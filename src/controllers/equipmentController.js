@@ -57,3 +57,11 @@ export const changeStatus = catchAsync(async (req, res, next) => {
     .status(200)
     .json({ status: "success", data: { equipment: updatedEquipment } });
 });
+export const deleteEquipment = catchAsync(async (req, res, next) => {
+  await equipmentService.deleteEquipment(getModels(req), req.params.id);
+
+  res.status(200).json({
+    status: "success",
+    message: "Equipment successfully deleted.",
+  });
+});

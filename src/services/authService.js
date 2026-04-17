@@ -41,17 +41,16 @@ export const loginUser = async (email, password) => {
     globalUser.db_host,
   );
 
-  const { User, Role, TenantConfig } = initTenantModels(tenantConnection);
+  // ✅ ADDED: Extract the Permission model as well
+  const { User, Role, Permission, TenantConfig } =
+    initTenantModels(tenantConnection);
 
   const configData = await TenantConfig.findOne({
-    where: {
-      status: 1,
-    },
-    order: [
-      ["updatedAt", "DESC"], // Sorts by updated_at in descending order to get the latest
-    ],
+    where: { status: 1 },
+    order: [["updatedAt", "DESC"]],
   });
-  // 3. Get user roles from Tenant DB
+
+  // 3. Get user roles AND PERMISSIONS from Tenant DB
   const tenantUser = await User.findOne({
     where: { email: globalUser.email, is_active: true },
     include: [
@@ -59,6 +58,14 @@ export const loginUser = async (email, password) => {
         model: Role,
         attributes: ["role_name"],
         through: { attributes: [] },
+        // ✅ ADDED: Nested include to fetch permissions for each role
+        include: [
+          {
+            model: Permission,
+            attributes: ["permission_code"],
+            through: { attributes: [] },
+          },
+        ],
       },
     ],
   });
@@ -70,6 +77,7 @@ export const loginUser = async (email, password) => {
     );
   }
 
+  // 4. Extract Roles and Permissions into clean arrays
   const roles = tenantUser.Roles.map((role) => role.role_name);
 
   if (roles.length === 0) {
@@ -79,17 +87,30 @@ export const loginUser = async (email, password) => {
     );
   }
 
-  // 4. Generate Multi-Tenant JWTs
+  // ✅ ADDED: Flatten and deduplicate permissions using a Set
+  const permissionSet = new Set();
+  tenantUser.Roles.forEach((role) => {
+    if (role.Permissions) {
+      role.Permissions.forEach((perm) => {
+        permissionSet.add(perm.permission_code);
+      });
+    }
+  });
+  const permissions = Array.from(permissionSet); // e.g., ['view_dashboard', 'view_equipment']
+
+  // 5. Generate Multi-Tenant JWTs
   const tokenPayload = {
     userId: tenantUser.user_id,
     username: tenantUser.username,
-    roles: roles,
+    roles: roles, // We keep Roles in the JWT...
+    // Note: We intentionally DO NOT put `permissions` in the JWT payload.
+    // An admin might have 50 permissions, which would bloat the token size and slow down headers.
     warehouseId: tenantUser.warehouse_id,
     tenantDbName: globalUser.db_name,
   };
 
   const accessToken = jwt.sign(tokenPayload, process.env.JWT_SECRET, {
-    expiresIn: "15m",
+    expiresIn: "2h",
   });
   const refreshToken = jwt.sign(tokenPayload, process.env.JWT_REFRESH_SECRET, {
     expiresIn: "7d",
@@ -105,6 +126,7 @@ export const loginUser = async (email, password) => {
       roles: roles,
       warehouseId: tenantUser.warehouse_id,
       configData: configData,
+      permissions, // ✅ NOW DEFINED: This goes directly to the Zustand store!
     },
   };
 };
@@ -143,7 +165,7 @@ export const registerUser = async (
   );
   const { User, Role } = initTenantModels(tenantConnection);
 
-  // 4. Create the user in the TENANT DB 
+  // 4. Create the user in the TENANT DB
   // We do NOT pass user_id so MySQL handles the auto-increment automatically
   const newUser = await User.create({
     username,
