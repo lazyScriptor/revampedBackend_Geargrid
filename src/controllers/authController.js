@@ -39,7 +39,7 @@ export const login = catchAsync(async (req, res, next) => {
   // Set secure cookies
   res.cookie("accessToken", accessToken, {
     ...cookieOptions,
-    maxAge: 15 * 60 * 1000,
+    maxAge: 5 * 60 * 60 * 1000,
   });
   res.cookie("refreshToken", refreshToken, {
     ...cookieOptions,
