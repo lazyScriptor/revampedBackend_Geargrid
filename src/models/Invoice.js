@@ -21,6 +21,21 @@ export default (sequelize) => {
         allowNull: false,
         defaultValue: 0.0,
       },
+      transport_fee: {
+        type: DataTypes.DECIMAL(12, 2),
+        allowNull: false,
+        defaultValue: 0.0,
+      },
+      discount_amount: {
+        type: DataTypes.DECIMAL(12, 2),
+        allowNull: false,
+        defaultValue: 0.0,
+      },
+      sub_total: {
+        type: DataTypes.DECIMAL(12, 2),
+        allowNull: false,
+        defaultValue: 0.0,
+      },
       id_card_status: {
         type: DataTypes.TINYINT,
         allowNull: false,

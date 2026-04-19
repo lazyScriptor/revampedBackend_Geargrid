@@ -65,6 +65,15 @@ export const initTenantModels = (tenantConnection) => {
   Equipment.belongsTo(Warehouse, { foreignKey: "warehouse_id" });
   Warehouse.hasMany(Equipment, { foreignKey: "warehouse_id" });
 
+  Customer.belongsTo(Customer, {
+    as: "ParentCompany",
+    foreignKey: "parent_customer_id",
+  });
+  Customer.hasMany(Customer, {
+    as: "Workers",
+    foreignKey: "parent_customer_id",
+  });
+
   // INVOICES & BILLING
   Invoice.belongsTo(Customer, { foreignKey: "customer_id" });
   Customer.hasMany(Invoice, { foreignKey: "customer_id" });

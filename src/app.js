@@ -12,6 +12,7 @@ import customerRoutes from "./routes/customerRoutes.js";
 import tenantConfigRoutes from "./routes/tenantConfigRoutes.js";
 import defectLogRoutes from "./routes/defectLogRoutes.js";
 import bulkEquipmentRoutes from "./routes/bulkEquipmentRoutes.js";
+import invoiceRoutes from "./routes/invoiceRoutes.js";
 import errorHandler from "./middlewares/errorHandler.js";
 import AppError from "./utils/AppError.js";
 
@@ -39,6 +40,7 @@ app.use("/api/customers", customerRoutes);
 app.use("/api/config", tenantConfigRoutes);
 app.use("/api/defects", defectLogRoutes);
 app.use("/api/equipment/bulk", bulkEquipmentRoutes);
+app.use('/api/invoices', invoiceRoutes);
 
 app.use((req, res, next) => {
   next(new AppError(`Can't find ${req.originalUrl} on this server!`, 404));

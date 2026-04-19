@@ -41,7 +41,7 @@ export const getAllEquipment = async (models, queryParams) => {
   // 3. Setup Searching (Search by name OR serial number)
   if (queryParams.search) {
     whereClause[Op.or] = [
-      { name: { [Op.like]: `%${queryParams.search}%` } },
+      { equipment_name: { [Op.like]: `%${queryParams.search}%` } },
       { serial_number: { [Op.like]: `%${queryParams.search}%` } },
     ];
   }
