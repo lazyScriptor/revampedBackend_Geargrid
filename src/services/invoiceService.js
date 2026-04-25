@@ -1,14 +1,11 @@
+import { Op } from "sequelize";
 import AppError from "../utils/AppError.js";
 
+// --- 1. DISPATCH ENGINE (Unchanged, works perfectly) ---
 export const createDispatchInvoice = async (models, payload, userId) => {
   const { customer_id, items, fees } = payload;
-
-  // Start a Managed SQL Transaction
   return await models.sequelize.transaction(async (t) => {
-    // 1. Calculate Backend Totals (Never trust the frontend's total!)
     let subTotal = 0;
-
-    // We map the incoming items to InvoiceLine format while calculating math
     const invoiceLinesData = items.map((item) => {
       const start = new Date(item.borrow_date).getTime();
       const end = new Date(item.expected_return_date).getTime();
@@ -24,7 +21,6 @@ export const createDispatchInvoice = async (models, payload, userId) => {
           (item.locked_base_price + extraDays * item.locked_extra_daily_rate) *
           item.borrow_quantity;
       }
-
       subTotal += lineTotal;
 
       return {
@@ -45,7 +41,6 @@ export const createDispatchInvoice = async (models, payload, userId) => {
       subTotal + (fees.transport || 0) - (fees.discount || 0),
     );
 
-    // 2. Create the Master Invoice
     const newInvoice = await models.Invoice.create(
       {
         customer_id,
@@ -66,34 +61,29 @@ export const createDispatchInvoice = async (models, payload, userId) => {
           }),
         ),
         status: "Active",
-        id_card_status: 1, // Assuming 1 means ID is checked/held
+        id_card_status: 1,
       },
       { transaction: t },
     );
 
-    // 3. Attach the Invoice ID to the lines and bulk create them
     const linesWithInvoiceId = invoiceLinesData.map((line) => ({
       ...line,
       invoice_id: newInvoice.invoice_id,
     }));
     await models.InvoiceLine.bulkCreate(linesWithInvoiceId, { transaction: t });
 
-    // 4. Inventory Deduction Engine
     for (const item of items) {
       const equipment = await models.Equipment.findByPk(item.equipment_id, {
         transaction: t,
       });
-
       if (!equipment)
         throw new AppError(`Equipment ID ${item.equipment_id} not found.`, 404);
-      if (equipment.available_qty < item.borrow_quantity) {
+      if (equipment.available_qty < item.borrow_quantity)
         throw new AppError(
           `Not enough stock for ${equipment.equipment_name}.`,
           400,
         );
-      }
 
-      // Decrement available, increment rented
       await equipment.update(
         {
           available_qty: equipment.available_qty - item.borrow_quantity,
@@ -103,18 +93,15 @@ export const createDispatchInvoice = async (models, payload, userId) => {
       );
     }
 
-    // 5. Handle Advance Payments
     if (fees.advance > 0) {
       await models.Payment.create(
         {
           invoice_id: newInvoice.invoice_id,
           payment_amount: fees.advance,
-          method: "Cash", // You can add a UI dropdown for this later (Card/Transfer)
+          method: "Cash",
         },
         { transaction: t },
       );
-
-      // Deduct from Customer Deposit Wallet if they used it
       const customer = await models.Customer.findByPk(customer_id, {
         transaction: t,
       });
@@ -127,7 +114,6 @@ export const createDispatchInvoice = async (models, payload, userId) => {
       }
     }
 
-    // 6. Generate the Audit Trace
     await models.InvoiceTrace.create(
       {
         invoice_id: newInvoice.invoice_id,
@@ -140,20 +126,51 @@ export const createDispatchInvoice = async (models, payload, userId) => {
       { transaction: t },
     );
 
-    return newInvoice; // Transaction automatically commits if no errors are thrown!
+    return newInvoice;
   });
 };
+
+// --- 2. GLOBAL SEARCH ENGINE (Upgraded for POS Manage Mode) ---
 export const getAllInvoices = async (models, queryParams) => {
   const page = parseInt(queryParams.page) || 1;
   const limit = parseInt(queryParams.limit) || 20;
   const offset = (page - 1) * limit;
 
-  // We join Customer details and Payment history so the frontend can build a rich receipt
+  const whereClause = {};
+  const customerWhereClause = {};
+
+  if (queryParams.search) {
+    const searchTerm = queryParams.search;
+    const searchLike = `%${searchTerm}%`;
+
+    // If they typed a number, it might be an exact Invoice ID search
+    if (!isNaN(searchTerm)) {
+      whereClause.invoice_id = searchTerm;
+    } else {
+      // Otherwise search by client details
+      customerWhereClause[Op.or] = [
+        { first_name: { [Op.like]: searchLike } },
+        { last_name: { [Op.like]: searchLike } },
+        { phone_number: { [Op.like]: searchLike } },
+        { nic_number: { [Op.like]: searchLike } },
+        { company_name: { [Op.like]: searchLike } },
+      ];
+    }
+  }
+
+  if (queryParams.status) whereClause.status = queryParams.status;
+
   const { count, rows } = await models.Invoice.findAndCountAll({
+    where: whereClause,
     include: [
       {
         model: models.Customer,
+        where:
+          Object.keys(customerWhereClause).length > 0
+            ? customerWhereClause
+            : undefined,
         attributes: [
+          "customer_id",
           "first_name",
           "last_name",
           "company_name",
@@ -164,12 +181,18 @@ export const getAllInvoices = async (models, queryParams) => {
       },
       {
         model: models.InvoiceLine,
-        include: [{ model: models.Equipment, attributes: ["equipment_name"] }],
+        include: [
+          {
+            model: models.Equipment,
+            attributes: ["equipment_name", "is_bulk_item"],
+          },
+        ],
       },
       {
         model: models.Payment,
-        attributes: ["payment_amount", "payment_date", "method"],
+        attributes: ["payment_id", "payment_amount", "payment_date", "method"],
       },
+      { model: models.InvoiceTrace, order: [["occurred_at", "DESC"]] },
     ],
     limit,
     offset,
@@ -179,6 +202,30 @@ export const getAllInvoices = async (models, queryParams) => {
   return { totalItems: count, invoices: rows };
 };
 
+// --- 3. GET SINGLE INVOICE DETAILS ---
+export const getInvoiceById = async (models, invoiceId) => {
+  const invoice = await models.Invoice.findByPk(invoiceId, {
+    include: [
+      { model: models.Customer },
+      {
+        model: models.InvoiceLine,
+        include: [
+          {
+            model: models.Equipment,
+            attributes: ["equipment_name", "is_bulk_item"],
+          },
+        ],
+      },
+      { model: models.Payment },
+      { model: models.InvoiceTrace },
+    ],
+    order: [[models.InvoiceTrace, "occurred_at", "DESC"]],
+  });
+  if (!invoice) throw new AppError("Invoice not found", 404);
+  return invoice;
+};
+
+// --- 4. CONTINUOUS RETURN ENGINE (Upgraded for Partial Returns) ---
 export const processReturn = async (models, payload, userId) => {
   const {
     invoice_id,
@@ -197,7 +244,6 @@ export const processReturn = async (models, payload, userId) => {
 
     let totalLateFees = 0;
 
-    // 1. Process Each Returned Line Item
     for (const returnData of lines_returned) {
       const line = await models.InvoiceLine.findByPk(returnData.line_id, {
         transaction: t,
@@ -205,11 +251,11 @@ export const processReturn = async (models, payload, userId) => {
       if (!line)
         throw new AppError(`Line item ${returnData.line_id} not found.`, 404);
 
-      // Math: Calculate Late Fees based on expected vs actual dates
       const expectedDate = new Date(line.expected_return_date).getTime();
       const actualDate = new Date(returnData.actual_return_date).getTime();
-      const daysLate = Math.ceil(
-        (actualDate - expectedDate) / (1000 * 60 * 60 * 24),
+      const daysLate = Math.max(
+        0,
+        Math.ceil((actualDate - expectedDate) / (1000 * 60 * 60 * 24)),
       );
 
       let lineLateFee = 0;
@@ -219,25 +265,22 @@ export const processReturn = async (models, payload, userId) => {
         totalLateFees += lineLateFee;
       }
 
-      // Update the Line Item
       await line.update(
         {
           actual_return_date: returnData.actual_return_date,
           good_returned_qty: returnData.good_qty,
           defective_returned_qty: returnData.defective_qty,
-          line_total_amount: Number(line.line_total_amount) + lineLateFee, // Append late fee to line total
+          line_total_amount: Number(line.line_total_amount) + lineLateFee,
           line_status: "Returned",
         },
         { transaction: t },
       );
 
-      // 2. Inventory Adjustment
       const equipment = await models.Equipment.findByPk(line.equipment_id, {
         transaction: t,
       });
       const totalReturned = returnData.good_qty + returnData.defective_qty;
 
-      // Good items go back to available. Defective items do NOT go back to available.
       await equipment.update(
         {
           available_qty: equipment.available_qty + returnData.good_qty,
@@ -246,7 +289,6 @@ export const processReturn = async (models, payload, userId) => {
         { transaction: t },
       );
 
-      // If defective, automatically log it to the Defect Table
       if (returnData.defective_qty > 0) {
         await models.DefectLog.create(
           {
@@ -261,7 +303,6 @@ export const processReturn = async (models, payload, userId) => {
       }
     }
 
-    // 3. Apply Final Payments & Update Master Invoice
     const newGrandTotal = Number(invoice.total_amount) + totalLateFees;
 
     if (final_payment_amount > 0) {
@@ -275,16 +316,22 @@ export const processReturn = async (models, payload, userId) => {
       );
     }
 
+    // CHECK IF ANY ACTIVE LINES REMAIN. IF SO, KEEP INVOICE ACTIVE.
+    const activeLinesCount = await models.InvoiceLine.count({
+      where: { invoice_id, line_status: "Active" },
+      transaction: t,
+    });
+    const finalStatus = activeLinesCount === 0 ? "Completed" : "Active";
+
     await invoice.update(
       {
         total_amount: newGrandTotal,
-        status: "Completed",
+        status: finalStatus,
         id_card_status: release_id_card ? 0 : invoice.id_card_status,
       },
       { transaction: t },
     );
 
-    // 4. Release ID Card on Customer Profile
     if (release_id_card) {
       await models.Customer.update(
         { is_id_retained_currently: false },
@@ -292,19 +339,97 @@ export const processReturn = async (models, payload, userId) => {
       );
     }
 
-    // 5. Audit Trace
     await models.InvoiceTrace.create(
       {
         invoice_id,
         actor_user_id: userId,
         event_category: "SETTLEMENT",
         event_action: "RETURN_PROCESSED",
-        comments: `Return processed. Late fees added: Rs.${totalLateFees}. Final payment: Rs.${final_payment_amount}.`,
+        comments: `Return processed. Late fees: Rs.${totalLateFees}. Status: ${finalStatus}.`,
         state_payload: { lines_returned },
       },
       { transaction: t },
     );
 
     return true;
+  });
+};
+
+// --- 5. CONTINUOUS PAYMENTS & REFUNDS ---
+export const addContinuousPayment = async (
+  models,
+  invoiceId,
+  payload,
+  userId,
+) => {
+  const { amount, method, is_refund } = payload;
+  const actualAmount = is_refund ? -Math.abs(amount) : Math.abs(amount);
+
+  return await models.sequelize.transaction(async (t) => {
+    const invoice = await models.Invoice.findByPk(invoiceId, {
+      transaction: t,
+    });
+    if (!invoice) throw new AppError("Invoice not found", 404);
+
+    const payment = await models.Payment.create(
+      {
+        invoice_id: invoiceId,
+        payment_amount: actualAmount,
+        method: method || "Cash",
+      },
+      { transaction: t },
+    );
+
+    await models.InvoiceTrace.create(
+      {
+        invoice_id: invoiceId,
+        actor_user_id: userId,
+        event_category: "FINANCE",
+        event_action: is_refund ? "REFUND_ISSUED" : "PAYMENT_RECEIVED",
+        comments: `${is_refund ? "Refund" : "Payment"} of Rs.${Math.abs(actualAmount)} via ${method}.`,
+      },
+      { transaction: t },
+    );
+
+    return payment;
+  });
+};
+
+// --- 6. VAULT STATUS TOGGLE (Hold/Release ID Card dynamically) ---
+export const toggleVaultStatus = async (models, invoiceId, userId) => {
+  return await models.sequelize.transaction(async (t) => {
+    const invoice = await models.Invoice.findByPk(invoiceId, {
+      include: [models.Customer],
+      transaction: t,
+    });
+    if (!invoice) throw new AppError("Invoice not found", 404);
+
+    const customer = invoice.Customer;
+    const isCurrentlyRetained = customer.is_id_retained_currently;
+    const newStatus = !isCurrentlyRetained;
+
+    // Update the Customer's global wallet
+    await customer.update(
+      { is_id_retained_currently: newStatus },
+      { transaction: t },
+    );
+    // Update the local invoice record
+    await invoice.update(
+      { id_card_status: newStatus ? 1 : 0 },
+      { transaction: t },
+    );
+
+    await models.InvoiceTrace.create(
+      {
+        invoice_id: invoiceId,
+        actor_user_id: userId,
+        event_category: "SECURITY",
+        event_action: newStatus ? "ID_RETAINED" : "ID_RELEASED",
+        comments: `Physical ID Card was ${newStatus ? "retained in vault" : "released to customer"}.`,
+      },
+      { transaction: t },
+    );
+
+    return newStatus;
   });
 };
