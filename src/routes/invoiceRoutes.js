@@ -1,16 +1,23 @@
 import express from "express";
 import * as invoiceController from "../controllers/invoiceController.js";
-
-// 1. Import your auth middleware!
-// (Check your authMiddleware.js file to see exactly what the function is called. It might be 'protect', 'authenticate', or 'requireAuth')
 import { protect } from "../middlewares/authMiddleware.js";
 
 const router = express.Router();
 
-// 2. CRITICAL FIX: Apply the auth middleware so req.user gets populated
+// Apply the auth middleware to all invoice routes
 router.use(protect);
 
-// POST /api/invoices - Create a new dispatch invoice
+// ==========================================
+// INVOICE ENDPOINTS
+// ==========================================
+
+// 1. Fetch all historical invoices (GET /api/invoices?page=1&limit=20)
+router.get("/", invoiceController.getInvoices);
+
+// 2. Create a new dispatch invoice (POST /api/invoices)
 router.post("/", invoiceController.createInvoice);
+
+// 3. Process a return/check-in for a specific invoice (POST /api/invoices/:id/return)
+router.post("/:id/return", invoiceController.processReturnInvoice);
 
 export default router;
