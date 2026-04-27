@@ -98,10 +98,18 @@ export const initTenantModels = (tenantConnection) => {
   Invoice.hasMany(Payment, { foreignKey: "invoice_id" });
 
   // LOGS & TRACES
+  // LOGS & TRACES
   DefectLog.belongsTo(Equipment, { foreignKey: "equipment_id" });
+  Equipment.hasMany(DefectLog, { foreignKey: "equipment_id" }); // <-- NEW
+
   DefectLog.belongsTo(Invoice, { foreignKey: "reported_on_invoice_id" });
+  Invoice.hasMany(DefectLog, { foreignKey: "reported_on_invoice_id" }); // <-- NEW
+
   InvoiceTrace.belongsTo(Invoice, { foreignKey: "invoice_id" });
+  Invoice.hasMany(InvoiceTrace, { foreignKey: "invoice_id" }); // <-- CRITICAL FIX
+
   InvoiceTrace.belongsTo(User, { foreignKey: "actor_user_id" });
+  User.hasMany(InvoiceTrace, { foreignKey: "actor_user_id" }); // <-- NEW
 
   return {
     User,

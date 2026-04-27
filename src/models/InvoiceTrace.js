@@ -20,7 +20,7 @@ export default (sequelize) => {
     },
     {
       tableName: "INVOICE_TRACE",
-      timestamps: false,
+      timestamps: true,
     },
   );
   return InvoiceTrace;

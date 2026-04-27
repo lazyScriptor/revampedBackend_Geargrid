@@ -71,7 +71,6 @@ export const getAllDefectLogs = async (models, queryParams) => {
     logs: rows,
   };
 };
-
 export const resolveDefectLog = async (models, logId) => {
   const t = await models.sequelize.transaction();
   try {
@@ -85,13 +84,20 @@ export const resolveDefectLog = async (models, logId) => {
     log.resolved_date = new Date();
     await log.save({ transaction: t });
 
-    // 2. Return inventory back to available
+    // 2. Return inventory back to available (WITH ROW LOCK)
     const equipment = await models.Equipment.findByPk(log.equipment_id, {
       transaction: t,
+      lock: t.LOCK.UPDATE, // <-- CRITICAL: Prevents race conditions with POS Dispatch
     });
-    equipment.defective_qty -= log.defective_quantity;
-    equipment.available_qty += log.defective_quantity;
-    await equipment.save({ transaction: t });
+
+    // Using the 4-pillars math we set up
+    await equipment.update(
+      {
+        defective_qty: equipment.defective_qty - log.defective_quantity,
+        available_qty: equipment.available_qty + log.defective_quantity,
+      },
+      { transaction: t },
+    );
 
     await t.commit();
     return log;

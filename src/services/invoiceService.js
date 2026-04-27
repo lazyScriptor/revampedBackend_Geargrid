@@ -1,7 +1,7 @@
 import { Op } from "sequelize";
 import AppError from "../utils/AppError.js";
 
-// --- 1. DISPATCH ENGINE (Unchanged, works perfectly) ---
+// --- 1. DISPATCH ENGINE (With Row-Level Locks) ---
 export const createDispatchInvoice = async (models, payload, userId) => {
   const { customer_id, items, fees } = payload;
   return await models.sequelize.transaction(async (t) => {
@@ -72,10 +72,14 @@ export const createDispatchInvoice = async (models, payload, userId) => {
     }));
     await models.InvoiceLine.bulkCreate(linesWithInvoiceId, { transaction: t });
 
+    // --- INVENTORY DEDUCTION ---
     for (const item of items) {
+      // 1. FETCH AND LOCK THE ROW
       const equipment = await models.Equipment.findByPk(item.equipment_id, {
         transaction: t,
+        lock: t.LOCK.UPDATE, // <-- Safely locks row from race conditions
       });
+
       if (!equipment)
         throw new AppError(`Equipment ID ${item.equipment_id} not found.`, 404);
       if (equipment.available_qty < item.borrow_quantity)
@@ -84,6 +88,7 @@ export const createDispatchInvoice = async (models, payload, userId) => {
           400,
         );
 
+      // 2. APPLY THE MATH
       await equipment.update(
         {
           available_qty: equipment.available_qty - item.borrow_quantity,
@@ -130,7 +135,7 @@ export const createDispatchInvoice = async (models, payload, userId) => {
   });
 };
 
-// --- 2. GLOBAL SEARCH ENGINE (Upgraded for POS Manage Mode) ---
+// --- 2. GLOBAL SEARCH ENGINE ---
 export const getAllInvoices = async (models, queryParams) => {
   const page = parseInt(queryParams.page) || 1;
   const limit = parseInt(queryParams.limit) || 20;
@@ -143,11 +148,9 @@ export const getAllInvoices = async (models, queryParams) => {
     const searchTerm = queryParams.search;
     const searchLike = `%${searchTerm}%`;
 
-    // If they typed a number, it might be an exact Invoice ID search
     if (!isNaN(searchTerm)) {
       whereClause.invoice_id = searchTerm;
     } else {
-      // Otherwise search by client details
       customerWhereClause[Op.or] = [
         { first_name: { [Op.like]: searchLike } },
         { last_name: { [Op.like]: searchLike } },
@@ -192,7 +195,7 @@ export const getAllInvoices = async (models, queryParams) => {
         model: models.Payment,
         attributes: ["payment_id", "payment_amount", "payment_date", "method"],
       },
-      { model: models.InvoiceTrace, order: [["occurred_at", "DESC"]] },
+      { model: models.InvoiceTrace },
     ],
     limit,
     offset,
@@ -219,13 +222,15 @@ export const getInvoiceById = async (models, invoiceId) => {
       { model: models.Payment },
       { model: models.InvoiceTrace },
     ],
-    order: [[models.InvoiceTrace, "occurred_at", "DESC"]],
+    order: [[models.InvoiceTrace, "createdAt", "DESC"]],
   });
+  console.log("Service", invoice);
+
   if (!invoice) throw new AppError("Invoice not found", 404);
   return invoice;
 };
 
-// --- 4. CONTINUOUS RETURN ENGINE (Upgraded for Partial Returns) ---
+// --- 4. CONTINUOUS RETURN ENGINE (With Row-Level Locks) ---
 export const processReturn = async (models, payload, userId) => {
   const {
     invoice_id,
@@ -276,27 +281,38 @@ export const processReturn = async (models, payload, userId) => {
         { transaction: t },
       );
 
+      // --- INVENTORY RETURN & ROUTING ---
+
+      // 1. FETCH AND LOCK ROW
       const equipment = await models.Equipment.findByPk(line.equipment_id, {
         transaction: t,
+        lock: t.LOCK.UPDATE, // <-- Safely locks row
       });
-      const totalReturned = returnData.good_qty + returnData.defective_qty;
 
+      const goodQty = returnData.good_qty;
+      const badQty = returnData.defective_qty;
+      const totalReturned = goodQty + badQty;
+
+      // 2. ROUTE THE QUANTITIES
       await equipment.update(
         {
-          available_qty: equipment.available_qty + returnData.good_qty,
-          rented_qty: equipment.rented_qty - totalReturned,
+          rented_qty: equipment.rented_qty - totalReturned, // Subtract from rented
+          available_qty: equipment.available_qty + goodQty, // Add back to shelf
+          defective_qty: equipment.defective_qty + badQty, // Add to repair queue
         },
         { transaction: t },
       );
 
-      if (returnData.defective_qty > 0) {
+      // 3. LOG DEFECTS IF NEEDED (Updated for your exact DefectLog schema)
+      if (badQty > 0) {
         await models.DefectLog.create(
           {
             equipment_id: equipment.equipment_id,
             reported_on_invoice_id: invoice_id,
-            defective_qty: returnData.defective_qty,
-            status: "Pending Repair",
-            reported_by: userId,
+            defective_quantity: badQty, // Matches your schema
+            repair_status: "Reported", // Matches your schema
+            defect_description: `Automatically logged during return for Invoice INV-${invoice_id}. Needs inspection.`, // Required by your schema
+            reported_date: new Date(),
           },
           { transaction: t },
         );
