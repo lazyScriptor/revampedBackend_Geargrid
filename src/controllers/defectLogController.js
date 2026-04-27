@@ -26,27 +26,25 @@ export const markResolved = catchAsync(async (req, res, next) => {
     req.params.id,
     req.body.quantity,
   );
-  res
-    .status(200)
-    .json({
-      status: "success",
-      message: `Successfully repaired ${req.body.quantity} items.`,
-      data: { log },
-    });
+  res.status(200).json({
+    status: "success",
+    message: `Successfully repaired ${req.body.quantity} items.`,
+    data: { log },
+  });
 });
 // ... existing imports
-
 export const assignTech = catchAsync(async (req, res, next) => {
   const log = await defectLogService.assignTechnician(
     getModels(req),
     req.params.id,
     req.body.technician_id,
+    req.body.quantity, // <-- Pass the quantity to the splitter
   );
   res
     .status(200)
     .json({
       status: "success",
-      message: "Technician assigned.",
+      message: "Technician assigned successfully.",
       data: { log },
     });
 });

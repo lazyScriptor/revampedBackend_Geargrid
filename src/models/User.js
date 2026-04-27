@@ -1,7 +1,5 @@
 import { DataTypes } from "sequelize";
-// ❌ REMOVE THIS LINE: import sequelize from '../config/database.js';
 
-// ✅ Wrap the definition in an exported function
 export default (sequelize) => {
   const User = sequelize.define(
     "User",
@@ -18,16 +16,15 @@ export default (sequelize) => {
       first_name: { type: DataTypes.STRING(100), allowNull: false },
       last_name: { type: DataTypes.STRING(100), allowNull: false },
       nic_no: { type: DataTypes.STRING(20), allowNull: false, unique: true },
-      phone_number: { type: DataTypes.STRING(50) },
-      address_line1: { type: DataTypes.STRING(255) },
-      address_line2: { type: DataTypes.STRING(255) },
+      phone_number: { type: DataTypes.STRING(50), allowNull: true },
+      address_line1: { type: DataTypes.STRING(255), allowNull: true },
+      address_line2: { type: DataTypes.STRING(255), allowNull: true },
       is_active: { type: DataTypes.BOOLEAN, defaultValue: true },
     },
     {
       tableName: "USERS",
-      timestamps: false,
+      timestamps: true, // Critical: Matches your SQL dump
     },
   );
-
   return User;
 };

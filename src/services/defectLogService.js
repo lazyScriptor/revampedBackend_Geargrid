@@ -61,26 +61,67 @@ export const getAllDefectLogs = async (models, queryParams) => {
   return { totalItems: count, logs: rows };
 };
 
-// --- 3. ASSIGN TECHNICIAN ---
-// --- 3. ASSIGN TECHNICIAN (Bulletproof) ---
-export const assignTechnician = async (models, logId, technicianId) => {
-  const log = await models.DefectLog.findByPk(logId);
-  if (!log) throw new AppError("Defect log not found.", 404);
+// --- 3. ASSIGN TECHNICIAN (With Enterprise Ticket Splitting) ---
+export const assignTechnician = async (
+  models,
+  logId,
+  technicianId,
+  assignQtyParam,
+) => {
+  return await models.sequelize.transaction(async (t) => {
+    const log = await models.DefectLog.findByPk(logId, { transaction: t });
+    if (!log) throw new AppError("Defect log not found.", 404);
 
-  // Assign the user
-  log.assigned_technician_id = technicianId;
+    const assignQty = parseInt(assignQtyParam);
+    if (!assignQty || assignQty <= 0 || assignQty > log.pending_quantity) {
+      throw new AppError(
+        `Invalid quantity. You can assign between 1 and ${log.pending_quantity} items.`,
+        400,
+      );
+    }
 
-  // Catch BOTH the new enterprise status AND the old legacy status!
-  if (
-    log.repair_status === "Pending Assignment" ||
-    log.repair_status === "Reported" ||
-    log.repair_status === "Pending"
-  ) {
+    // CASE 1: Full Assignment (Assigning everything left on the ticket)
+    if (assignQty === log.pending_quantity) {
+      log.assigned_technician_id = technicianId;
+      if (
+        log.repair_status === "Pending Assignment" ||
+        log.repair_status === "Reported" ||
+        log.repair_status === "Pending"
+      ) {
+        log.repair_status = "In Repair";
+      }
+      await log.save({ transaction: t });
+      return log;
+    }
+
+    // CASE 2: Partial Assignment (Ticket Splitting)
+    const remainingQty = log.pending_quantity - assignQty;
+
+    // 2a. Clone a NEW ticket for the items staying in the Queue
+    await models.DefectLog.create(
+      {
+        equipment_id: log.equipment_id,
+        reported_on_invoice_id: log.reported_on_invoice_id,
+        defective_quantity: remainingQty,
+        pending_quantity: remainingQty,
+        repaired_quantity: 0,
+        defect_description: log.defect_description + " (Split Ticket)",
+        repair_status: "Pending Assignment",
+        reported_date: log.reported_date,
+        assigned_technician_id: null, // Stays in the queue
+      },
+      { transaction: t },
+    );
+
+    // 2b. Update the CURRENT ticket to represent only the assigned items
+    log.defective_quantity = assignQty;
+    log.pending_quantity = assignQty;
+    log.assigned_technician_id = technicianId;
     log.repair_status = "In Repair";
-  }
+    await log.save({ transaction: t });
 
-  await log.save();
-  return log;
+    return log;
+  });
 };
 
 // --- 4. PARTIAL / FULL RESOLUTION ENGINE ---
