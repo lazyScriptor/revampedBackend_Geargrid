@@ -20,9 +20,33 @@ export const getLogs = catchAsync(async (req, res, next) => {
 });
 
 export const markResolved = catchAsync(async (req, res, next) => {
+  // Now accepts a "quantity" from the frontend modal
   const log = await defectLogService.resolveDefectLog(
     getModels(req),
     req.params.id,
+    req.body.quantity,
   );
-  res.status(200).json({ status: "success", data: { log } });
+  res
+    .status(200)
+    .json({
+      status: "success",
+      message: `Successfully repaired ${req.body.quantity} items.`,
+      data: { log },
+    });
+});
+// ... existing imports
+
+export const assignTech = catchAsync(async (req, res, next) => {
+  const log = await defectLogService.assignTechnician(
+    getModels(req),
+    req.params.id,
+    req.body.technician_id,
+  );
+  res
+    .status(200)
+    .json({
+      status: "success",
+      message: "Technician assigned.",
+      data: { log },
+    });
 });

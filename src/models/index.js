@@ -105,6 +105,13 @@ export const initTenantModels = (tenantConnection) => {
   DefectLog.belongsTo(Invoice, { foreignKey: "reported_on_invoice_id" });
   Invoice.hasMany(DefectLog, { foreignKey: "reported_on_invoice_id" }); // <-- NEW
 
+  // Add this near your other DefectLog relations
+  DefectLog.belongsTo(User, {
+    as: "Technician",
+    foreignKey: "assigned_technician_id",
+  });
+  User.hasMany(DefectLog, { foreignKey: "assigned_technician_id" });
+
   InvoiceTrace.belongsTo(Invoice, { foreignKey: "invoice_id" });
   Invoice.hasMany(InvoiceTrace, { foreignKey: "invoice_id" }); // <-- CRITICAL FIX
 

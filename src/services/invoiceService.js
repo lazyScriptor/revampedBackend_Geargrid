@@ -303,15 +303,20 @@ export const processReturn = async (models, payload, userId) => {
         { transaction: t },
       );
 
-      // 3. LOG DEFECTS IF NEEDED (Updated for your exact DefectLog schema)
+      // 3. LOG DEFECTS IF NEEDED (Enterprise Schema Update)
       if (badQty > 0) {
         await models.DefectLog.create(
           {
             equipment_id: equipment.equipment_id,
             reported_on_invoice_id: invoice_id,
-            defective_quantity: badQty, // Matches your schema
-            repair_status: "Reported", // Matches your schema
-            defect_description: `Automatically logged during return for Invoice INV-${invoice_id}. Needs inspection.`, // Required by your schema
+
+            // The Enterprise Math Fields
+            defective_quantity: badQty,
+            pending_quantity: badQty, // <-- THE CRITICAL FIX
+            repaired_quantity: 0, // <-- Safety initialization
+
+            repair_status: "Pending Assignment", // Matches the new workflow
+            defect_description: `Automatically logged during return for Invoice INV-${invoice_id}. Needs inspection.`,
             reported_date: new Date(),
           },
           { transaction: t },
