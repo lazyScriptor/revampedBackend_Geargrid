@@ -16,5 +16,6 @@ router.get("/:id", invoiceController.getInvoiceById); // <-- NEW
 router.post("/:id/return", invoiceController.processReturnInvoice);
 router.post("/:id/payments", invoiceController.addPayment); // <-- NEW
 router.patch("/:id/vault", invoiceController.toggleVault); // <-- NEW
+router.patch("/:id/fees", invoiceController.updateFees);
 
-export default router; 
+export default router;

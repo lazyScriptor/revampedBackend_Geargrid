@@ -100,3 +100,17 @@ export const toggleVault = catchAsync(async (req, res, next) => {
     data: { is_id_retained_currently: newStatus },
   });
 });
+export const updateFees = catchAsync(async (req, res, next) => {
+  const userId = req.user?.id || 1;
+  const invoice = await invoiceService.updateInvoiceFees(
+    getModels(req),
+    req.params.id,
+    req.body,
+    userId,
+  );
+  res.status(200).json({
+    status: "success",
+    message: "Invoice fees updated successfully.",
+    data: { invoice },
+  });
+});

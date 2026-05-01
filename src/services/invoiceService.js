@@ -487,3 +487,52 @@ export const toggleVaultStatus = async (models, invoiceId, userId) => {
     return newStatus;
   });
 };
+// --- 7. DYNAMIC FEE ADJUSTMENT ---
+export const updateInvoiceFees = async (models, invoiceId, payload, userId) => {
+  return await models.sequelize.transaction(async (t) => {
+    const invoice = await models.Invoice.findByPk(invoiceId, {
+      transaction: t,
+    });
+    if (!invoice) throw new AppError("Invoice not found", 404);
+
+    const oldTransport = Number(invoice.transport_fee);
+    const oldDiscount = Number(invoice.discount_amount);
+    const newTransport = Number(payload.transport_fee) || 0;
+    const newDiscount = Number(payload.discount_amount) || 0;
+
+    // Recalculate the Grand Total with the new fees
+    const newTotal =
+      Number(invoice.total_amount) -
+      oldTransport +
+      oldDiscount +
+      newTransport -
+      newDiscount;
+
+    await invoice.update(
+      {
+        transport_fee: newTransport,
+        discount_amount: newDiscount,
+        total_amount: newTotal,
+      },
+      { transaction: t },
+    );
+
+    // Leave a paper trail!
+    await models.InvoiceTrace.create(
+      {
+        invoice_id: invoiceId,
+        actor_user_id: userId,
+        event_category: "FINANCE",
+        event_action: "FEES_UPDATED",
+        comments: `Fees adjusted. Transport: Rs.${newTransport}, Discount: Rs.${newDiscount}.`,
+        state_payload: {
+          transport_fee: newTransport,
+          discount_amount: newDiscount,
+        },
+      },
+      { transaction: t },
+    );
+
+    return invoice;
+  });
+};
