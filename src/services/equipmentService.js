@@ -2,25 +2,50 @@ import { Op } from "sequelize";
 import AppError from "../utils/AppError.js";
 
 export const createEquipment = async (models, data) => {
-  // 1. Data Integrity Checks: Ensure the linked Warehouse and Category actually exist
-  const category = await models.EquipmentCategory.findByPk(data.category_id);
-  if (!category) throw new AppError("Invalid category ID provided.", 404);
+  // 1. Force strict defaults for fresh equipment
+  const totalOwned = parseInt(data.total_owned_qty) || 1;
 
-  const warehouse = await models.Warehouse.findByPk(data.warehouse_id);
-  if (!warehouse) throw new AppError("Invalid warehouse ID provided.", 404);
+  const safeData = {
+    ...data,
+    total_owned_qty: totalOwned,
+    rented_qty: 0, // Always 0 on creation
+    defective_qty: 0, // Always 0 on creation
+    available_qty: totalOwned, // Available strictly equals Total
+  };
 
-  // 2. Uniqueness Check: Ensure serial number isn't already registered
-  const existingSerial = await models.Equipment.findOne({
-    where: { serial_number: data.serial_number },
-  });
-  if (existingSerial)
-    throw new AppError(
-      "Equipment with this serial number already exists.",
-      400,
-    );
+  return await models.Equipment.create(safeData);
+};
 
-  // 3. Create the item
-  return await models.Equipment.create(data);
+export const updateEquipment = async (models, id, data) => {
+  const equipment = await models.Equipment.findByPk(id);
+  if (!equipment) throw new AppError("Equipment not found.", 404);
+
+  // 1. Strip out fields that should NEVER be edited from this form
+  // (These are strictly managed by the POS Invoice system and Maintenance Defect Logs)
+  delete data.rented_qty;
+  delete data.defective_qty;
+  delete data.available_qty;
+
+  // 2. If they are changing the Total Owned Qty, safely recalculate Available Qty
+  if (data.total_owned_qty !== undefined) {
+    const newTotal = parseInt(data.total_owned_qty);
+
+    // Safety check: You can't say you own 5 drills if 6 are currently rented out!
+    if (newTotal < equipment.rented_qty + equipment.defective_qty) {
+      throw new AppError(
+        `Cannot lower total to ${newTotal}. There are already ${equipment.rented_qty} rented and ${equipment.defective_qty} defective.`,
+        400,
+      );
+    }
+
+    data.total_owned_qty = newTotal;
+    // Strictly enforce the golden formula
+    data.available_qty =
+      newTotal - equipment.rented_qty - equipment.defective_qty;
+  }
+
+  await equipment.update(data);
+  return equipment;
 };
 
 export const getAllEquipment = async (models, queryParams) => {
@@ -81,25 +106,6 @@ export const getEquipmentById = async (models, equipmentId) => {
   });
 
   if (!equipment) throw new AppError("Equipment not found.", 404);
-  return equipment;
-};
-
-export const updateEquipment = async (models, equipmentId, updateData) => {
-  const equipment = await getEquipmentById(models, equipmentId); // Re-use the fetch logic
-
-  // If they are trying to change the serial number, ensure it doesn't conflict with another item
-  if (
-    updateData.serial_number &&
-    updateData.serial_number !== equipment.serial_number
-  ) {
-    const existing = await models.Equipment.findOne({
-      where: { serial_number: updateData.serial_number },
-    });
-    if (existing)
-      throw new AppError("Another item already uses this serial number.", 400);
-  }
-
-  await equipment.update(updateData);
   return equipment;
 };
 

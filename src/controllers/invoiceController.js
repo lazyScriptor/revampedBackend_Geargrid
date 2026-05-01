@@ -58,12 +58,10 @@ export const processReturnInvoice = catchAsync(async (req, res, next) => {
 });
 
 export const getInvoiceById = catchAsync(async (req, res, next) => {
-  console.log("first")
   const invoice = await invoiceService.getInvoiceById(
     getModels(req),
     req.params.id,
   );
-  console.log("This is the invoice",invoice)
   res.status(200).json({
     status: "success",
     data: { invoice },
