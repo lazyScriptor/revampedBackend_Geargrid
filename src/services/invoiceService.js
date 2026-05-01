@@ -4,8 +4,14 @@ import AppError from "../utils/AppError.js";
 // --- 1. DISPATCH ENGINE (With Row-Level Locks) ---
 export const createDispatchInvoice = async (models, payload, userId) => {
   const { customer_id, items, fees } = payload;
+
   return await models.sequelize.transaction(async (t) => {
     let subTotal = 0;
+
+    // Validate basics
+    if (!items || items.length === 0)
+      throw new AppError("Invoice must contain at least one item.", 400);
+
     const invoiceLinesData = items.map((item) => {
       const start = new Date(item.borrow_date).getTime();
       const end = new Date(item.expected_return_date).getTime();
@@ -70,23 +76,30 @@ export const createDispatchInvoice = async (models, payload, userId) => {
       ...line,
       invoice_id: newInvoice.invoice_id,
     }));
+
     await models.InvoiceLine.bulkCreate(linesWithInvoiceId, { transaction: t });
 
-    // --- INVENTORY DEDUCTION ---
+    // --- STRICT INVENTORY DEDUCTION ---
     for (const item of items) {
+      if (item.borrow_quantity <= 0)
+        throw new AppError("Borrow quantity must be at least 1.", 400);
+
       // 1. FETCH AND LOCK THE ROW
       const equipment = await models.Equipment.findByPk(item.equipment_id, {
         transaction: t,
-        lock: t.LOCK.UPDATE, // <-- Safely locks row from race conditions
+        lock: t.LOCK.UPDATE, // Safely locks row from race conditions
       });
 
       if (!equipment)
         throw new AppError(`Equipment ID ${item.equipment_id} not found.`, 404);
-      if (equipment.available_qty < item.borrow_quantity)
+
+      // Strict validation: Does the math hold up?
+      if (equipment.available_qty < item.borrow_quantity) {
         throw new AppError(
-          `Not enough stock for ${equipment.equipment_name}.`,
+          `Not enough stock for ${equipment.equipment_name}. Only ${equipment.available_qty} available.`,
           400,
         );
+      }
 
       // 2. APPLY THE MATH
       await equipment.update(
@@ -107,6 +120,7 @@ export const createDispatchInvoice = async (models, payload, userId) => {
         },
         { transaction: t },
       );
+
       const customer = await models.Customer.findByPk(customer_id, {
         transaction: t,
       });
@@ -224,13 +238,12 @@ export const getInvoiceById = async (models, invoiceId) => {
     ],
     order: [[models.InvoiceTrace, "createdAt", "DESC"]],
   });
-  console.log("Service", invoice);
 
   if (!invoice) throw new AppError("Invoice not found", 404);
   return invoice;
 };
 
-// --- 4. CONTINUOUS RETURN ENGINE (With Row-Level Locks) ---
+// --- 4. CONTINUOUS RETURN ENGINE (Partial Return Logic Upgraded) ---
 export const processReturn = async (models, payload, userId) => {
   const {
     invoice_id,
@@ -250,12 +263,34 @@ export const processReturn = async (models, payload, userId) => {
     let totalLateFees = 0;
 
     for (const returnData of lines_returned) {
+      // 1. Lock the specific invoice line
       const line = await models.InvoiceLine.findByPk(returnData.line_id, {
         transaction: t,
+        lock: t.LOCK.UPDATE,
       });
       if (!line)
         throw new AppError(`Line item ${returnData.line_id} not found.`, 404);
 
+      const goodQty = parseInt(returnData.good_qty) || 0;
+      const badQty = parseInt(returnData.defective_qty) || 0;
+      const totalReturnedNow = goodQty + badQty;
+
+      // Skip processing if they aren't returning anything for this specific line today
+      if (totalReturnedNow <= 0) continue;
+
+      // 2. Validate Partial Returns (Do not let them return more than they owe)
+      const alreadyReturned =
+        (line.good_returned_qty || 0) + (line.defective_returned_qty || 0);
+      const remainingToReturn = line.borrow_quantity - alreadyReturned;
+
+      if (totalReturnedNow > remainingToReturn) {
+        throw new AppError(
+          `Invalid Return: Line ${line.line_id} only has ${remainingToReturn} items left out on rent. You tried to return ${totalReturnedNow}.`,
+          400,
+        );
+      }
+
+      // 3. Late Fee Math (Only applies to the items being physically returned TODAY)
       const expectedDate = new Date(line.expected_return_date).getTime();
       const actualDate = new Date(returnData.actual_return_date).getTime();
       const daysLate = Math.max(
@@ -266,56 +301,55 @@ export const processReturn = async (models, payload, userId) => {
       let lineLateFee = 0;
       if (daysLate > 0) {
         lineLateFee =
-          daysLate * line.locked_extra_daily_rate * returnData.returned_qty;
+          daysLate * line.locked_extra_daily_rate * totalReturnedNow;
         totalLateFees += lineLateFee;
       }
+
+      // 4. Update the Line Item Stats cumulatively
+      const newGoodTotal = line.good_returned_qty + goodQty;
+      const newBadTotal = line.defective_returned_qty + badQty;
+      const newGrandTotalReturned = newGoodTotal + newBadTotal;
+
+      // If they returned everything, close the line. If not, keep it "Active"
+      const newLineStatus =
+        newGrandTotalReturned >= line.borrow_quantity ? "Returned" : "Active";
 
       await line.update(
         {
           actual_return_date: returnData.actual_return_date,
-          good_returned_qty: returnData.good_qty,
-          defective_returned_qty: returnData.defective_qty,
+          good_returned_qty: newGoodTotal,
+          defective_returned_qty: newBadTotal,
           line_total_amount: Number(line.line_total_amount) + lineLateFee,
-          line_status: "Returned",
+          line_status: newLineStatus,
         },
         { transaction: t },
       );
 
       // --- INVENTORY RETURN & ROUTING ---
-
-      // 1. FETCH AND LOCK ROW
       const equipment = await models.Equipment.findByPk(line.equipment_id, {
         transaction: t,
-        lock: t.LOCK.UPDATE, // <-- Safely locks row
+        lock: t.LOCK.UPDATE,
       });
 
-      const goodQty = returnData.good_qty;
-      const badQty = returnData.defective_qty;
-      const totalReturned = goodQty + badQty;
-
-      // 2. ROUTE THE QUANTITIES
       await equipment.update(
         {
-          rented_qty: equipment.rented_qty - totalReturned, // Subtract from rented
-          available_qty: equipment.available_qty + goodQty, // Add back to shelf
-          defective_qty: equipment.defective_qty + badQty, // Add to repair queue
+          rented_qty: equipment.rented_qty - totalReturnedNow,
+          available_qty: equipment.available_qty + goodQty,
+          defective_qty: equipment.defective_qty + badQty,
         },
         { transaction: t },
       );
 
-      // 3. LOG DEFECTS IF NEEDED (Enterprise Schema Update)
+      // --- DEFECT WORKFLOW LOGGING ---
       if (badQty > 0) {
         await models.DefectLog.create(
           {
             equipment_id: equipment.equipment_id,
             reported_on_invoice_id: invoice_id,
-
-            // The Enterprise Math Fields
             defective_quantity: badQty,
-            pending_quantity: badQty, // <-- THE CRITICAL FIX
-            repaired_quantity: 0, // <-- Safety initialization
-
-            repair_status: "Pending Assignment", // Matches the new workflow
+            pending_quantity: badQty,
+            repaired_quantity: 0,
+            repair_status: "Pending Assignment",
             defect_description: `Automatically logged during return for Invoice INV-${invoice_id}. Needs inspection.`,
             reported_date: new Date(),
           },
@@ -324,6 +358,7 @@ export const processReturn = async (models, payload, userId) => {
       }
     }
 
+    // 5. Settle Finance and Master Invoice Status
     const newGrandTotal = Number(invoice.total_amount) + totalLateFees;
 
     if (final_payment_amount > 0) {
@@ -337,7 +372,7 @@ export const processReturn = async (models, payload, userId) => {
       );
     }
 
-    // CHECK IF ANY ACTIVE LINES REMAIN. IF SO, KEEP INVOICE ACTIVE.
+    // If ANY line item is still "Active" (partially returned), the Invoice stays "Active"
     const activeLinesCount = await models.InvoiceLine.count({
       where: { invoice_id, line_status: "Active" },
       transaction: t,
@@ -366,7 +401,7 @@ export const processReturn = async (models, payload, userId) => {
         actor_user_id: userId,
         event_category: "SETTLEMENT",
         event_action: "RETURN_PROCESSED",
-        comments: `Return processed. Late fees: Rs.${totalLateFees}. Status: ${finalStatus}.`,
+        comments: `Handover processed. Late fees: Rs.${totalLateFees}. Status: ${finalStatus}.`,
         state_payload: { lines_returned },
       },
       { transaction: t },
@@ -416,7 +451,7 @@ export const addContinuousPayment = async (
   });
 };
 
-// --- 6. VAULT STATUS TOGGLE (Hold/Release ID Card dynamically) ---
+// --- 6. VAULT STATUS TOGGLE ---
 export const toggleVaultStatus = async (models, invoiceId, userId) => {
   return await models.sequelize.transaction(async (t) => {
     const invoice = await models.Invoice.findByPk(invoiceId, {
@@ -429,12 +464,10 @@ export const toggleVaultStatus = async (models, invoiceId, userId) => {
     const isCurrentlyRetained = customer.is_id_retained_currently;
     const newStatus = !isCurrentlyRetained;
 
-    // Update the Customer's global wallet
     await customer.update(
       { is_id_retained_currently: newStatus },
       { transaction: t },
     );
-    // Update the local invoice record
     await invoice.update(
       { id_card_status: newStatus ? 1 : 0 },
       { transaction: t },
