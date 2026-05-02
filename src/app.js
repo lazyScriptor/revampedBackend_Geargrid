@@ -15,6 +15,8 @@ import bulkEquipmentRoutes from "./routes/bulkEquipmentRoutes.js";
 import invoiceRoutes from "./routes/invoiceRoutes.js";
 import errorHandler from "./middlewares/errorHandler.js";
 import AppError from "./utils/AppError.js";
+import bulkCustomerRoutes from "./routes/bulkCustomerRoutes.js";
+import bulkInvoiceRoutes from "./routes/bulkInvoiceRoutes.js";
 
 const app = express();
 
@@ -39,8 +41,10 @@ app.use("/api/equipment", equipmentRoutes);
 app.use("/api/customers", customerRoutes);
 app.use("/api/config", tenantConfigRoutes);
 app.use("/api/defects", defectLogRoutes);
-app.use("/api/equipment/bulk", bulkEquipmentRoutes);
 app.use('/api/invoices', invoiceRoutes);
+app.use("/api/equipment/bulk", bulkEquipmentRoutes);
+app.use("/api/customers/bulk", bulkCustomerRoutes); // NEW
+app.use("/api/invoices/bulk", bulkInvoiceRoutes);   // NEW
 
 app.use((req, res, next) => {
   next(new AppError(`Can't find ${req.originalUrl} on this server!`, 404));

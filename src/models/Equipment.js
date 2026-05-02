@@ -13,7 +13,12 @@ export default (sequelize) => {
       warehouse_id: { type: DataTypes.INTEGER, allowNull: false },
       is_bulk_item: { type: DataTypes.BOOLEAN, defaultValue: false },
       equipment_name: { type: DataTypes.STRING(255), allowNull: false },
-      serial_number: { type: DataTypes.STRING(100), allowNull: true },
+      // Inside src/models/Equipment.js
+      serial_number: {
+        type: DataTypes.STRING(100),
+        allowNull: true,
+        unique: true, // <--- ADD THIS LINE
+      },
       total_owned_qty: {
         type: DataTypes.INTEGER,
         allowNull: false,
