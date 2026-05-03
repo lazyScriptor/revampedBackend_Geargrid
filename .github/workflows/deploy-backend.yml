@@ -1,0 +1,43 @@
+name: CI/CD Backend Deployment
+
+on:
+  push:
+    branches: [ main ] # Triggers when you push to main
+
+jobs:
+  deploy-backend:
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true # Future-proofing the Node version!
+
+    steps:
+      - name: 1. Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 2. Sync files to Droplet (Safely)
+        uses: Burnett01/rsync-deployments@7.0.0
+        with:
+          # CRITICAL: We exclude node_modules, .env, and .git so rsync doesn't delete them from your server!
+          switches: -avzr --delete --exclude=node_modules --exclude=.env --exclude=.git
+          path: ./ # Syncs the whole backend folder
+          remote_path: /var/www/rental-app/backend # Destination on your server
+          remote_host: ${{ secrets.REMOTE_HOST }}
+          remote_user: ${{ secrets.REMOTE_USER }}
+          remote_key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: 3. Install Dependencies and Restart PM2
+        # This action logs into your server to run terminal commands
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.REMOTE_HOST }}
+          username: ${{ secrets.REMOTE_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            # 1. Go to the backend folder
+            cd /var/www/rental-app/backend
+            
+            # 2. Install any new npm packages (ignoring dev dependencies)
+            npm install --omit=dev
+            
+            # 3. Restart the live server seamlessly
+            pm2 restart rental-api
