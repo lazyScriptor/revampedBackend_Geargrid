@@ -61,9 +61,9 @@ const startServer = async () => {
       console.log(`Revamped Production Backend is running on port ${PORT}`);
     });
   } catch (error) {
-    console.error("❌Critical Startup Error:", error);
+    console.error(" Critical Startup Error:", error);
     process.exit(1); // Stop the server if the master DB is down
-  }
-};
+  } // <--- Added closing catch brace
+}; // <--- Added closing function brace
 
 startServer();
