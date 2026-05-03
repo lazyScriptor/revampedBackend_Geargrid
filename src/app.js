@@ -27,6 +27,7 @@ app.use(
       "http://165.232.160.22",
       "https://165.232.160.22",
       "http://geargrid.live",
+      "http://www.geargrid.live",
       "https://geargrid.live",
     ],
     credentials: true,
