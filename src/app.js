@@ -22,7 +22,13 @@ const app = express();
 
 app.use(
   cors({
-    origin: ["http://localhost:5173", "http://165.232.160.22"],
+    origin: [
+      "http://localhost:5173",
+      "http://165.232.160.22",
+      "https://165.232.160.22",
+      "http://geargrid.live",
+      "https://geargrid.live",
+    ],
     credentials: true,
   }),
 );
