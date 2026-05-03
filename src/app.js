@@ -24,11 +24,8 @@ app.use(
   cors({
     origin: [
       "http://localhost:5173",
-      "http://165.232.160.22",
-      "https://165.232.160.22",
-      "http://geargrid.live",
-      "http://www.geargrid.live",
       "https://geargrid.live",
+      "https://www.geargrid.live",
     ],
     credentials: true,
   }),
