@@ -27,6 +27,7 @@ app.use(
       "http://localhost:5173",
       "https://geargrid.live",
       "https://www.geargrid.live",
+      "https://app.geargrid.live", // <--- ADD THIS LINE
     ],
     credentials: true,
   }),
@@ -52,7 +53,7 @@ app.use("/api/invoices", invoiceRoutes);
 app.use("/api/equipment/bulk", bulkEquipmentRoutes);
 app.use("/api/customers/bulk", bulkCustomerRoutes); // NEW
 app.use("/api/invoices/bulk", bulkInvoiceRoutes); // NEW
-app.use('/api/contact', contactRoutes);
+app.use("/api/contact", contactRoutes);
 
 app.use((req, res, next) => {
   next(new AppError(`Can't find ${req.originalUrl} on this server!`, 404));
