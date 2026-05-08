@@ -25,6 +25,7 @@ app.use(
   cors({
     origin: [
       "http://localhost:5173",
+      "http://localhost:5174",
       "https://geargrid.live",
       "https://www.geargrid.live",
       "https://app.geargrid.live", // <--- ADD THIS LINE
