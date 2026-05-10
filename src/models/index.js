@@ -11,6 +11,7 @@ import PaymentFactory from "./Payment.js";
 import DefectLogFactory from "./DefectLog.js";
 import InvoiceTraceFactory from "./InvoiceTrace.js";
 import TenantConfigFactory from "./TenantConfig.js";
+import ExpenseFactory from "./Expense.js";
 
 export const initTenantModels = (tenantConnection) => {
   const User = UserFactory(tenantConnection);
@@ -26,6 +27,7 @@ export const initTenantModels = (tenantConnection) => {
   const DefectLog = DefectLogFactory(tenantConnection);
   const InvoiceTrace = InvoiceTraceFactory(tenantConnection);
   const TenantConfig = TenantConfigFactory(tenantConnection);
+  const Expense = ExpenseFactory(tenantConnection);
 
   // ==========================================
   // AUTH & USERS
@@ -118,6 +120,12 @@ export const initTenantModels = (tenantConnection) => {
   InvoiceTrace.belongsTo(User, { foreignKey: "actor_user_id" });
   User.hasMany(InvoiceTrace, { foreignKey: "actor_user_id" }); // <-- NEW
 
+  // EXPENSES
+  Expense.belongsTo(User, { foreignKey: "recorded_by_user_id" });
+  User.hasMany(Expense, { foreignKey: "recorded_by_user_id" });
+  Expense.belongsTo(Warehouse, { foreignKey: "warehouse_id" });
+  Warehouse.hasMany(Expense, { foreignKey: "warehouse_id" });
+
   return {
     User,
     Role,
@@ -132,6 +140,7 @@ export const initTenantModels = (tenantConnection) => {
     DefectLog,
     InvoiceTrace,
     TenantConfig,
+    Expense,
     sequelize: tenantConnection,
   };
 };

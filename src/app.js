@@ -18,6 +18,8 @@ import errorHandler from "./middlewares/errorHandler.js";
 import AppError from "./utils/AppError.js";
 import bulkCustomerRoutes from "./routes/bulkCustomerRoutes.js";
 import bulkInvoiceRoutes from "./routes/bulkInvoiceRoutes.js";
+import reportRoutes from "./routes/reportRoutes.js";
+import expenseRoutes from "./routes/expenseRoutes.js";
 
 const app = express();
 
@@ -55,6 +57,8 @@ app.use("/api/equipment/bulk", bulkEquipmentRoutes);
 app.use("/api/customers/bulk", bulkCustomerRoutes); // NEW
 app.use("/api/invoices/bulk", bulkInvoiceRoutes); // NEW
 app.use("/api/contact", contactRoutes);
+app.use("/api/reports", reportRoutes);
+app.use("/api/expenses", expenseRoutes);
 
 app.use((req, res, next) => {
   next(new AppError(`Can't find ${req.originalUrl} on this server!`, 404));

@@ -24,3 +24,25 @@ export const protect = (req, res, next) => {
     );
   }
 };
+
+// Role-based access control middleware factory
+// Usage: router.use(protect, restrictTo('Admin', 'Manager'))
+export const restrictTo = (...roles) => {
+  const allowedRoles = roles.map((r) => r.toLowerCase());
+  return (req, res, next) => {
+    const userRoles = req.user?.roles || [];
+    const hasAccess = userRoles.some((role) =>
+      allowedRoles.includes(role.toLowerCase()),
+    );
+
+    if (!hasAccess) {
+      return next(
+        new AppError(
+          "You do not have permission to perform this action.",
+          403,
+        ),
+      );
+    }
+    next();
+  };
+};
