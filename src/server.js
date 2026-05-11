@@ -1,6 +1,7 @@
 import app from "./app.js";
 import { masterSequelize, getTenantConnection } from "./config/database.js";
 import { initTenantModels } from "./models/index.js";
+import { initMasterModels } from "./models/master/index.js";
 import { QueryTypes } from "sequelize";
 
 const PORT = process.env.PORT || 8086;
@@ -13,8 +14,12 @@ const startServer = async () => {
     await masterSequelize.authenticate();
     console.log("✅ Successfully connected to the geargrid_master database.");
 
+    // Register Master DB ORM models (SuperAdmin, Tenant, GlobalUser, AuditLog)
+    initMasterModels(masterSequelize);
+
     // Give Sequelize authority to auto-create/update Master tables
-    await masterSequelize.sync();
+    // alter: true adds missing columns to existing tables
+    await masterSequelize.sync({ alter: true });
     console.log("✅ Master Database structure synced.");
 
     // =================================================================

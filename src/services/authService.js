@@ -2,6 +2,7 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { masterSequelize, getTenantConnection } from "../config/database.js";
 import { initTenantModels } from "../models/index.js";
+import { getMasterModels } from "../models/master/index.js";
 import AppError from "../utils/AppError.js";
 import { QueryTypes } from "sequelize";
 import crypto from "crypto";
@@ -41,8 +42,23 @@ export const loginUser = async (email, password) => {
     globalUser.db_host,
   );
 
+  // 2b. Check tenant suspension status
+  try {
+    const { Tenant } = getMasterModels();
+    const tenant = await Tenant.findOne({ where: { db_name: globalUser.db_name } });
+    if (tenant && tenant.subscription_status === "Suspended") {
+      throw new AppError(
+        "Your organization's account has been suspended. Contact support.",
+        403,
+      );
+    }
+  } catch (err) {
+    if (err instanceof AppError) throw err;
+    // If master models aren't initialized yet, skip check
+  }
+
   // ✅ ADDED: Extract the Permission model as well
-  const { User, Role, Permission, TenantConfig } =
+  const { User, Role, Permission, TenantConfig, UserPermissionOverride } =
     initTenantModels(tenantConnection);
 
   const configData = await TenantConfig.findOne({
@@ -98,6 +114,26 @@ export const loginUser = async (email, password) => {
   });
   const permissions = Array.from(permissionSet); // e.g., ['view_dashboard', 'view_equipment']
 
+  // ✅ ADDED: Apply user-level overrides (grants/revokes)
+  const effectivePerms = new Set(permissionSet);
+  try {
+    const overrides = await UserPermissionOverride.findAll({
+      where: { user_id: tenantUser.user_id },
+      include: [
+        { model: Permission, attributes: ["permission_code"] },
+      ],
+    });
+    for (const o of overrides) {
+      const code = o.Permission?.permission_code;
+      if (!code) continue;
+      if (o.grant_type === "grant") effectivePerms.add(code);
+      else if (o.grant_type === "revoke") effectivePerms.delete(code);
+    }
+  } catch (e) {
+    // UserPermissionOverride table might not exist yet — gracefully skip
+  }
+  const effectivePermissions = Array.from(effectivePerms);
+
   // 5. Generate Multi-Tenant JWTs
   const tokenPayload = {
     userId: tenantUser.user_id,
@@ -126,7 +162,7 @@ export const loginUser = async (email, password) => {
       roles: roles,
       warehouseId: tenantUser.warehouse_id,
       configData: configData,
-      permissions, // ✅ NOW DEFINED: This goes directly to the Zustand store!
+      permissions: effectivePermissions, // ✅ Now includes user-level overrides
     },
   };
 };

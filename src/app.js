@@ -20,6 +20,8 @@ import bulkCustomerRoutes from "./routes/bulkCustomerRoutes.js";
 import bulkInvoiceRoutes from "./routes/bulkInvoiceRoutes.js";
 import reportRoutes from "./routes/reportRoutes.js";
 import expenseRoutes from "./routes/expenseRoutes.js";
+import superAdminRoutes from "./routes/superAdminRoutes.js";
+import permissionManagementRoutes from "./routes/permissionManagementRoutes.js";
 
 const app = express();
 
@@ -59,6 +61,8 @@ app.use("/api/invoices/bulk", bulkInvoiceRoutes); // NEW
 app.use("/api/contact", contactRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/expenses", expenseRoutes);
+app.use("/api/super-admin", superAdminRoutes);
+app.use("/api/permission-management", permissionManagementRoutes);
 
 app.use((req, res, next) => {
   next(new AppError(`Can't find ${req.originalUrl} on this server!`, 404));

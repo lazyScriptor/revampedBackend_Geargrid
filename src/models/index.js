@@ -12,6 +12,7 @@ import DefectLogFactory from "./DefectLog.js";
 import InvoiceTraceFactory from "./InvoiceTrace.js";
 import TenantConfigFactory from "./TenantConfig.js";
 import ExpenseFactory from "./Expense.js";
+import UserPermissionOverrideFactory from "./UserPermissionOverride.js";
 
 export const initTenantModels = (tenantConnection) => {
   const User = UserFactory(tenantConnection);
@@ -28,6 +29,7 @@ export const initTenantModels = (tenantConnection) => {
   const InvoiceTrace = InvoiceTraceFactory(tenantConnection);
   const TenantConfig = TenantConfigFactory(tenantConnection);
   const Expense = ExpenseFactory(tenantConnection);
+  const UserPermissionOverride = UserPermissionOverrideFactory(tenantConnection);
 
   // ==========================================
   // AUTH & USERS
@@ -126,6 +128,12 @@ export const initTenantModels = (tenantConnection) => {
   Expense.belongsTo(Warehouse, { foreignKey: "warehouse_id" });
   Warehouse.hasMany(Expense, { foreignKey: "warehouse_id" });
 
+  // USER PERMISSION OVERRIDES (Fine-grained per-user grants/revokes)
+  UserPermissionOverride.belongsTo(User, { foreignKey: "user_id" });
+  User.hasMany(UserPermissionOverride, { foreignKey: "user_id" });
+  UserPermissionOverride.belongsTo(Permission, { foreignKey: "permission_id" });
+  Permission.hasMany(UserPermissionOverride, { foreignKey: "permission_id" });
+
   return {
     User,
     Role,
@@ -141,6 +149,7 @@ export const initTenantModels = (tenantConnection) => {
     InvoiceTrace,
     TenantConfig,
     Expense,
+    UserPermissionOverride,
     sequelize: tenantConnection,
   };
 };
