@@ -1,16 +1,16 @@
 import express from 'express';
 import { createWarehouse, getWarehouses, getSingleWarehouse, updateWarehouse } from '../controllers/warehouseController.js';
-import { protect } from '../middlewares/authMiddleware.js';
+import { protect, requirePermission } from '../middlewares/authMiddleware.js';
 
 const router = express.Router();
 router.use(protect);
 
 router.route('/')
-  .get(getWarehouses)
-  .post(createWarehouse);
+  .get(requirePermission("warehouse:view"), getWarehouses)
+  .post(requirePermission("warehouse:manage"), createWarehouse);
 
 router.route('/:id')
-  .get(getSingleWarehouse)
-  .put(updateWarehouse);
+  .get(requirePermission("warehouse:view"), getSingleWarehouse)
+  .put(requirePermission("warehouse:manage"), updateWarehouse);
 
 export default router;

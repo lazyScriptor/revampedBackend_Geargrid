@@ -55,10 +55,10 @@ export const setUserPermissionOverride = async (
   grantType,
 ) => {
   const user = await models.User.findByPk(userId);
-  if (!user) throw new AppError("User not found.", 404);
+  if (!user) throw new AppError(`User with ID ${userId} was not found in this tenant.`, 404);
 
   const permission = await models.Permission.findByPk(permissionId);
-  if (!permission) throw new AppError("Permission not found.", 404);
+  if (!permission) throw new AppError(`Permission with ID ${permissionId} does not exist. It may have been deleted.`, 404);
 
   // Upsert: create or update the override
   const [override, created] = await models.UserPermissionOverride.findOrCreate({
@@ -86,7 +86,7 @@ export const removeUserPermissionOverride = async (
   });
 
   if (deleted === 0) {
-    throw new AppError("Override not found.", 404);
+    throw new AppError("No override exists for this user and permission combination. Nothing to remove.", 404);
   }
 
   return true;
@@ -99,10 +99,10 @@ export const cloneRolePermissions = async (models, sourceRoleId, targetRoleId) =
   const sourceRole = await models.Role.findByPk(sourceRoleId, {
     include: [{ model: models.Permission, through: { attributes: [] } }],
   });
-  if (!sourceRole) throw new AppError("Source role not found.", 404);
+  if (!sourceRole) throw new AppError(`Source role (ID: ${sourceRoleId}) was not found.`, 404);
 
   const targetRole = await models.Role.findByPk(targetRoleId);
-  if (!targetRole) throw new AppError("Target role not found.", 404);
+  if (!targetRole) throw new AppError(`Target role (ID: ${targetRoleId}) was not found.`, 404);
 
   const permissionIds = sourceRole.Permissions.map((p) => p.permission_id);
   await targetRole.setPermissions(permissionIds);
@@ -130,7 +130,7 @@ export const getUserEffectivePermissions = async (models, userId) => {
     ],
   });
 
-  if (!user) throw new AppError("User not found.", 404);
+  if (!user) throw new AppError(`User with ID ${userId} was not found in this tenant.`, 404);
 
   // Role-based permissions
   const rolePerms = new Map();

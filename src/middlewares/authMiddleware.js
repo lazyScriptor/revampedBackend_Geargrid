@@ -38,9 +38,11 @@ export const restrictTo = (...roles) => {
     );
 
     if (!hasAccess) {
+      const userRoleList = userRoles.join(', ') || 'none';
+      const requiredRoleList = roles.join(', ');
       return next(
         new AppError(
-          "You do not have permission to perform this action.",
+          `Access denied. This action requires one of these roles: [${requiredRoleList}]. Your current roles: [${userRoleList}].`,
           403,
         ),
       );
@@ -119,7 +121,7 @@ export const requirePermission = (action) => {
       if (!effective.has(action)) {
         return next(
           new AppError(
-            `You lack the required permission: ${action}`,
+            `Permission denied. The action "${action}" is required but not granted to your account. Contact your administrator to request this permission.`,
             403,
           ),
         );

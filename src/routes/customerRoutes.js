@@ -5,7 +5,7 @@ import {
   getSingleCustomer, 
   updateCustomer 
 } from '../controllers/customerController.js';
-import { protect } from '../middlewares/authMiddleware.js';
+import { protect, requirePermission } from '../middlewares/authMiddleware.js';
 
 const router = express.Router();
 
@@ -15,13 +15,13 @@ router.use(protect);
 // GET /api/customers?search=John&page=1
 // POST /api/customers
 router.route('/')
-  .get(getCustomers)
-  .post(createCustomer);
+  .get(requirePermission("customer:view"), getCustomers)
+  .post(requirePermission("customer:create"), createCustomer);
 
 // GET /api/customers/5
 // PUT /api/customers/5
 router.route('/:id')
-  .get(getSingleCustomer)
-  .put(updateCustomer);
+  .get(requirePermission("customer:view"), getSingleCustomer)
+  .put(requirePermission("customer:edit"), updateCustomer);
 
 export default router;

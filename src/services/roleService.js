@@ -29,7 +29,10 @@ export const updateRolePermissions = async (models, roleId, permissionIds) => {
   const role = await models.Role.findByPk(roleId);
   if (!role) throw new AppError("Role not found.", 404);
   if (role.is_system_default)
-    throw new AppError("Cannot modify system default roles.", 403);
+    throw new AppError(
+      `The "${role.role_name}" role is a system default and its permissions cannot be modified directly. To adjust permissions for a specific user in this role, use user-level overrides in the Permission Matrix instead.`,
+      403,
+    );
 
   // This automatically syncs the ROLE_PERMISSIONS junction table
   await role.setPermissions(permissionIds);

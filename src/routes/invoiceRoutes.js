@@ -1,6 +1,6 @@
 import express from "express";
 import * as invoiceController from "../controllers/invoiceController.js";
-import { protect } from "../middlewares/authMiddleware.js";
+import { protect, requirePermission } from "../middlewares/authMiddleware.js";
 
 const router = express.Router();
 
@@ -8,14 +8,14 @@ const router = express.Router();
 router.use(protect);
 
 // 1. Core Invoicing
-router.get("/", invoiceController.getInvoices);
-router.post("/", invoiceController.createInvoice);
-router.get("/:id", invoiceController.getInvoiceById); // <-- NEW
+router.get("/", requirePermission("invoice:view"), invoiceController.getInvoices);
+router.post("/", requirePermission("invoice:create"), invoiceController.createInvoice);
+router.get("/:id", requirePermission("invoice:view"), invoiceController.getInvoiceById); // <-- NEW
 
 // 2. OMS Actions
-router.post("/:id/return", invoiceController.processReturnInvoice);
-router.post("/:id/payments", invoiceController.addPayment); // <-- NEW
-router.patch("/:id/vault", invoiceController.toggleVault); // <-- NEW
-router.patch("/:id/fees", invoiceController.updateFees);
+router.post("/:id/return", requirePermission("invoice:action:process_return"), invoiceController.processReturnInvoice);
+router.post("/:id/payments", requirePermission("invoice:action:add_payment"), invoiceController.addPayment); // <-- NEW
+router.patch("/:id/vault", requirePermission("invoice:edit"), invoiceController.toggleVault); // <-- NEW
+router.patch("/:id/fees", requirePermission("invoice:edit"), invoiceController.updateFees);
 
 export default router;

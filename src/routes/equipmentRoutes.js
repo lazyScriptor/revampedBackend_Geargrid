@@ -7,7 +7,7 @@ import {
   changeStatus,
   deleteEquipment,
 } from "../controllers/equipmentController.js";
-import { protect } from "../middlewares/authMiddleware.js";
+import { protect, requirePermission } from "../middlewares/authMiddleware.js";
 
 const router = express.Router();
 
@@ -16,14 +16,18 @@ router.use(protect);
 
 // GET /api/equipment?page=1&limit=20&status=Available&search=Bosch
 // POST /api/equipment
-router.route("/").get(getEquipment).post(createEquipment);
+router.route("/")
+  .get(requirePermission("equipment:view"), getEquipment)
+  .post(requirePermission("equipment:create"), createEquipment);
 
 // GET /api/equipment/5
 // PUT /api/equipment/5 (Full/Partial update of details like price, name)
-router.route("/:id").get(getSingleEquipment).put(updateEquipment);
+router.route("/:id")
+  .get(requirePermission("equipment:view"), getSingleEquipment)
+  .put(requirePermission("equipment:edit"), updateEquipment);
 
 // PATCH /api/equipment/5/status (Specific endpoint just for changing status)
-router.patch("/:id/status", changeStatus);
+router.patch("/:id/status", requirePermission("equipment:edit"), changeStatus);
 // Add this line to your routes file
-router.delete("/:id", deleteEquipment);
+router.delete("/:id", requirePermission("equipment:delete"), deleteEquipment);
 export default router;

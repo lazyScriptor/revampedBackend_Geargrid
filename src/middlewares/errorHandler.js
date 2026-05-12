@@ -16,10 +16,19 @@ const errorHandler = (err, req, res, next) => {
     error = new AppError(`Database Error: ${message}`, 400);
   }
 
+  // 🚨 Catch Sequelize Foreign Key Constraint Errors
+  if (err.name === "SequelizeForeignKeyConstraintError") {
+    error = new AppError(
+      "This record is linked to other data and cannot be deleted. Remove the dependent records first.",
+      409,
+    );
+  }
+
   // Send the response
   res.status(error.statusCode).json({
     status: error.status,
     message: error.message,
+    errorCode: error.statusCode,
     // stack: err.stack // Uncomment this in development to see exactly where it broke!
   });
 };
