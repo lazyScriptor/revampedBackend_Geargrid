@@ -63,3 +63,21 @@ export const assignPermissions = catchAsync(async (req, res, next) => {
   });
 });
 
+export const assignUsers = catchAsync(async (req, res, next) => {
+  const { id } = req.params;
+  const { userIds } = req.body;
+  const reqUserHierarchy = req.user.roleHierarchyLevel || 0;
+
+  const role = await roleService.assignUsersToRole(getModels(req), id, userIds, reqUserHierarchy);
+  res.status(200).json({
+    status: "success",
+    message: "Users assigned to role successfully.",
+    data: { role },
+  });
+});
+
+export const getUsersForRole = catchAsync(async (req, res, next) => {
+  const { id } = req.params;
+  const users = await roleService.getUsersForRole(getModels(req), id);
+  res.status(200).json({ status: "success", data: { users } });
+});

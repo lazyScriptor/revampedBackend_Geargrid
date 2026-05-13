@@ -87,3 +87,38 @@ export const updateRolePermissions = async (models, roleId, permissionIds, reqUs
   await role.setPermissions(permissionIds);
   return role;
 };
+
+export const assignUsersToRole = async (models, roleId, userIds, reqUserHierarchy = 0) => {
+  const role = await models.Role.findByPk(roleId);
+  if (!role) throw new AppError("Role not found.", 404);
+
+  if (reqUserHierarchy <= role.hierarchy_level && reqUserHierarchy !== 100) {
+    throw new AppError("You cannot assign users to a role with a hierarchy level equal to or higher than your own.", 403);
+  }
+
+  await role.setUsers(userIds);
+
+  return await models.Role.findByPk(roleId, {
+    include: [
+      {
+        model: models.User,
+        attributes: ["user_id", "username", "email"],
+        through: { attributes: [] },
+      },
+    ],
+  });
+};
+
+export const getUsersForRole = async (models, roleId) => {
+  const role = await models.Role.findByPk(roleId, {
+    include: [
+      {
+        model: models.User,
+        attributes: ["user_id", "username", "email", "first_name", "last_name", "is_active"],
+        through: { attributes: [] },
+      },
+    ],
+  });
+  if (!role) throw new AppError("Role not found.", 404);
+  return role.Users || [];
+};

@@ -5,6 +5,8 @@ import {
   deleteRole,
   getRoles,
   assignPermissions,
+  assignUsers,
+  getUsersForRole,
 } from "../controllers/roleController.js";
 import { protect, requirePermission, logTenantAuditAction } from "../middlewares/authMiddleware.js";
 
@@ -20,5 +22,8 @@ router.route("/:id")
   .delete(requirePermission("role:delete"), logTenantAuditAction("ROLE_DELETED"), deleteRole);
 
 router.post("/:id/assign-permissions", requirePermission("role:assign_permission"), logTenantAuditAction("ROLE_PERMISSIONS_ASSIGNED"), assignPermissions);
+
+router.get("/:id/users", requirePermission("role:view"), getUsersForRole);
+router.post("/:id/assign-users", requirePermission("role:assign_permission"), logTenantAuditAction("ROLE_USERS_ASSIGNED"), assignUsers);
 
 export default router;

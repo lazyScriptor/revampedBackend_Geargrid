@@ -62,3 +62,17 @@ export const editTechnician = catchAsync(async (req, res) => {
   res.status(200).json({ status: "success", message: "Technician updated.", data: { tech } });
 });
 
+export const toggleUserStatus = catchAsync(async (req, res, next) => {
+  const { id } = req.params;
+  const { isActive } = req.body;
+
+  if (req.user.userId === parseInt(id)) {
+    return res.status(403).json({
+      status: "fail",
+      message: "You cannot deactivate your own account.",
+    });
+  }
+
+  const updatedUser = await userService.updateUserStatus(getModels(req), id, isActive);
+  res.status(200).json({ status: "success", data: { user: updatedUser } });
+});
