@@ -26,6 +26,9 @@ import accountingRoutes from "./routes/accountingRoutes.js";
 
 const app = express();
 
+// Trust proxy for identification behind a load balancer (e.g. Nginx, Cloudflare)
+app.set("trust proxy", 1);
+
 app.use(
   cors({
     origin: [
