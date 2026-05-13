@@ -267,14 +267,14 @@ export const getTransactionJournal = async (models, query) => {
       SELECT p.payment_id as id, p.payment_date as date, 'income' as type,
              p.payment_amount as amount
       FROM PAYMENTS p
-      WHERE 1=1 ${dateClause.replace(/date/g, "p.payment_date")} ${amountClause.replace(/amount/g, "p.payment_amount")}
+      WHERE 1=1 ${dateClause.replace(/\bdate\b/g, "p.payment_date")} ${amountClause.replace(/\bamount\b/g, "p.payment_amount")}
 
       UNION ALL
 
       SELECT e.expense_id as id, e.date as date, 'expense' as type,
              e.amount as amount
       FROM EXPENSES e
-      WHERE 1=1 ${dateClause.replace(/date/g, "e.date")} ${amountClause.replace(/amount/g, "e.amount")}
+      WHERE 1=1 ${dateClause.replace(/\bdate\b/g, "e.date")} ${amountClause.replace(/\bamount\b/g, "e.amount")}
     ) as journal WHERE 1=1 ${typeClause}
   `;
 
@@ -290,7 +290,7 @@ export const getTransactionJournal = async (models, query) => {
         p.payment_amount as amount,
         p.invoice_id as ref_id
       FROM PAYMENTS p
-      WHERE 1=1 ${dateClause.replace(/date/g, "p.payment_date")} ${amountClause.replace(/amount/g, "p.payment_amount")}
+      WHERE 1=1 ${dateClause.replace(/\bdate\b/g, "p.payment_date")} ${amountClause.replace(/\bamount\b/g, "p.payment_amount")}
 
       UNION ALL
 
@@ -304,7 +304,7 @@ export const getTransactionJournal = async (models, query) => {
         e.amount as amount,
         NULL as ref_id
       FROM EXPENSES e
-      WHERE 1=1 ${dateClause.replace(/date/g, "e.date")} ${amountClause.replace(/amount/g, "e.amount")}
+      WHERE 1=1 ${dateClause.replace(/\bdate\b/g, "e.date")} ${amountClause.replace(/\bamount\b/g, "e.amount")}
     ) as journal
     WHERE 1=1 ${typeClause}
     ORDER BY date DESC, id DESC
@@ -323,4 +323,76 @@ export const getTransactionJournal = async (models, query) => {
   });
 
   return { rows, totalCount: parseInt(total) || 0 };
+};
+
+// ============================================================================
+// 5. CHART DATA AGGREGATION (For Dashboard/Workstation)
+// ============================================================================
+export const getChartData = async (models, query) => {
+  const sequelize = models.sequelize;
+  const replacements = {};
+  
+  let dateClauseP = "";
+  let dateClauseE = "";
+  let dateClauseI = "";
+  
+  if (query.dateFrom) {
+    dateClauseP += " AND p.payment_date >= :dateFrom";
+    dateClauseE += " AND e.date >= :dateFrom";
+    dateClauseI += " AND i.issued_date >= :dateFrom";
+    replacements.dateFrom = query.dateFrom;
+  }
+  if (query.dateTo) {
+    dateClauseP += " AND p.payment_date <= :dateTo";
+    dateClauseE += " AND e.date <= :dateTo";
+    dateClauseI += " AND i.issued_date <= :dateTo";
+    replacements.dateTo = query.dateTo;
+  }
+
+  // 1. Cash Flow / Income vs Expense (For Overview/Journal)
+  const cashFlowSql = `
+    SELECT date, SUM(income) as income, SUM(expense) as expense FROM (
+      SELECT p.payment_date as date, p.payment_amount as income, 0 as expense
+      FROM PAYMENTS p WHERE 1=1 ${dateClauseP}
+      UNION ALL
+      SELECT e.date as date, 0 as income, e.amount as expense
+      FROM EXPENSES e WHERE 1=1 ${dateClauseE}
+    ) as flow
+    GROUP BY date
+    ORDER BY date ASC
+  `;
+  const cashFlow = await sequelize.query(cashFlowSql, { replacements, type: QueryTypes.SELECT });
+
+  // 2. Expenses by Category (For Expenses Tab)
+  const expenseCatSql = `
+    SELECT e.category as name, SUM(e.amount) as value
+    FROM EXPENSES e WHERE 1=1 ${dateClauseE}
+    GROUP BY e.category
+    ORDER BY value DESC
+  `;
+  const expensesByCategory = await sequelize.query(expenseCatSql, { replacements, type: QueryTypes.SELECT });
+
+  // 3. Invoices by Status (For Invoices/Receivables Tab)
+  const invoicesByStatusSql = `
+    SELECT i.status as name, SUM(i.total_amount) as value, COUNT(*) as count
+    FROM INVOICES i WHERE 1=1 ${dateClauseI}
+    GROUP BY i.status
+  `;
+  const invoicesByStatus = await sequelize.query(invoicesByStatusSql, { replacements, type: QueryTypes.SELECT });
+
+  // 4. Payments by Method (For Payments Tab)
+  const paymentsByMethodSql = `
+    SELECT p.method as name, SUM(p.payment_amount) as value
+    FROM PAYMENTS p WHERE 1=1 ${dateClauseP}
+    GROUP BY p.method
+    ORDER BY value DESC
+  `;
+  const paymentsByMethod = await sequelize.query(paymentsByMethodSql, { replacements, type: QueryTypes.SELECT });
+
+  return {
+    cashFlow,
+    expensesByCategory,
+    invoicesByStatus,
+    paymentsByMethod
+  };
 };

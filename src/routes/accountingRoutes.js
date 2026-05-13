@@ -12,5 +12,6 @@ router.get("/invoices", requirePermission("accounting:view"), accountingControll
 router.get("/payments", requirePermission("accounting:view"), accountingController.getPayments);
 router.get("/expenses", requirePermission("accounting:view"), accountingController.getExpenses);
 router.get("/journal", requirePermission("accounting:view"), accountingController.getJournal);
+router.get("/charts", requirePermission("accounting:view"), accountingController.getCharts);
 
 export default router;

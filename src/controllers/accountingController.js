@@ -31,3 +31,8 @@ export const getJournal = catchAsync(async (req, res) => {
   const result = await accountingService.getTransactionJournal(getModels(req), req.query);
   res.status(200).json({ status: "success", data: result });
 });
+
+export const getCharts = catchAsync(async (req, res) => {
+  const result = await accountingService.getChartData(getModels(req), req.query);
+  res.status(200).json({ status: "success", data: result });
+});
