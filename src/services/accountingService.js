@@ -330,69 +330,117 @@ export const getTransactionJournal = async (models, query) => {
 // ============================================================================
 export const getChartData = async (models, query) => {
   const sequelize = models.sequelize;
-  const replacements = {};
+  const replacements = { ...query };
   
+  // Build dynamic clauses
   let dateClauseP = "";
   let dateClauseE = "";
   let dateClauseI = "";
-  
+  let searchClauseI = "";
+  let searchClauseP = "";
+  let amountClauseI = "";
+  let amountClauseP = "";
+  let amountClauseE = "";
+  let statusClauseI = "";
+
   if (query.dateFrom) {
     dateClauseP += " AND p.payment_date >= :dateFrom";
     dateClauseE += " AND e.date >= :dateFrom";
     dateClauseI += " AND i.issued_date >= :dateFrom";
-    replacements.dateFrom = query.dateFrom;
   }
   if (query.dateTo) {
     dateClauseP += " AND p.payment_date <= :dateTo";
     dateClauseE += " AND e.date <= :dateTo";
     dateClauseI += " AND i.issued_date <= :dateTo";
-    replacements.dateTo = query.dateTo;
   }
 
-  // 1. Cash Flow / Income vs Expense (For Overview/Journal)
+  if (query.search) {
+    const searchParam = `%${query.search}%`;
+    replacements.searchParam = searchParam;
+    searchClauseI = " AND (i.invoice_id LIKE :searchParam OR EXISTS (SELECT 1 FROM CUSTOMERS c WHERE c.customer_id = i.customer_id AND (c.first_name LIKE :searchParam OR c.last_name LIKE :searchParam OR c.company_name LIKE :searchParam)))";
+    searchClauseP = " AND (p.invoice_id LIKE :searchParam OR EXISTS (SELECT 1 FROM CUSTOMERS c WHERE c.customer_id = p.customer_id AND (c.first_name LIKE :searchParam OR c.last_name LIKE :searchParam OR c.company_name LIKE :searchParam)))";
+  }
+
+  if (query.minAmount) {
+    amountClauseI += " AND i.total_amount >= :minAmount";
+    amountClauseP += " AND p.payment_amount >= :minAmount";
+    amountClauseE += " AND e.amount >= :minAmount";
+  }
+  if (query.maxAmount) {
+    amountClauseI += " AND i.total_amount <= :maxAmount";
+    amountClauseP += " AND p.payment_amount <= :maxAmount";
+    amountClauseE += " AND e.amount <= :maxAmount";
+  }
+
+  if (query.status) {
+    const statuses = Array.isArray(query.status) ? query.status : query.status.split(",");
+    replacements.statusList = statuses;
+    statusClauseI = " AND i.status IN (:statusList)";
+  }
+
+  // Handle Time Grain for Cash Flow
+  let timeFormat = "%Y-%m-%d"; // Daily default
+  if (query.timeGrain === "week") timeFormat = "%Y-w%u";
+  if (query.timeGrain === "month") timeFormat = "%Y-%m";
+
+  // 1. Cash Flow / Income vs Expense
   const cashFlowSql = `
-    SELECT date, SUM(income) as income, SUM(expense) as expense FROM (
+    SELECT 
+      DATE_FORMAT(date, '${timeFormat}') as date, 
+      SUM(income) as income, 
+      SUM(expense) as expense 
+    FROM (
       SELECT p.payment_date as date, p.payment_amount as income, 0 as expense
-      FROM PAYMENTS p WHERE 1=1 ${dateClauseP}
+      FROM PAYMENTS p WHERE 1=1 ${dateClauseP} ${searchClauseP} ${amountClauseP}
       UNION ALL
       SELECT e.date as date, 0 as income, e.amount as expense
-      FROM EXPENSES e WHERE 1=1 ${dateClauseE}
+      FROM EXPENSES e WHERE 1=1 ${dateClauseE} ${amountClauseE}
     ) as flow
-    GROUP BY date
+    GROUP BY DATE_FORMAT(date, '${timeFormat}')
     ORDER BY date ASC
   `;
-  const cashFlow = await sequelize.query(cashFlowSql, { replacements, type: QueryTypes.SELECT });
-
-  // 2. Expenses by Category (For Expenses Tab)
+  
+  // 2. Expenses by Category
   const expenseCatSql = `
     SELECT e.category as name, SUM(e.amount) as value
-    FROM EXPENSES e WHERE 1=1 ${dateClauseE}
+    FROM EXPENSES e WHERE 1=1 ${dateClauseE} ${amountClauseE}
     GROUP BY e.category
     ORDER BY value DESC
   `;
-  const expensesByCategory = await sequelize.query(expenseCatSql, { replacements, type: QueryTypes.SELECT });
 
-  // 3. Invoices by Status (For Invoices/Receivables Tab)
+  // 3. Invoices by Status
   const invoicesByStatusSql = `
     SELECT i.status as name, SUM(i.total_amount) as value, COUNT(*) as count
-    FROM INVOICES i WHERE 1=1 ${dateClauseI}
+    FROM INVOICES i WHERE 1=1 ${dateClauseI} ${searchClauseI} ${amountClauseI} ${statusClauseI}
     GROUP BY i.status
   `;
-  const invoicesByStatus = await sequelize.query(invoicesByStatusSql, { replacements, type: QueryTypes.SELECT });
 
-  // 4. Payments by Method (For Payments Tab)
+  // 4. Payments by Method
   const paymentsByMethodSql = `
     SELECT p.method as name, SUM(p.payment_amount) as value
-    FROM PAYMENTS p WHERE 1=1 ${dateClauseP}
+    FROM PAYMENTS p WHERE 1=1 ${dateClauseP} ${searchClauseP} ${amountClauseP}
     GROUP BY p.method
     ORDER BY value DESC
   `;
-  const paymentsByMethod = await sequelize.query(paymentsByMethodSql, { replacements, type: QueryTypes.SELECT });
+
+  const [cashFlow, expensesByCategory, invoicesByStatus, paymentsByMethod] = await Promise.all([
+    sequelize.query(cashFlowSql, { replacements, type: QueryTypes.SELECT }),
+    sequelize.query(expenseCatSql, { replacements, type: QueryTypes.SELECT }),
+    sequelize.query(invoicesByStatusSql, { replacements, type: QueryTypes.SELECT }),
+    sequelize.query(paymentsByMethodSql, { replacements, type: QueryTypes.SELECT }),
+  ]);
+
+  const formatResults = (rows) => rows.map(r => ({ 
+    ...r, 
+    value: parseFloat(r.value) || 0, 
+    income: parseFloat(r.income) || 0, 
+    expense: parseFloat(r.expense) || 0 
+  }));
 
   return {
-    cashFlow,
-    expensesByCategory,
-    invoicesByStatus,
-    paymentsByMethod
+    cashFlow: formatResults(cashFlow),
+    expensesByCategory: formatResults(expensesByCategory),
+    invoicesByStatus: formatResults(invoicesByStatus),
+    paymentsByMethod: formatResults(paymentsByMethod)
   };
 };
