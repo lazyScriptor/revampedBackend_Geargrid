@@ -72,7 +72,7 @@ export const loginUser = async (email, password) => {
     include: [
       {
         model: Role,
-        attributes: ["role_name"],
+        attributes: ["role_name", "hierarchy_level"],
         through: { attributes: [] },
         // ✅ ADDED: Nested include to fetch permissions for each role
         include: [
@@ -102,6 +102,13 @@ export const loginUser = async (email, password) => {
       403,
     );
   }
+
+  let maxHierarchy = 0;
+  tenantUser.Roles.forEach((role) => {
+    if (role.hierarchy_level > maxHierarchy) {
+      maxHierarchy = role.hierarchy_level;
+    }
+  });
 
   // ✅ ADDED: Flatten and deduplicate permissions using a Set
   const permissionSet = new Set();
@@ -139,6 +146,7 @@ export const loginUser = async (email, password) => {
     userId: tenantUser.user_id,
     username: tenantUser.username,
     roles: roles, // We keep Roles in the JWT...
+    roleHierarchyLevel: maxHierarchy,
     // Note: We intentionally DO NOT put `permissions` in the JWT payload.
     // An admin might have 50 permissions, which would bloat the token size and slow down headers.
     warehouseId: tenantUser.warehouse_id,

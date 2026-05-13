@@ -23,6 +23,7 @@
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.1.1",
     "mysql2": "^3.20.0",
+    "node-cron": "^4.2.1",
     "nodemailer": "^8.0.7",
     "pdfmake": "^0.3.8",
     "sequelize": "^6.37.8",

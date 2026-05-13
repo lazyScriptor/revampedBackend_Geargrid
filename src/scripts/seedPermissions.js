@@ -78,11 +78,24 @@ const PERMISSION_CATALOG = [
   { permission_code: "data_arena:export", module_name: "Data Arena", description: "Export data" },
   { permission_code: "data_arena:import", module_name: "Data Arena", description: "Import bulk data" },
 
-  // User & Role Management
-  { permission_code: "user:view", module_name: "User Management", description: "View users" },
-  { permission_code: "user:manage", module_name: "User Management", description: "Create/edit/toggle users" },
-  { permission_code: "role:view", module_name: "User Management", description: "View roles" },
-  { permission_code: "role:manage", module_name: "User Management", description: "Create/edit roles & assign permissions" },
+  // User & Role Management (Granular)
+  { permission_code: "user:view", module_name: "User Management", description: "View users list" },
+  { permission_code: "user:create", module_name: "User Management", description: "Create single user" },
+  { permission_code: "user:bulk_create", module_name: "User Management", description: "Bulk import users" },
+  { permission_code: "user:update", module_name: "User Management", description: "Edit user details" },
+  { permission_code: "user:delete", module_name: "User Management", description: "Delete/Deactivate user" },
+  { permission_code: "user:bulk_delete", module_name: "User Management", description: "Bulk delete users" },
+  { permission_code: "user:assign_role", module_name: "User Management", description: "Assign roles to user" },
+  { permission_code: "user:bulk_assign_role", module_name: "User Management", description: "Bulk assign roles" },
+
+  { permission_code: "role:view", module_name: "User Management", description: "View roles list" },
+  { permission_code: "role:create", module_name: "User Management", description: "Create new role" },
+  { permission_code: "role:bulk_create", module_name: "User Management", description: "Bulk create roles" },
+  { permission_code: "role:update", module_name: "User Management", description: "Edit role details" },
+  { permission_code: "role:delete", module_name: "User Management", description: "Delete/Deactivate role" },
+  { permission_code: "role:bulk_delete", module_name: "User Management", description: "Bulk delete roles" },
+  { permission_code: "role:assign_permission", module_name: "User Management", description: "Assign permissions to role" },
+  { permission_code: "role:bulk_assign_permission", module_name: "User Management", description: "Bulk assign permissions" },
 
   // Tenant Config
   { permission_code: "config:view", module_name: "Configuration", description: "View tenant configuration" },

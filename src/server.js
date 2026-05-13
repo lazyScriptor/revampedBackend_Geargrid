@@ -3,6 +3,7 @@ import { masterSequelize, getTenantConnection } from "./config/database.js";
 import { initTenantModels } from "./models/index.js";
 import { initMasterModels } from "./models/master/index.js";
 import { QueryTypes } from "sequelize";
+import setupCronJobs from "./utils/cronJobs.js";
 
 const PORT = process.env.PORT || 8086;
 
@@ -64,6 +65,7 @@ const startServer = async () => {
     // =================================================================
     app.listen(PORT, () => {
       console.log(`Revamped Production Backend is running on port ${PORT}`);
+      setupCronJobs();
     });
   } catch (error) {
     console.error(" Critical Startup Error:", error);

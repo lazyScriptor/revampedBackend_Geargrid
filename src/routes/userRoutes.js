@@ -1,27 +1,40 @@
 import express from "express";
 import {
   getUsers,
-  toggleUserStatus,
+  createUser,
+  updateUser,
+  deleteUser,
   assignRoles,
   getTechnicianRoster,
   addTechnician,
   editTechnician,
+  toggleUserStatus,
 } from "../controllers/userController.js";
-import { protect, requirePermission } from "../middlewares/authMiddleware.js";
+import { protect, requirePermission, logTenantAuditAction } from "../middlewares/authMiddleware.js";
 
 const router = express.Router();
-
 router.use(protect);
 
-// --- WORKFORCE / TECHNICIAN ROUTES ---
-// (Must come before /:id routes so Express doesn't think "technicians" is an ID!)
-router.get("/technicians/roster", requirePermission("workforce:view"), getTechnicianRoster);
-router.post("/technicians", requirePermission("workforce:manage"), addTechnician);
+// --- ENTERPRISE USER ADMINISTRATION ---
+router.route("/")
+  .get(requirePermission("user:view"), getUsers)
+  .post(requirePermission("user:create"), logTenantAuditAction("USER_CREATED"), createUser);
 
-// --- GENERAL USER ROUTES ---
-router.get("/", requirePermission("user:view"), getUsers);
-router.patch("/:id/status", requirePermission("user:manage"), toggleUserStatus);
-router.post("/:id/roles", requirePermission("role:manage"), assignRoles);
-router.patch("/technicians/:id", requirePermission("workforce:manage"), editTechnician);
+router.route("/:id")
+  .put(requirePermission("user:update"), logTenantAuditAction("USER_UPDATED"), updateUser)
+  .delete(requirePermission("user:delete"), logTenantAuditAction("USER_DELETED"), deleteUser);
+
+router.post("/:id/assign-roles", requirePermission("user:assign_role"), logTenantAuditAction("USER_ROLES_ASSIGNED"), assignRoles);
+
+// Note: /:id/toggle-status is kept for backward compatibility if needed, but deleteUser (soft delete) replaces it
+router.patch("/:id/toggle-status", requirePermission("user:update"), logTenantAuditAction("USER_STATUS_TOGGLED"), toggleUserStatus);
+
+// --- WORKFORCE SPECIFIC (Backward compatibility or specialized views) ---
+router.route("/technicians")
+  .get(requirePermission("workforce:view"), getTechnicianRoster)
+  .post(requirePermission("workforce:manage"), addTechnician);
+
+router.route("/technicians/:id")
+  .put(requirePermission("workforce:manage"), editTechnician);
 
 export default router;

@@ -1,18 +1,24 @@
-import express from 'express';
-import { createRole, getRoles, assignPermissions } from '../controllers/roleController.js';
-import { protect, requirePermission } from '../middlewares/authMiddleware.js';
+import express from "express";
+import {
+  createRole,
+  updateRole,
+  deleteRole,
+  getRoles,
+  assignPermissions,
+} from "../controllers/roleController.js";
+import { protect, requirePermission, logTenantAuditAction } from "../middlewares/authMiddleware.js";
 
 const router = express.Router();
-
 router.use(protect);
 
-// GET /api/roles
-// POST /api/roles
-router.route('/')
+router.route("/")
   .get(requirePermission("role:view"), getRoles)
-  .post(requirePermission("role:manage"), createRole);
+  .post(requirePermission("role:create"), logTenantAuditAction("ROLE_CREATED"), createRole);
 
-// POST /api/roles/:id/permissions
-router.post('/:id/permissions', requirePermission("role:manage"), assignPermissions);
+router.route("/:id")
+  .put(requirePermission("role:update"), logTenantAuditAction("ROLE_UPDATED"), updateRole)
+  .delete(requirePermission("role:delete"), logTenantAuditAction("ROLE_DELETED"), deleteRole);
+
+router.post("/:id/assign-permissions", requirePermission("role:assign_permission"), logTenantAuditAction("ROLE_PERMISSIONS_ASSIGNED"), assignPermissions);
 
 export default router;

@@ -69,8 +69,6 @@ export const requirePermission = (action) => {
         include: [
           {
             model: models.Role,
-            attributes: ["role_id"],
-            through: { attributes: [] },
             include: [
               {
                 model: models.Permission,
@@ -78,6 +76,7 @@ export const requirePermission = (action) => {
                 through: { attributes: [] },
               },
             ],
+            attributes: ["role_id", "hierarchy_level"],
           },
         ],
       });
@@ -86,13 +85,16 @@ export const requirePermission = (action) => {
         return next(new AppError("User not found.", 404));
       }
 
-      // Collect role permissions
+      // Collect role permissions and find highest hierarchy level
       const rolePermissions = new Set();
+      let maxHierarchy = 0;
       user.Roles?.forEach((role) => {
+        if (role.hierarchy_level > maxHierarchy) maxHierarchy = role.hierarchy_level;
         role.Permissions?.forEach((perm) => {
           rolePermissions.add(perm.permission_code);
         });
       });
+      req.user.roleHierarchyLevel = maxHierarchy;
 
       // 2. Get user-level overrides
       const overrides = await models.UserPermissionOverride.findAll({
@@ -135,5 +137,34 @@ export const requirePermission = (action) => {
         new AppError("Permission check failed: " + err.message, 500),
       );
     }
+  };
+};
+
+export const logTenantAuditAction = (action) => {
+  return async (req, res, next) => {
+    try {
+      const { getMasterModels } = await import("../models/master/index.js");
+      const { AuditLog, Tenant } = getMasterModels();
+      
+      const tenant = await Tenant.findOne({ where: { db_name: req.user.tenantDbName } });
+      const tenantId = tenant ? tenant.tenant_id : null;
+
+      await AuditLog.create({
+        super_admin_id: null,
+        actor_user_id: req.user.userId,
+        action,
+        target_tenant_id: tenantId,
+        target_user_id: req.params.id || null,
+        ip_address: req.headers["x-forwarded-for"] || req.connection?.remoteAddress,
+        metadata: {
+          method: req.method,
+          path: req.originalUrl,
+          body: req.body,
+        },
+      });
+    } catch (err) {
+      console.error("Tenant audit log failed:", err.message);
+    }
+    next();
   };
 };

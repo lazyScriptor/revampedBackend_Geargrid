@@ -11,7 +11,11 @@ export default (sequelize) => {
       },
       super_admin_id: {
         type: DataTypes.INTEGER,
-        allowNull: false,
+        allowNull: true,
+      },
+      actor_user_id: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
       },
       action: {
         type: DataTypes.STRING(100),

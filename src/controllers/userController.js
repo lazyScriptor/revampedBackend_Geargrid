@@ -8,37 +8,41 @@ const getModels = (req) => {
   return initTenantModels(connection);
 };
 
-// --- GENERAL USERS ---
+// --- ENTERPRISE USER ADMINISTRATION ---
+
 export const getUsers = catchAsync(async (req, res, next) => {
-  const users = await userService.getAllUsers(getModels(req));
+  const showInactive = req.query.showInactive === 'true';
+  const users = await userService.getAllUsers(getModels(req), showInactive);
   res.status(200).json({ status: "success", data: { users } });
 });
 
-export const toggleUserStatus = catchAsync(async (req, res, next) => {
+export const createUser = catchAsync(async (req, res, next) => {
+  const user = await userService.createUser(getModels(req), req.user.tenantDbName, req.body);
+  res.status(201).json({ status: "success", message: "User created successfully.", data: { user } });
+});
+
+export const updateUser = catchAsync(async (req, res, next) => {
   const { id } = req.params;
-  const { isActive } = req.body;
+  const user = await userService.updateUser(getModels(req), id, req.body);
+  res.status(200).json({ status: "success", message: "User updated successfully.", data: { user } });
+});
 
+export const deleteUser = catchAsync(async (req, res, next) => {
+  const { id } = req.params;
   if (req.user.id === parseInt(id)) {
-    return res.status(403).json({
-      status: "fail",
-      message: "You cannot deactivate your own account.",
-    });
+    return res.status(403).json({ status: "fail", message: "You cannot deactivate your own account." });
   }
-
-  const updatedUser = await userService.updateUserStatus(
-    getModels(req),
-    id,
-    isActive,
-  );
-  res.status(200).json({ status: "success", data: { user: updatedUser } });
+  const user = await userService.deleteUser(getModels(req), id);
+  res.status(200).json({ status: "success", message: "User deactivated successfully.", data: { user } });
 });
 
 export const assignRoles = catchAsync(async (req, res, next) => {
   const { id } = req.params;
   const { roleIds } = req.body;
-
-  const user = await userService.assignUserRoles(getModels(req), id, roleIds);
-  res.status(200).json({ status: "success", data: { user } });
+  const reqUserHierarchy = req.user.roleHierarchyLevel || 0;
+  
+  const user = await userService.assignUserRoles(getModels(req), id, roleIds, reqUserHierarchy);
+  res.status(200).json({ status: "success", message: "Roles assigned successfully.", data: { user } });
 });
 
 // --- WORKFORCE SPECIFIC ---
@@ -48,21 +52,13 @@ export const getTechnicianRoster = catchAsync(async (req, res) => {
 });
 
 export const addTechnician = catchAsync(async (req, res) => {
-  const tech = await userService.createTechnician(getModels(req), req.body);
-  res
-    .status(201)
-    .json({ status: "success", message: "Technician added.", data: { tech } });
+  const payload = { ...req.body, tenantDbName: req.user.tenantDbName };
+  const tech = await userService.createTechnician(getModels(req), payload);
+  res.status(201).json({ status: "success", message: "Technician added.", data: { tech } });
 });
 
 export const editTechnician = catchAsync(async (req, res) => {
-  const tech = await userService.updateTechnician(
-    getModels(req),
-    req.params.id,
-    req.body,
-  );
-  res.status(200).json({
-    status: "success",
-    message: "Technician updated.",
-    data: { tech },
-  });
+  const tech = await userService.updateTechnician(getModels(req), req.params.id, req.body);
+  res.status(200).json({ status: "success", message: "Technician updated.", data: { tech } });
 });
+
