@@ -1,11 +1,21 @@
 import * as authService from "../services/authService.js";
 import catchAsync from "../utils/catchAsync.js";
 
+// const cookieOptions = {
+//   httpOnly: true,
+//   secure: process.env.NODE_ENV === "production",
+//   sameSite: "lax",
+// };
+// src/controllers/authController.js
+
 const cookieOptions = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: "lax",
+  // Must be true for 'none' to work
+  secure: true,
+  // 'none' allows cross-domain cookies (localhost -> geargrid.live)
+  sameSite: process.env.NODE_ENV === "production" ? "lax" : "none",
 };
+
 
 export const register = catchAsync(async (req, res, next) => {
   const { tenantId, email, username, password, firstName, lastName, nicNo } =
