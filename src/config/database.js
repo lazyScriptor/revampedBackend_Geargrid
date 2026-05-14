@@ -1,7 +1,7 @@
 import { Sequelize } from "sequelize";
 import dotenv from "dotenv";
 
-dotenv.config();
+dotenv.config({ override: true });
 
 // =========================================================================
 // 1. THE MASTER CONNECTION

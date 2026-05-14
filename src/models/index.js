@@ -13,6 +13,8 @@ import InvoiceTraceFactory from "./InvoiceTrace.js";
 import TenantConfigFactory from "./TenantConfig.js";
 import ExpenseFactory from "./Expense.js";
 import UserPermissionOverrideFactory from "./UserPermissionOverride.js";
+import DashboardTemplateFactory from "./DashboardTemplate.js";
+import UserDashboardPreferenceFactory from "./UserDashboardPreference.js";
 
 export const initTenantModels = (tenantConnection) => {
   const User = UserFactory(tenantConnection);
@@ -30,6 +32,8 @@ export const initTenantModels = (tenantConnection) => {
   const TenantConfig = TenantConfigFactory(tenantConnection);
   const Expense = ExpenseFactory(tenantConnection);
   const UserPermissionOverride = UserPermissionOverrideFactory(tenantConnection);
+  const DashboardTemplate = DashboardTemplateFactory(tenantConnection);
+  const UserDashboardPreference = UserDashboardPreferenceFactory(tenantConnection);
 
   // ==========================================
   // AUTH & USERS
@@ -134,6 +138,14 @@ export const initTenantModels = (tenantConnection) => {
   UserPermissionOverride.belongsTo(Permission, { foreignKey: "permission_id" });
   Permission.hasMany(UserPermissionOverride, { foreignKey: "permission_id" });
 
+  // DASHBOARD
+  DashboardTemplate.belongsTo(Role, { foreignKey: "role_id", required: false });
+  Role.hasMany(DashboardTemplate, { foreignKey: "role_id" });
+  DashboardTemplate.belongsTo(User, { as: "Creator", foreignKey: "created_by_user_id" });
+
+  UserDashboardPreference.belongsTo(User, { foreignKey: "user_id" });
+  User.hasOne(UserDashboardPreference, { foreignKey: "user_id" });
+
   return {
     User,
     Role,
@@ -150,6 +162,8 @@ export const initTenantModels = (tenantConnection) => {
     TenantConfig,
     Expense,
     UserPermissionOverride,
+    DashboardTemplate,
+    UserDashboardPreference,
     sequelize: tenantConnection,
   };
 };
