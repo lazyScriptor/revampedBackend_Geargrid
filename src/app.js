@@ -23,6 +23,7 @@ import expenseRoutes from "./routes/expenseRoutes.js";
 import superAdminRoutes from "./routes/superAdminRoutes.js";
 import permissionManagementRoutes from "./routes/permissionManagementRoutes.js";
 import accountingRoutes from "./routes/accountingRoutes.js";
+import dashboardRoutes from "./routes/dashboardRoutes.js";
 
 const app = express();
 
@@ -67,6 +68,7 @@ app.use("/api/expenses", expenseRoutes);
 app.use("/api/super-admin", superAdminRoutes);
 app.use("/api/permission-management", permissionManagementRoutes);
 app.use("/api/accounting", accountingRoutes);
+app.use("/api/dashboard", dashboardRoutes);
 
 app.use((req, res, next) => {
   next(new AppError(`Can't find ${req.originalUrl} on this server!`, 404));
