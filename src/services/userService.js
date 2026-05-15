@@ -165,7 +165,6 @@ export const assignUserRoles = async (models, userId, roleIds, reqUserHierarchy 
 
 export const getTechniciansWithWorkload = async (models) => {
   const users = await models.User.findAll({
-    where: { is_active: 1 },
     attributes: { exclude: ["password_hash"] },
     include: [
       {

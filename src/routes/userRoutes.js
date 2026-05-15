@@ -15,6 +15,15 @@ import { protect, requirePermission, logTenantAuditAction } from "../middlewares
 const router = express.Router();
 router.use(protect);
 
+// --- WORKFORCE SPECIFIC (must be before /:id to avoid param capture) ---
+router.route("/technicians")
+  .get(requirePermission("workforce:view"), getTechnicianRoster)
+  .post(requirePermission("workforce:manage"), addTechnician);
+
+router.route("/technicians/:id")
+  .put(requirePermission("workforce:manage"), editTechnician)
+  .patch(requirePermission("workforce:manage"), editTechnician);
+
 // --- ENTERPRISE USER ADMINISTRATION ---
 router.route("/")
   .get(requirePermission("user:view"), getUsers)
@@ -26,15 +35,6 @@ router.route("/:id")
 
 router.post("/:id/assign-roles", requirePermission("user:assign_role"), logTenantAuditAction("USER_ROLES_ASSIGNED"), assignRoles);
 
-// Note: /:id/toggle-status is kept for backward compatibility if needed, but deleteUser (soft delete) replaces it
 router.patch("/:id/toggle-status", requirePermission("user:update"), logTenantAuditAction("USER_STATUS_TOGGLED"), toggleUserStatus);
-
-// --- WORKFORCE SPECIFIC (Backward compatibility or specialized views) ---
-router.route("/technicians")
-  .get(requirePermission("workforce:view"), getTechnicianRoster)
-  .post(requirePermission("workforce:manage"), addTechnician);
-
-router.route("/technicians/:id")
-  .put(requirePermission("workforce:manage"), editTechnician);
 
 export default router;
