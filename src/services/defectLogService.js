@@ -124,6 +124,23 @@ export const assignTechnician = async (
   });
 };
 
+// --- 3b. GET MY TICKETS (For authenticated technician) ---
+export const getMyDefectLogs = async (models, technicianId) => {
+  return await models.DefectLog.findAll({
+    where: {
+      assigned_technician_id: technicianId,
+      repair_status: { [Op.in]: ["In Repair", "Partially Resolved", "Pending Assignment"] },
+    },
+    order: [["reported_date", "DESC"]],
+    include: [
+      {
+        model: models.Equipment,
+        attributes: ["equipment_name", "serial_number"],
+      },
+    ],
+  });
+};
+
 // --- 4. PARTIAL / FULL RESOLUTION ENGINE ---
 export const resolveDefectLog = async (models, logId, resolvedQtyParam) => {
   const t = await models.sequelize.transaction();

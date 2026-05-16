@@ -33,6 +33,11 @@ export const markResolved = catchAsync(async (req, res, next) => {
   });
 });
 // ... existing imports
+export const getMyLogs = catchAsync(async (req, res, next) => {
+  const logs = await defectLogService.getMyDefectLogs(getModels(req), req.user.userId);
+  res.status(200).json({ status: "success", data: { logs } });
+});
+
 export const assignTech = catchAsync(async (req, res, next) => {
   const log = await defectLogService.assignTechnician(
     getModels(req),
