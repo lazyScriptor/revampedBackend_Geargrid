@@ -3,8 +3,11 @@ import AppError from "../utils/AppError.js";
 import { getCachedTenantConnection } from "../config/database.js";
 import { initTenantModels } from "../models/index.js";
 
-export const protect = (req, res, next) => {
-  // 1. Check if the accessToken cookie exists
+// 5-minute in-process cache for tenant subscription status
+const tenantStatusCache = new Map();
+const STATUS_CACHE_TTL = 5 * 60 * 1000;
+
+export const protect = async (req, res, next) => {
   const token = req.cookies.accessToken;
   if (!token) {
     return next(
@@ -13,11 +16,50 @@ export const protect = (req, res, next) => {
   }
 
   try {
-    // 2. Verify the token signature
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    // 3. Attach the decoded user data (including the tenantDbName!) to the request
     req.user = decoded;
+
+    // Check subscription status — skip for impersonation tokens (SA already validated)
+    if (decoded.tenantDbName && !decoded.isImpersonation) {
+      const cacheKey = decoded.tenantDbName;
+      const cached = tenantStatusCache.get(cacheKey);
+      const now = Date.now();
+
+      let status = "Active";
+      if (cached && now - cached.cachedAt < STATUS_CACHE_TTL) {
+        status = cached.status;
+      } else {
+        try {
+          const { getMasterModels } = await import("../models/master/index.js");
+          const { Tenant } = getMasterModels();
+          const tenant = await Tenant.findOne({
+            where: { db_name: decoded.tenantDbName },
+            attributes: ["subscription_status"],
+          });
+          status = tenant?.subscription_status || "Active";
+          tenantStatusCache.set(cacheKey, { status, cachedAt: now });
+        } catch {
+          // Master DB unreachable — fail open to avoid locking out tenants on infra issues
+        }
+      }
+
+      if (status === "Suspended") {
+        return next(
+          new AppError(
+            "Your account has been suspended. Please contact GearGrid support.",
+            403,
+          ),
+        );
+      }
+      if (status === "Overdue") {
+        return next(
+          new AppError(
+            "Your subscription payment is overdue. Please settle your account to regain access.",
+            403,
+          ),
+        );
+      }
+    }
 
     next();
   } catch (error) {

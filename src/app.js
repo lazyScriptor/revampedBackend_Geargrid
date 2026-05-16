@@ -24,26 +24,23 @@ import superAdminRoutes from "./routes/superAdminRoutes.js";
 import permissionManagementRoutes from "./routes/permissionManagementRoutes.js";
 import accountingRoutes from "./routes/accountingRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
+import { corsOrigins } from "./config/cors-config.js";
 
 const app = express();
 
-// Trust proxy for identification behind a load balancer (e.g. Nginx, Cloudflare)
 app.set("trust proxy", 1);
 
+// Dynamic CORS — origins list is mutated at runtime by Super Admin console
 app.use(
   cors({
-    origin: [
-      "http://localhost:5173",
-      "http://localhost:5174",
-      "https://geargrid.live",
-      "https://www.geargrid.live",
-      "https://app.geargrid.live", // <--- ADD THIS LINE
-    ],
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      if (corsOrigins.includes(origin)) return callback(null, true);
+      callback(new Error(`CORS: origin "${origin}" is not allowed.`));
+    },
     credentials: true,
   }),
 );
-
-app.use(express.json());
 
 app.use(express.json());
 app.use(cookieParser());
@@ -61,8 +58,8 @@ app.use("/api/config", tenantConfigRoutes);
 app.use("/api/defects", defectLogRoutes);
 app.use("/api/invoices", invoiceRoutes);
 app.use("/api/equipment/bulk", bulkEquipmentRoutes);
-app.use("/api/customers/bulk", bulkCustomerRoutes); // NEW
-app.use("/api/invoices/bulk", bulkInvoiceRoutes); // NEW
+app.use("/api/customers/bulk", bulkCustomerRoutes);
+app.use("/api/invoices/bulk", bulkInvoiceRoutes);
 app.use("/api/contact", contactRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/expenses", expenseRoutes);
@@ -75,7 +72,6 @@ app.use((req, res, next) => {
   next(new AppError(`Can't find ${req.originalUrl} on this server!`, 404));
 });
 
-// Global Error Handler
 app.use(errorHandler);
 
 export default app;

@@ -7,10 +7,8 @@ import {
 
 const router = express.Router();
 
-// --- Public: Super Admin Login ---
 router.post("/login", superAdminController.login);
 
-// --- All routes below require Super Admin authentication ---
 router.use(protectSuperAdmin);
 
 router.get("/verify", superAdminController.verifyAuth);
@@ -33,9 +31,38 @@ router.post(
   superAdminController.suspendTenant,
 );
 router.post(
+  "/tenants/:id/activate",
+  logAuditAction("TENANT_ACTIVATED"),
+  superAdminController.activateTenant,
+);
+router.post(
+  "/tenants/:id/mark-overdue",
+  logAuditAction("TENANT_MARKED_OVERDUE"),
+  superAdminController.markTenantOverdue,
+);
+router.post(
   "/tenants/:id/impersonate",
   logAuditAction("IMPERSONATION_STARTED"),
   superAdminController.impersonate,
+);
+
+// Payment / Billing
+router.get("/tenants/:id/payments", superAdminController.getPaymentHistory);
+router.post(
+  "/tenants/:id/payments",
+  logAuditAction("PAYMENT_RECORDED"),
+  superAdminController.recordPayment,
+);
+
+// Tenant Users (for impersonation picker)
+router.get("/tenants/:id/users", superAdminController.getTenantUsers);
+
+// Global CORS Management
+router.get("/cors", superAdminController.getGlobalCors);
+router.patch(
+  "/cors",
+  logAuditAction("CORS_UPDATED"),
+  superAdminController.updateGlobalCors,
 );
 
 // Audit Log

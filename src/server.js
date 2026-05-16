@@ -1,9 +1,10 @@
 import app from "./app.js";
 import { masterSequelize, getTenantConnection } from "./config/database.js";
 import { initTenantModels } from "./models/index.js";
-import { initMasterModels } from "./models/master/index.js";
+import { initMasterModels, getMasterModels } from "./models/master/index.js";
 import { QueryTypes } from "sequelize";
 import setupCronJobs from "./utils/cronJobs.js";
+import { updateCorsOrigins } from "./config/cors-config.js";
 
 const PORT = process.env.PORT || 8086;
 
@@ -18,10 +19,20 @@ const startServer = async () => {
     // Register Master DB ORM models (SuperAdmin, Tenant, GlobalUser, AuditLog)
     initMasterModels(masterSequelize);
 
-    // Give Sequelize authority to auto-create/update Master tables
-    // alter: true adds missing columns to existing tables
     await masterSequelize.sync({ alter: true });
     console.log("✅ Master Database structure synced.");
+
+    // Load CORS origins from DB into the live middleware
+    try {
+      const { PlatformConfig } = getMasterModels();
+      const corsConfig = await PlatformConfig.findByPk("cors_origins");
+      if (corsConfig?.config_value) {
+        updateCorsOrigins(corsConfig.config_value);
+        console.log("✅ CORS origins loaded from platform config.");
+      }
+    } catch {
+      console.warn("⚠️ Could not load CORS origins from DB — using defaults.");
+    }
 
     // =================================================================
     // 2. FIND ALL TENANTS AND SYNC THEIR DATABASES

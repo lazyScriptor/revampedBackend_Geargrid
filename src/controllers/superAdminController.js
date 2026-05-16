@@ -20,7 +20,7 @@ export const login = catchAsync(async (req, res) => {
 
   res.cookie("superAdminToken", token, {
     ...cookieOptions,
-    maxAge: 8 * 60 * 60 * 1000, // 8 hours
+    maxAge: 8 * 60 * 60 * 1000,
   });
 
   res.status(200).json({ status: "success", data: { admin } });
@@ -66,7 +66,7 @@ export const getTenantDetails = catchAsync(async (req, res) => {
 });
 
 export const updateTenant = catchAsync(async (req, res) => {
-  const tenant = await superAdminTenantService.updateTenantSubscription(
+  const tenant = await superAdminTenantService.updateTenantConfig(
     req.params.id,
     req.body,
   );
@@ -75,9 +75,60 @@ export const updateTenant = catchAsync(async (req, res) => {
 
 export const suspendTenant = catchAsync(async (req, res) => {
   const tenant = await superAdminTenantService.suspendTenant(req.params.id);
-  res
-    .status(200)
-    .json({ status: "success", message: "Tenant suspended.", data: { tenant } });
+  res.status(200).json({ status: "success", message: "Tenant suspended.", data: { tenant } });
+});
+
+export const activateTenant = catchAsync(async (req, res) => {
+  const tenant = await superAdminTenantService.activateTenant(req.params.id);
+  res.status(200).json({ status: "success", message: "Tenant activated.", data: { tenant } });
+});
+
+export const markTenantOverdue = catchAsync(async (req, res) => {
+  const tenant = await superAdminTenantService.markTenantOverdue(req.params.id);
+  res.status(200).json({ status: "success", message: "Tenant marked overdue.", data: { tenant } });
+});
+
+// ============================================================================
+// PAYMENT / BILLING
+// ============================================================================
+export const recordPayment = catchAsync(async (req, res) => {
+  const payment = await superAdminTenantService.recordPayment(
+    req.params.id,
+    req.body,
+  );
+  res.status(201).json({ status: "success", data: { payment } });
+});
+
+export const getPaymentHistory = catchAsync(async (req, res) => {
+  const payments = await superAdminTenantService.getPaymentHistory(
+    req.params.id,
+  );
+  res.status(200).json({ status: "success", data: { payments } });
+});
+
+// ============================================================================
+// TENANT USERS
+// ============================================================================
+export const getTenantUsers = catchAsync(async (req, res) => {
+  const users = await superAdminTenantService.getTenantUsers(req.params.id);
+  res.status(200).json({ status: "success", data: { users } });
+});
+
+// ============================================================================
+// GLOBAL CORS MANAGEMENT
+// ============================================================================
+export const getGlobalCors = catchAsync(async (req, res) => {
+  const data = await superAdminTenantService.getGlobalCors();
+  res.status(200).json({ status: "success", data });
+});
+
+export const updateGlobalCors = catchAsync(async (req, res) => {
+  const { origins } = req.body;
+  if (!Array.isArray(origins)) {
+    return res.status(400).json({ status: "fail", message: "origins must be an array." });
+  }
+  const data = await superAdminTenantService.updateGlobalCors(origins);
+  res.status(200).json({ status: "success", data });
 });
 
 // ============================================================================
@@ -91,10 +142,9 @@ export const impersonate = catchAsync(async (req, res) => {
     targetUserId,
   );
 
-  // Set the impersonation token as the user's accessToken cookie
   res.cookie("accessToken", data.impersonationToken, {
     ...cookieOptions,
-    maxAge: 15 * 60 * 1000, // 15 minutes
+    maxAge: 15 * 60 * 1000,
   });
 
   res.status(200).json({ status: "success", data });

@@ -5,29 +5,49 @@ export default (sequelize) => {
     "Tenant",
     {
       tenant_id: {
-        type: DataTypes.INTEGER,
-        autoIncrement: true,
+        type: DataTypes.STRING(36),
         primaryKey: true,
       },
-      db_name: {
-        type: DataTypes.STRING(255),
-        allowNull: false,
-        unique: true,
-      },
-      db_user: {
-        type: DataTypes.STRING(255),
-        allowNull: false,
-      },
-      encrypted_db_pass: {
-        type: DataTypes.STRING(255),
-        allowNull: false,
-      },
+      db_name: { type: DataTypes.STRING(255), allowNull: false, unique: true },
+      db_user: { type: DataTypes.STRING(255), allowNull: false },
+      encrypted_db_pass: { type: DataTypes.STRING(255), allowNull: false },
       db_host: {
         type: DataTypes.STRING(255),
         allowNull: false,
         defaultValue: "localhost",
       },
-      // --- SaaS Management Fields ---
+      // --- Identity / Contact ---
+      display_name: { type: DataTypes.STRING(255), allowNull: true },
+      contact_email: { type: DataTypes.STRING(255), allowNull: true },
+      contact_phone: { type: DataTypes.STRING(50), allowNull: true },
+      // --- Billing ---
+      monthly_rate: {
+        type: DataTypes.DECIMAL(10, 2),
+        allowNull: false,
+        defaultValue: 0.0,
+      },
+      next_billing_date: { type: DataTypes.DATEONLY, allowNull: true },
+      // --- Access Control ---
+      cors_whitelist: {
+        type: DataTypes.JSON,
+        allowNull: true,
+        defaultValue: [],
+      },
+      // --- Branding ---
+      branding: {
+        type: DataTypes.JSON,
+        allowNull: true,
+        defaultValue: {
+          primaryColor: "#1e40af",
+          secondaryColor: "#0f172a",
+          accentColor: "#3b82f6",
+          logoUrl: null,
+          businessName: null,
+        },
+      },
+      // --- Internal ---
+      internal_notes: { type: DataTypes.TEXT, allowNull: true },
+      // --- SaaS Management ---
       subscription_status: {
         type: DataTypes.ENUM("Active", "Suspended", "Overdue"),
         allowNull: false,

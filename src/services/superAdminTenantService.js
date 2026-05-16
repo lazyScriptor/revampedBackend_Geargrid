@@ -3,7 +3,7 @@ import { getMasterModels } from "../models/master/index.js";
 import { getTenantConnection } from "../config/database.js";
 import { initTenantModels } from "../models/index.js";
 import AppError from "../utils/AppError.js";
-import { QueryTypes } from "sequelize";
+import { updateCorsOrigins } from "../config/cors-config.js";
 
 const SUPER_ADMIN_SECRET =
   process.env.SUPER_ADMIN_JWT_SECRET || process.env.JWT_SECRET;
@@ -12,23 +12,19 @@ const SUPER_ADMIN_SECRET =
 // TENANT LISTING
 // ============================================================================
 export const getAllTenants = async () => {
-  const { Tenant, GlobalUser, sequelize } = getMasterModels();
+  const { Tenant, GlobalUser } = getMasterModels();
 
   const tenants = await Tenant.findAll({
-    include: [
-      {
-        model: GlobalUser,
-        attributes: ["global_user_id", "email"],
-      },
-    ],
-    order: [["tenant_id", "ASC"]],
+    include: [{ model: GlobalUser, attributes: ["global_user_id", "email"] }],
+    order: [["createdAt", "ASC"]],
   });
 
-  // Enrich with user count
   return tenants.map((t) => {
     const plain = t.get({ plain: true });
     plain.userCount = plain.GlobalUsers?.length || 0;
     delete plain.GlobalUsers;
+    // Redact DB credentials from list view
+    delete plain.encrypted_db_pass;
     return plain;
   });
 };
@@ -42,7 +38,9 @@ export const getTenantDetails = async (tenantId) => {
 
   if (!tenant) throw new AppError("Tenant not found.", 404);
 
-  // Try to get tenant config for display name
+  const plain = tenant.get({ plain: true });
+  delete plain.encrypted_db_pass;
+
   let tenantConfig = null;
   try {
     const conn = await getTenantConnection(
@@ -53,69 +51,208 @@ export const getTenantDetails = async (tenantId) => {
     );
     const models = initTenantModels(conn);
     tenantConfig = await models.TenantConfig.findOne({ raw: true });
-  } catch (e) {
-    // Tenant DB might be unreachable — don't crash
+  } catch {
+    // Tenant DB might be unreachable
   }
 
-  return { tenant: tenant.get({ plain: true }), tenantConfig };
+  return { tenant: plain, tenantConfig };
 };
 
 // ============================================================================
-// TENANT MANAGEMENT
+// TENANT CONFIG (full update — all configurable fields)
 // ============================================================================
-export const updateTenantSubscription = async (tenantId, updates) => {
-  const { Tenant } = getMasterModels();
+const UPDATABLE_FIELDS = [
+  "subscription_status",
+  "tier",
+  "max_users",
+  "feature_flags",
+  "display_name",
+  "contact_email",
+  "contact_phone",
+  "monthly_rate",
+  "next_billing_date",
+  "cors_whitelist",
+  "branding",
+  "internal_notes",
+];
 
+export const updateTenantConfig = async (tenantId, updates) => {
+  const { Tenant } = getMasterModels();
   const tenant = await Tenant.findByPk(tenantId);
   if (!tenant) throw new AppError("Tenant not found.", 404);
 
-  const allowed = ["subscription_status", "tier", "max_users", "feature_flags"];
-  const filteredUpdates = {};
-  for (const key of allowed) {
-    if (updates[key] !== undefined) filteredUpdates[key] = updates[key];
+  const filtered = {};
+  for (const key of UPDATABLE_FIELDS) {
+    if (updates[key] !== undefined) filtered[key] = updates[key];
   }
 
-  await tenant.update(filteredUpdates);
-  return tenant.get({ plain: true });
+  await tenant.update(filtered);
+  const plain = tenant.get({ plain: true });
+  delete plain.encrypted_db_pass;
+  return plain;
 };
 
-export const suspendTenant = async (tenantId) => {
-  return updateTenantSubscription(tenantId, {
-    subscription_status: "Suspended",
+// Legacy alias — still used by PATCH /tenants/:id
+export const updateTenantSubscription = updateTenantConfig;
+
+// ============================================================================
+// STATUS CONTROLS
+// ============================================================================
+export const suspendTenant = async (tenantId) =>
+  updateTenantConfig(tenantId, { subscription_status: "Suspended" });
+
+export const activateTenant = async (tenantId) =>
+  updateTenantConfig(tenantId, { subscription_status: "Active" });
+
+export const markTenantOverdue = async (tenantId) =>
+  updateTenantConfig(tenantId, { subscription_status: "Overdue" });
+
+// ============================================================================
+// BILLING / PAYMENT HISTORY
+// ============================================================================
+export const recordPayment = async (tenantId, paymentData) => {
+  const { Tenant, TenantSubscription } = getMasterModels();
+  const tenant = await Tenant.findByPk(tenantId);
+  if (!tenant) throw new AppError("Tenant not found.", 404);
+
+  const payment = await TenantSubscription.create({
+    tenant_id: tenantId,
+    plan_name: paymentData.plan_name || "Monthly",
+    amount: paymentData.amount || 0,
+    currency: paymentData.currency || "LKR",
+    status: paymentData.status || "Paid",
+    billing_period_start: paymentData.billing_period_start || null,
+    billing_period_end: paymentData.billing_period_end || null,
+    paid_at: paymentData.status === "Paid" ? new Date() : null,
+    method: paymentData.method || null,
+    reference_number: paymentData.reference_number || null,
+    notes: paymentData.notes || null,
   });
+
+  // Auto-activate if payment received and tenant was overdue
+  if (
+    paymentData.status === "Paid" &&
+    tenant.subscription_status === "Overdue"
+  ) {
+    await tenant.update({ subscription_status: "Active" });
+  }
+
+  return payment.get({ plain: true });
+};
+
+export const getPaymentHistory = async (tenantId) => {
+  const { TenantSubscription } = getMasterModels();
+  const { Tenant } = getMasterModels();
+  const tenant = await Tenant.findByPk(tenantId);
+  if (!tenant) throw new AppError("Tenant not found.", 404);
+
+  const payments = await TenantSubscription.findAll({
+    where: { tenant_id: tenantId },
+    order: [["createdAt", "DESC"]],
+  });
+  return payments.map((p) => p.get({ plain: true }));
+};
+
+// ============================================================================
+// GLOBAL CORS MANAGEMENT
+// ============================================================================
+export const getGlobalCors = async () => {
+  const { PlatformConfig } = getMasterModels();
+  const config = await PlatformConfig.findByPk("cors_origins");
+  return { origins: config ? config.config_value : [] };
+};
+
+export const updateGlobalCors = async (origins) => {
+  const { PlatformConfig } = getMasterModels();
+  await PlatformConfig.upsert({
+    config_key: "cors_origins",
+    config_value: origins,
+    updatedAt: new Date(),
+  });
+  // Live-refresh the in-process CORS list (no restart needed)
+  updateCorsOrigins(origins);
+  return { origins };
+};
+
+// ============================================================================
+// TENANT USERS (for impersonation picker)
+// ============================================================================
+export const getTenantUsers = async (tenantId) => {
+  const { Tenant } = getMasterModels();
+  const tenant = await Tenant.findByPk(tenantId);
+  if (!tenant) throw new AppError("Tenant not found.", 404);
+
+  const conn = await getTenantConnection(
+    tenant.db_name,
+    tenant.db_user,
+    tenant.encrypted_db_pass,
+    tenant.db_host,
+  );
+  const models = initTenantModels(conn);
+
+  const users = await models.User.findAll({
+    attributes: ["user_id", "username", "email", "status"],
+    include: [
+      {
+        model: models.Role,
+        attributes: ["role_name"],
+        through: { attributes: [] },
+      },
+    ],
+    order: [["user_id", "ASC"]],
+  });
+
+  return users.map((u) => ({
+    user_id: u.user_id,
+    username: u.username,
+    email: u.email,
+    status: u.status,
+    roles: u.Roles?.map((r) => r.role_name) || [],
+  }));
 };
 
 // ============================================================================
 // PLATFORM DASHBOARD KPIs
 // ============================================================================
 export const getPlatformDashboard = async () => {
-  const { Tenant, GlobalUser, sequelize } = getMasterModels();
+  const { Tenant, GlobalUser, TenantSubscription, sequelize } =
+    getMasterModels();
 
-  const totalTenants = await Tenant.count();
-  const activeTenants = await Tenant.count({
-    where: { subscription_status: "Active" },
-  });
-  const suspendedTenants = await Tenant.count({
-    where: { subscription_status: "Suspended" },
-  });
-  const totalGlobalUsers = await GlobalUser.count();
-
-  // Tier breakdown
-  const tierBreakdown = await Tenant.findAll({
-    attributes: [
-      "tier",
-      [sequelize.fn("COUNT", sequelize.col("tenant_id")), "count"],
-    ],
-    group: ["tier"],
-    raw: true,
-  });
+  const [
+    totalTenants,
+    activeTenants,
+    suspendedTenants,
+    overdueTenants,
+    totalGlobalUsers,
+    tierBreakdown,
+    recentRevenue,
+  ] = await Promise.all([
+    Tenant.count(),
+    Tenant.count({ where: { subscription_status: "Active" } }),
+    Tenant.count({ where: { subscription_status: "Suspended" } }),
+    Tenant.count({ where: { subscription_status: "Overdue" } }),
+    GlobalUser.count(),
+    Tenant.findAll({
+      attributes: [
+        "tier",
+        [sequelize.fn("COUNT", sequelize.col("tenant_id")), "count"],
+      ],
+      group: ["tier"],
+      raw: true,
+    }),
+    TenantSubscription.sum("amount", {
+      where: { status: "Paid" },
+    }),
+  ]);
 
   return {
     totalTenants,
     activeTenants,
     suspendedTenants,
+    overdueTenants,
     totalGlobalUsers,
     tierBreakdown,
+    totalRevenuePaid: recentRevenue || 0,
   };
 };
 
@@ -129,11 +266,9 @@ export const generateImpersonationToken = async (
 ) => {
   const { Tenant, AuditLog } = getMasterModels();
 
-  // 1. Get tenant connection info
   const tenant = await Tenant.findByPk(tenantId);
   if (!tenant) throw new AppError("Tenant not found.", 404);
 
-  // 2. Connect to tenant DB and find the target user
   const conn = await getTenantConnection(
     tenant.db_name,
     tenant.db_user,
@@ -158,7 +293,6 @@ export const generateImpersonationToken = async (
 
   const roles = targetUser.Roles.map((r) => r.role_name);
 
-  // 3. Generate a time-limited impersonation JWT (15 minutes)
   const impersonationToken = jwt.sign(
     {
       userId: targetUser.user_id,
@@ -169,11 +303,10 @@ export const generateImpersonationToken = async (
       isImpersonation: true,
       superAdminId,
     },
-    process.env.JWT_SECRET, // Uses the TENANT secret so it works with protect middleware
+    process.env.JWT_SECRET,
     { expiresIn: "15m" },
   );
 
-  // 4. Audit trail
   await AuditLog.create({
     super_admin_id: superAdminId,
     action: "IMPERSONATION",
