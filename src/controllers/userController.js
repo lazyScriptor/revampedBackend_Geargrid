@@ -52,8 +52,11 @@ export const getTechnicianRoster = catchAsync(async (req, res) => {
 });
 
 export const addTechnician = catchAsync(async (req, res) => {
-  const payload = { ...req.body, tenantDbName: req.user.tenantDbName };
-  const tech = await userService.createTechnician(getModels(req), payload);
+  const tech = await userService.createTechnician(
+    getModels(req),
+    req.user.tenantDbName,
+    req.body
+  );
   res.status(201).json({ status: "success", message: "Technician added.", data: { tech } });
 });
 
