@@ -55,6 +55,11 @@ export const getDashboard = catchAsync(async (req, res) => {
 // ============================================================================
 // TENANT MANAGEMENT
 // ============================================================================
+export const createTenant = catchAsync(async (req, res) => {
+  const tenant = await superAdminTenantService.createTenant(req.body);
+  res.status(201).json({ status: "success", data: { tenant } });
+});
+
 export const getAllTenants = catchAsync(async (req, res) => {
   const tenants = await superAdminTenantService.getAllTenants();
   res.status(200).json({ status: "success", data: { tenants } });
@@ -71,6 +76,15 @@ export const updateTenant = catchAsync(async (req, res) => {
     req.body,
   );
   res.status(200).json({ status: "success", data: { tenant } });
+});
+
+export const uploadTenantLogo = catchAsync(async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ status: "fail", message: "No file uploaded." });
+  }
+  const publicUrl = `/uploads/logos/${req.file.filename}`;
+  const tenant = await superAdminTenantService.saveTenantLogo(req.params.id, publicUrl);
+  res.status(200).json({ status: "success", data: { tenant, logoUrl: publicUrl } });
 });
 
 export const suspendTenant = catchAsync(async (req, res) => {
@@ -112,6 +126,26 @@ export const getPaymentHistory = catchAsync(async (req, res) => {
 export const getTenantUsers = catchAsync(async (req, res) => {
   const users = await superAdminTenantService.getTenantUsers(req.params.id);
   res.status(200).json({ status: "success", data: { users } });
+});
+
+export const getTenantRoles = catchAsync(async (req, res) => {
+  const roles = await superAdminTenantService.getTenantRoles(req.params.id);
+  res.status(200).json({ status: "success", data: { roles } });
+});
+
+export const createTenantUser = catchAsync(async (req, res) => {
+  const user = await superAdminTenantService.createTenantUser(req.params.id, req.body);
+  res.status(201).json({ status: "success", data: { user } });
+});
+
+export const updateTenantUser = catchAsync(async (req, res) => {
+  const user = await superAdminTenantService.updateTenantUser(req.params.id, req.params.userId, req.body);
+  res.status(200).json({ status: "success", data: { user } });
+});
+
+export const deleteTenantUser = catchAsync(async (req, res) => {
+  await superAdminTenantService.deleteTenantUser(req.params.id, req.params.userId);
+  res.status(204).send();
 });
 
 // ============================================================================

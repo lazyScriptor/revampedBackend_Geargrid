@@ -9,6 +9,7 @@ export const corsOrigins = [
 ];
 
 export const updateCorsOrigins = (origins) => {
+  const arr = typeof origins === 'string' ? JSON.parse(origins) : origins;
   corsOrigins.length = 0;
-  corsOrigins.push(...origins);
+  corsOrigins.push(...arr);
 };

@@ -22,7 +22,7 @@ export default (sequelize) => {
         allowNull: false,
       },
       target_tenant_id: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.STRING(36),
         allowNull: true,
       },
       target_user_id: {

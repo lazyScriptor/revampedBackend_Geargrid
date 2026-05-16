@@ -42,8 +42,13 @@ app.use(
   }),
 );
 
-app.use(express.json());
+// Large limit so base64 logos/CSV imports go through (default 100kb is too small)
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ limit: "10mb", extended: true }));
 app.use(cookieParser());
+
+// Serve uploaded files (tenant logos, etc.)
+app.use("/uploads", express.static("uploads"));
 
 // Routes
 app.use("/api/auth", authRoutes);

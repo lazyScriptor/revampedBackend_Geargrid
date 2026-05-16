@@ -7,6 +7,7 @@ export default (sequelize) => {
       global_user_id: {
         type: DataTypes.INTEGER,
         primaryKey: true,
+        autoIncrement: true,
       },
       email: {
         type: DataTypes.STRING(255),
@@ -18,7 +19,7 @@ export default (sequelize) => {
         allowNull: false,
       },
       target_tenant_id: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.STRING(36),
         allowNull: false,
       },
     },

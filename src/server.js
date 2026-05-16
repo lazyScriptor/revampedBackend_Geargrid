@@ -1,10 +1,10 @@
 import app from "./app.js";
 import { masterSequelize, getTenantConnection } from "./config/database.js";
 import { initTenantModels } from "./models/index.js";
-import { initMasterModels, getMasterModels } from "./models/master/index.js";
+import { initMasterModels } from "./models/master/index.js";
 import { QueryTypes } from "sequelize";
 import setupCronJobs from "./utils/cronJobs.js";
-import { updateCorsOrigins } from "./config/cors-config.js";
+import { recomputeCorsOrigins } from "./services/superAdminTenantService.js";
 
 const PORT = process.env.PORT || 8086;
 
@@ -22,16 +22,12 @@ const startServer = async () => {
     await masterSequelize.sync({ alter: true });
     console.log("✅ Master Database structure synced.");
 
-    // Load CORS origins from DB into the live middleware
+    // Build combined CORS allow-list from platform-config + every tenant's whitelist
     try {
-      const { PlatformConfig } = getMasterModels();
-      const corsConfig = await PlatformConfig.findByPk("cors_origins");
-      if (corsConfig?.config_value) {
-        updateCorsOrigins(corsConfig.config_value);
-        console.log("✅ CORS origins loaded from platform config.");
-      }
-    } catch {
-      console.warn("⚠️ Could not load CORS origins from DB — using defaults.");
+      await recomputeCorsOrigins();
+      console.log("✅ CORS origins loaded (global + per-tenant whitelists).");
+    } catch (corsErr) {
+      console.warn("⚠️ Could not load CORS origins from DB — using defaults.", corsErr.message);
     }
 
     // =================================================================

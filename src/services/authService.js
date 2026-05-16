@@ -61,10 +61,16 @@ export const loginUser = async (email, password) => {
   const { User, Role, Permission, TenantConfig, UserPermissionOverride } =
     initTenantModels(tenantConnection);
 
-  const configData = await TenantConfig.findOne({
-    where: { status: 1 },
-    order: [["updatedAt", "DESC"]],
-  });
+  // Most recently updated active config (don't fail login if `status` column is missing)
+  let configData = null;
+  try {
+    configData = await TenantConfig.findOne({
+      order: [["updatedAt", "DESC"]],
+      raw: true,
+    });
+  } catch (e) {
+    console.warn(`⚠️ Could not load TenantConfig for ${globalUser.db_name}:`, e.message);
+  }
 
   // 3. Get user roles AND PERMISSIONS from Tenant DB
   const tenantUser = await User.findOne({
