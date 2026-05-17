@@ -21,6 +21,8 @@ export const defineContactInquiry = (sequelize) =>
         defaultValue: "demo",
       },
       message: { type: DataTypes.TEXT, allowNull: false },
+      // Admin-only notes — never exposed via public endpoints.
+      internal_notes: { type: DataTypes.TEXT, allowNull: true },
       status: {
         type: DataTypes.ENUM("new", "contacted", "qualified", "closed"),
         allowNull: false,

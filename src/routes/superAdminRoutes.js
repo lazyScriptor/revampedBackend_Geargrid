@@ -117,4 +117,19 @@ router.patch(
 // Audit Log
 router.get("/audit-log", superAdminController.getAuditLog);
 
+// Contact Inquiries
+router.get("/inquiries", superAdminController.listInquiries);
+router.get("/inquiries/stats", superAdminController.getInquiryStats);
+router.get("/inquiries/:id", superAdminController.getInquiry);
+router.patch(
+  "/inquiries/:id",
+  logAuditAction("INQUIRY_UPDATED"),
+  superAdminController.updateInquiry,
+);
+router.delete(
+  "/inquiries/:id",
+  logAuditAction("INQUIRY_DELETED"),
+  superAdminController.deleteInquiry,
+);
+
 export default router;

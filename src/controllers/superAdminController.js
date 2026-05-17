@@ -1,5 +1,6 @@
 import * as superAdminAuthService from "../services/superAdminAuthService.js";
 import * as superAdminTenantService from "../services/superAdminTenantService.js";
+import * as superAdminInquiryService from "../services/superAdminInquiryService.js";
 import catchAsync from "../utils/catchAsync.js";
 
 const cookieOptions = {
@@ -194,4 +195,35 @@ export const getAuditLog = catchAsync(async (req, res) => {
     parseInt(limit),
   );
   res.status(200).json({ status: "success", data });
+});
+
+// ============================================================================
+// CONTACT INQUIRIES — public form submissions, surfaced to super admins
+// ============================================================================
+export const listInquiries = catchAsync(async (req, res) => {
+  const data = await superAdminInquiryService.listInquiries(req.query);
+  res.status(200).json({ status: "success", data });
+});
+
+export const getInquiryStats = catchAsync(async (req, res) => {
+  const data = await superAdminInquiryService.inquiryStats();
+  res.status(200).json({ status: "success", data });
+});
+
+export const getInquiry = catchAsync(async (req, res) => {
+  const inquiry = await superAdminInquiryService.getInquiry(req.params.id);
+  res.status(200).json({ status: "success", data: { inquiry } });
+});
+
+export const updateInquiry = catchAsync(async (req, res) => {
+  const inquiry = await superAdminInquiryService.updateInquiry(
+    req.params.id,
+    req.body,
+  );
+  res.status(200).json({ status: "success", data: { inquiry } });
+});
+
+export const deleteInquiry = catchAsync(async (req, res) => {
+  await superAdminInquiryService.deleteInquiry(req.params.id);
+  res.status(204).send();
 });
