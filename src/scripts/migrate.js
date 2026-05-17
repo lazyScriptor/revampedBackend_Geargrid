@@ -31,6 +31,9 @@ const MASTER_DIR = path.join(ROOT, "migrations", "master");
 const TENANT_DIR = path.join(ROOT, "migrations", "tenant");
 
 // ─── Umzug factory ───────────────────────────────────────────────────────────
+// Umzug v3 wants migrations as `{ glob, resolve }` (object form), not an array
+// of objects with per-entry resolve functions. The closure on `context` is what
+// umzug actually awaits — up()/down() take no args.
 const buildUmzug = (sequelize, dir, label) => {
   const files = fs
     .readdirSync(dir)
@@ -39,19 +42,28 @@ const buildUmzug = (sequelize, dir, label) => {
     .sort();
 
   return new Umzug({
-    migrations: files.map((file) => ({
-      name: path.basename(file),
-      path: file,
-      // umzug v3 uses dynamic import; ESM files need file:// URLs
-      resolve: ({ name, path: filePath }) => {
-        const importer = () => import(pathToFileURL(filePath).href);
-        return {
-          name,
-          up: async ({ context }) => (await importer()).up({ context }),
-          down: async ({ context }) => (await importer()).down({ context }),
-        };
-      },
-    })),
+    migrations: files.map((filePath) => {
+      const name = path.basename(filePath);
+      // Lazy-load the migration module via file:// URL (ESM requirement).
+      const load = () => import(pathToFileURL(filePath).href);
+      return {
+        name,
+        up: async ({ context }) => {
+          const mod = await load();
+          if (typeof mod.up !== "function") {
+            throw new Error(`Migration ${name} is missing an exported up() function`);
+          }
+          return mod.up({ context });
+        },
+        down: async ({ context }) => {
+          const mod = await load();
+          if (typeof mod.down !== "function") {
+            throw new Error(`Migration ${name} is missing an exported down() function`);
+          }
+          return mod.down({ context });
+        },
+      };
+    }),
     context: sequelize.getQueryInterface(),
     storage: new SequelizeStorage({ sequelize, modelName: "SequelizeMeta" }),
     logger: {
