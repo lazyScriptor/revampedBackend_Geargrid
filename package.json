@@ -7,7 +7,11 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node ./src/server.js",
-    "dev": "nodemon ./src/server.js"
+    "dev": "nodemon ./src/server.js",
+    "db:migrate": "node ./src/scripts/migrate.js up",
+    "db:migrate:status": "node ./src/scripts/migrate.js status",
+    "db:migrate:baseline": "node ./src/scripts/migrate.js baseline",
+    "db:migrate:create": "node ./src/scripts/migrate.js create"
   },
   "author": "",
   "license": "ISC",
@@ -27,6 +31,7 @@
     "nodemailer": "^8.0.7",
     "pdfmake": "^0.3.8",
     "sequelize": "^6.37.8",
+    "umzug": "^3.8.3",
     "zod": "^4.3.6"
   },
   "devDependencies": {

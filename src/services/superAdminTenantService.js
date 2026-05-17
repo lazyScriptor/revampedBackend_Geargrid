@@ -1,11 +1,41 @@
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { getMasterModels } from "../models/master/index.js";
 import { masterSequelize, getTenantConnection } from "../config/database.js";
 import { initTenantModels } from "../models/index.js";
 import AppError from "../utils/AppError.js";
 import { updateCorsOrigins } from "../config/cors-config.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const TENANT_MIGRATIONS_DIR = path.resolve(__dirname, "..", "..", "migrations", "tenant");
+
+// Mark every existing tenant migration file as APPLIED in this fresh tenant DB.
+// sync() already created tables matching the latest models, so re-running historical
+// migrations would either be no-ops or actively harmful. Future migrations still run.
+const baselineTenantMigrations = async (conn) => {
+  try {
+    await conn.getQueryInterface().createTable("SequelizeMeta", {
+      name: { type: "VARCHAR(255)", primaryKey: true, allowNull: false },
+    }).catch(() => {}); // ignore if exists
+
+    const files = fs
+      .readdirSync(TENANT_MIGRATIONS_DIR)
+      .filter((f) => f.endsWith(".js") || f.endsWith(".cjs"))
+      .sort();
+
+    for (const f of files) {
+      await conn.query("INSERT IGNORE INTO `SequelizeMeta` (`name`) VALUES (:name)", {
+        replacements: { name: f },
+      });
+    }
+  } catch (err) {
+    console.warn("⚠️ baselineTenantMigrations failed:", err.message);
+  }
+};
 
 // Full permission catalog — mirrors seedPermissions.js
 const PERMISSION_CATALOG = [
@@ -227,6 +257,12 @@ export const createTenant = async ({
     const conn = await getTenantConnection(db_name, dbUser, dbPass, dbHost);
     const models = initTenantModels(conn);
     await conn.sync({ force: false });
+
+    // 3b. Mark every existing tenant migration as APPLIED for this fresh DB.
+    // sync() just created tables matching the current models, so historical
+    // migrations would be no-ops or worse if re-run. Future migrations after
+    // this point will still execute on `npm run db:migrate`.
+    await baselineTenantMigrations(conn);
 
     // 4. Seed TenantConfig
     await models.TenantConfig.create({

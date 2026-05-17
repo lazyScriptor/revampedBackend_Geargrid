@@ -25,7 +25,7 @@ jobs:
           remote_user: ${{ secrets.REMOTE_USER }}
           remote_key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: 3. Install Dependencies and Restart PM2
+      - name: 3. Install Dependencies, Migrate DB, and Restart PM2
         # This action logs into your server to run terminal commands
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -33,11 +33,17 @@ jobs:
           username: ${{ secrets.REMOTE_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
+            set -e   # fail the deploy if any step below errors
+
             # 1. Go to the backend folder
             cd /var/www/rental-app/backend
-            
+
             # 2. Install any new npm packages (ignoring dev dependencies)
             npm install --omit=dev
-            
-            # 3. Restart the live server seamlessly
+
+            # 3. Apply pending DB migrations (master + every tenant).
+            #    Fails the deploy if any migration errors — better than a half-deployed schema.
+            npm run db:migrate
+
+            # 4. Restart the live server seamlessly
             pm2 restart rental-api

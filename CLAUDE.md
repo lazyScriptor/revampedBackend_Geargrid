@@ -23,8 +23,37 @@ Multi-tenant equipment-rental SaaS. Node 22 + Express + Sequelize. Each tenant h
 ## Definition of done
 
 1. **Restart the server** — `node ./src/server.js` keeps old code in memory; nothing auto-reloads unless you used `npm run dev`. Confirm new behavior with a `curl` against the real server.
-2. **Schema changes on existing columns** — Sequelize `sync()` only creates missing tables/columns; it will **not** ALTER existing columns. Run a manual `ALTER TABLE` (template in `scratch/fix_tc_schema.mjs`) for type/default/auto-increment changes.
+2. **Schema changes go through migrations, not `sync()`.** `sequelize.sync()` only creates missing tables; it does **not** ALTER existing ones. Every model change must be paired with a migration file in `migrations/master/` or `migrations/tenant/` (see "Database migrations" section below). The deploy workflow runs `npm run db:migrate` automatically.
 3. **Smoke test the endpoint** with the correct `Origin: http://localhost:5173` header — CORS is dynamic.
+
+## Database migrations
+
+The repo uses [umzug](https://github.com/sequelize/umzug) (the engine behind sequelize-cli) with a multi-tenant runner at `src/scripts/migrate.js`.
+
+```
+migrations/
+  master/   ← runs against geargrid_master only
+  tenant/   ← runs against every tenant DB in TENANTS
+```
+
+Each DB tracks state in its own `SequelizeMeta` table, so master and per-tenant migrations are independent.
+
+| Command | What it does |
+|---|---|
+| `npm run db:migrate` | Apply pending migrations to master + every tenant. Idempotent. |
+| `npm run db:migrate:status` | Show applied vs pending per DB. |
+| `npm run db:migrate:create master <name>` | Scaffold a new master-DB migration. |
+| `npm run db:migrate:create tenant <name>` | Scaffold a new tenant-DB migration. |
+| `npm run db:migrate:baseline` | **One-time** — mark every existing migration file as APPLIED without running it. Use on existing DBs after introducing a migration that they already match. |
+
+**Workflow for a schema change:**
+1. Edit the model file (e.g. add a column to `Equipment.js`).
+2. `npm run db:migrate:create tenant add-equipment-foo` — creates `migrations/tenant/YYYYMMDDHHMMSS-add-equipment-foo.js`.
+3. Fill in `up()` (the `ALTER TABLE …`) and `down()` (the inverse).
+4. `npm run db:migrate` locally to verify.
+5. Commit both the model change and the migration file together. CI runs `npm run db:migrate` on the server before restarting PM2.
+
+**New tenant DBs:** `createTenant()` (in `superAdminTenantService.js`) still uses `conn.sync()` to create all tables from the current models, then calls `baselineTenantMigrations()` to mark every tenant migration file as already-applied. Future migrations after the tenant is created will still run.
 
 ## Known traps (re-discovered too many times — written down so we don't again)
 
@@ -37,6 +66,7 @@ Multi-tenant equipment-rental SaaS. Node 22 + Express + Sequelize. Each tenant h
 - **`TenantConfig.logo_url` is `TEXT('long')` (LONGTEXT)** — plain TEXT (~64KB) can't hold base64 images.
 - **`getTenantUsers` and similar must tolerate offline tenant DBs** — wrap `getTenantConnection` calls in try/catch and return `[]` rather than crashing the super-admin console.
 - **`{...stringValue}` corruption**: if a JSON column comes back as a string and a client does `{...prev}`, the saved object gets numeric-indexed character keys (`{"0":"{","1":"\""…}`). `stripCorruptedSpreadKeys()` in the service file defends against this on write.
+- **Never use `sequelize.sync({ alter: true })`.** Each restart re-runs `ALTER TABLE … UNIQUE` and appends a new index (`email_2`, `email_3`, …) until MySQL hits 64 keys/column and refuses (`ER_TOO_MANY_KEYS`). Use migrations instead.
 
 ## Conventions
 
