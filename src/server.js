@@ -19,7 +19,10 @@ const startServer = async () => {
     // Register Master DB ORM models (SuperAdmin, Tenant, GlobalUser, AuditLog)
     initMasterModels(masterSequelize);
 
-    await masterSequelize.sync({ alter: true });
+    // NOTE: Do NOT use { alter: true } — every restart adds another UNIQUE index
+    // on columns marked unique, hitting MySQL's 64-index-per-column limit (ER_TOO_MANY_KEYS).
+    // sync() only creates missing tables/columns. Use manual ALTER for type/index changes.
+    await masterSequelize.sync();
     console.log("✅ Master Database structure synced.");
 
     // Build combined CORS allow-list from platform-config + every tenant's whitelist

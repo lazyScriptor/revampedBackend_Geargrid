@@ -1,3 +1,4 @@
+import jwt from "jsonwebtoken";
 import * as authService from "../services/authService.js";
 import catchAsync from "../utils/catchAsync.js";
 
@@ -57,6 +58,46 @@ export const login = catchAsync(async (req, res, next) => {
   });
 
   res.status(200).json({ auth: true, user });
+});
+
+export const refresh = catchAsync(async (req, res) => {
+  const refreshToken = req.cookies?.refreshToken;
+  if (!refreshToken) {
+    return res
+      .status(401)
+      .json({ status: "fail", message: "No refresh token." });
+  }
+
+  let decoded;
+  try {
+    decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+  } catch {
+    res.clearCookie("accessToken");
+    res.clearCookie("refreshToken");
+    return res
+      .status(401)
+      .json({ status: "fail", message: "Invalid or expired refresh token." });
+  }
+
+  const tokenPayload = {
+    userId: decoded.userId,
+    username: decoded.username,
+    roles: decoded.roles,
+    roleHierarchyLevel: decoded.roleHierarchyLevel,
+    warehouseId: decoded.warehouseId,
+    tenantDbName: decoded.tenantDbName,
+  };
+
+  const newAccessToken = jwt.sign(tokenPayload, process.env.JWT_SECRET, {
+    expiresIn: "1d",
+  });
+
+  res.cookie("accessToken", newAccessToken, {
+    ...cookieOptions,
+    maxAge: 5 * 60 * 60 * 1000,
+  });
+
+  res.status(200).json({ status: "success", message: "Token refreshed." });
 });
 
 export const verifyAuth = (req, res) => {
