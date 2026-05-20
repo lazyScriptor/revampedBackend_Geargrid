@@ -38,6 +38,11 @@ export default (sequelize) => {
         allowNull: false,
         defaultValue: "Active",
       },
+      track_overdue: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: true,
+      },
     },
     {
       tableName: "INVOICE_LINES",

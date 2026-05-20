@@ -39,6 +39,7 @@ export const createDispatchInvoice = async (models, payload, userId) => {
         borrow_quantity: item.borrow_quantity,
         line_total_amount: lineTotal,
         line_status: "Active",
+        track_overdue: item.track_overdue !== false,
       };
     });
 
@@ -290,13 +291,16 @@ export const processReturn = async (models, payload, userId) => {
         );
       }
 
-      // 3. Late Fee Math (Only applies to the items being physically returned TODAY)
+      // 3. Late Fee Math — skipped entirely when overdue tracking is off for
+      //    this line (either opted out at dispatch or waived at handover).
+      const overdueEnabled =
+        line.track_overdue !== false && returnData.track_overdue !== false;
+
       const expectedDate = new Date(line.expected_return_date).getTime();
       const actualDate = new Date(returnData.actual_return_date).getTime();
-      const daysLate = Math.max(
-        0,
-        Math.ceil((actualDate - expectedDate) / (1000 * 60 * 60 * 24)),
-      );
+      const daysLate = overdueEnabled
+        ? Math.max(0, Math.ceil((actualDate - expectedDate) / (1000 * 60 * 60 * 24)))
+        : 0;
 
       let lineLateFee = 0;
       if (daysLate > 0) {
@@ -314,6 +318,11 @@ export const processReturn = async (models, payload, userId) => {
       const newLineStatus =
         newGrandTotalReturned >= line.borrow_quantity ? "Returned" : "Active";
 
+      // If the caller explicitly waived overdue for this line, persist it so
+      // future partial-return settlements on the same line are also fee-free.
+      const updatedTrackOverdue =
+        returnData.track_overdue === false ? false : line.track_overdue;
+
       await line.update(
         {
           actual_return_date: returnData.actual_return_date,
@@ -321,6 +330,7 @@ export const processReturn = async (models, payload, userId) => {
           defective_returned_qty: newBadTotal,
           line_total_amount: Number(line.line_total_amount) + lineLateFee,
           line_status: newLineStatus,
+          track_overdue: updatedTrackOverdue,
         },
         { transaction: t },
       );
