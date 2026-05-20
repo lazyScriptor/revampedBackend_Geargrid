@@ -27,3 +27,22 @@ export const updateCustomer = catchAsync(async (req, res, next) => {
   const updatedCustomer = await customerService.updateCustomer(getModels(req), req.params.id, req.body);
   res.status(200).json({ status: 'success', data: { customer: updatedCustomer } });
 });
+
+export const deleteCustomer = catchAsync(async (req, res, next) => {
+  await customerService.deleteCustomer(getModels(req), req.params.id);
+  res.status(200).json({ status: 'success', message: 'Customer archived.' });
+});
+
+// Lightweight list of customers that can act as a parent, used by the
+// customer form dropdown. Accepts:
+//   ?exclude=<id>  — hide the customer currently being edited
+//   ?search=<q>    — fuzzy match across name / company / phone / NIC
+export const getParentCustomerOptions = catchAsync(async (req, res, next) => {
+  const excludeId = req.query.exclude ? parseInt(req.query.exclude, 10) : null;
+  const search = typeof req.query.search === "string" ? req.query.search : "";
+  const options = await customerService.getParentOptions(getModels(req), {
+    excludeId,
+    search,
+  });
+  res.status(200).json({ status: 'success', data: { options } });
+});

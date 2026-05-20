@@ -3,7 +3,7 @@ import AppError from "../utils/AppError.js";
 
 // --- 1. DISPATCH ENGINE (With Row-Level Locks) ---
 export const createDispatchInvoice = async (models, payload, userId) => {
-  const { customer_id, items, fees } = payload;
+  const { customer_id, items, fees, borrowed_on_behalf_of_customer_id } = payload;
 
   return await models.sequelize.transaction(async (t) => {
     let subTotal = 0;
@@ -48,9 +48,35 @@ export const createDispatchInvoice = async (models, payload, userId) => {
       subTotal + (fees.transport || 0) - (fees.discount || 0),
     );
 
+    // Guard: if a beneficiary is provided, it must not equal the actor and
+    // must be an existing, non-blacklisted customer.
+    if (borrowed_on_behalf_of_customer_id) {
+      if (Number(borrowed_on_behalf_of_customer_id) === Number(customer_id)) {
+        throw new AppError(
+          "Beneficiary cannot be the same as the renting customer.",
+          400,
+        );
+      }
+      const beneficiary = await models.Customer.findByPk(
+        borrowed_on_behalf_of_customer_id,
+        { transaction: t },
+      );
+      if (!beneficiary || beneficiary.customer_delete_status) {
+        throw new AppError("Selected beneficiary customer is invalid.", 400);
+      }
+      if (beneficiary.status === "Blacklisted") {
+        throw new AppError(
+          "Cannot rent on behalf of a blacklisted customer.",
+          400,
+        );
+      }
+    }
+
     const newInvoice = await models.Invoice.create(
       {
         customer_id,
+        borrowed_on_behalf_of_customer_id:
+          borrowed_on_behalf_of_customer_id || null,
         issued_by_user_id: userId,
         total_amount: grandTotal,
         advance_paid: fees.advance || 0,
@@ -198,6 +224,18 @@ export const getAllInvoices = async (models, queryParams) => {
         ],
       },
       {
+        model: models.Customer,
+        as: "OnBehalfOfCustomer",
+        attributes: [
+          "customer_id",
+          "first_name",
+          "last_name",
+          "company_name",
+          "customer_type",
+        ],
+        required: false,
+      },
+      {
         model: models.InvoiceLine,
         include: [
           {
@@ -225,6 +263,19 @@ export const getInvoiceById = async (models, invoiceId) => {
   const invoice = await models.Invoice.findByPk(invoiceId, {
     include: [
       { model: models.Customer },
+      {
+        model: models.Customer,
+        as: "OnBehalfOfCustomer",
+        attributes: [
+          "customer_id",
+          "first_name",
+          "last_name",
+          "company_name",
+          "customer_type",
+          "phone_number",
+        ],
+        required: false,
+      },
       {
         model: models.InvoiceLine,
         include: [

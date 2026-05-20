@@ -10,6 +10,14 @@ export default (sequelize) => {
         primaryKey: true,
       },
       customer_id: { type: DataTypes.INTEGER, allowNull: false },
+      // Optional secondary attribution: the person physically taking the
+      // equipment is `customer_id`; if they are renting it on behalf of a
+      // family member / company, that parent customer goes here. Both rows
+      // appear in either customer's rental history.
+      borrowed_on_behalf_of_customer_id: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+      },
       issued_by_user_id: { type: DataTypes.INTEGER, allowNull: true },
       total_amount: {
         type: DataTypes.DECIMAL(12, 2),

@@ -15,12 +15,17 @@ export const createCustomer = async (models, data) => {
     }
   }
 
-  // 2. Hierarchical Validation: If they are a worker, ensure the parent company exists
+  // 2. Hierarchical Validation: parent can be any active customer (Individual
+  //    or Business). The rental shop sometimes registers family members where
+  //    a son/daughter rents on behalf of a parent who isn't a company.
   if (data.parent_customer_id) {
     const parent = await models.Customer.findByPk(data.parent_customer_id);
-    if (!parent || parent.customer_type !== "Business") {
+    if (!parent || parent.customer_delete_status) {
+      throw new AppError("The selected parent customer is invalid.", 400);
+    }
+    if (parent.status === "Blacklisted") {
       throw new AppError(
-        "The selected Parent Company is invalid or not a Business account.",
+        "Cannot link to a blacklisted parent customer.",
         400,
       );
     }
@@ -149,4 +154,45 @@ export const deleteCustomer = async (models, customerId) => {
   // Instead of completely destroying the record (which breaks old invoices), we soft-delete it
   await customer.update({ customer_delete_status: true });
   return true;
+};
+
+// Lightweight parent-options query, used by the customer form's parent
+// dropdown. Excludes self (so a customer can't be their own parent) and
+// supports an optional `search` term that matches the same fields the POS
+// search uses, so the dropdown can mirror that "type to find" behaviour.
+//
+// `customer_delete_status` is checked with `Op.not: true` so legacy rows where
+// the column is NULL still show up. Blacklisted customers are returned and
+// filtered at submit time — hiding them here just confused users who couldn't
+// find an account they knew existed.
+export const getParentOptions = async (models, { excludeId, search } = {}) => {
+  const where = { customer_delete_status: { [Op.not]: true } };
+  if (excludeId) {
+    where.customer_id = { [Op.ne]: excludeId };
+  }
+  if (search && String(search).trim().length > 0) {
+    const term = `%${String(search).trim()}%`;
+    where[Op.or] = [
+      { first_name: { [Op.like]: term } },
+      { last_name: { [Op.like]: term } },
+      { company_name: { [Op.like]: term } },
+      { phone_number: { [Op.like]: term } },
+      { nic_number: { [Op.like]: term } },
+    ];
+  }
+  return models.Customer.findAll({
+    where,
+    attributes: [
+      "customer_id",
+      "customer_type",
+      "first_name",
+      "last_name",
+      "company_name",
+      "phone_number",
+      "nic_number",
+      "status",
+    ],
+    order: [["createdAt", "DESC"]],
+    limit: 50,
+  });
 };

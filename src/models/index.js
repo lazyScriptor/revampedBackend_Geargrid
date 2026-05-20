@@ -85,6 +85,15 @@ export const initTenantModels = (tenantConnection) => {
   // INVOICES & BILLING
   Invoice.belongsTo(Customer, { foreignKey: "customer_id" });
   Customer.hasMany(Invoice, { foreignKey: "customer_id" });
+  // Secondary attribution — who the invoice was rented on behalf of (optional).
+  Invoice.belongsTo(Customer, {
+    as: "OnBehalfOfCustomer",
+    foreignKey: "borrowed_on_behalf_of_customer_id",
+  });
+  Customer.hasMany(Invoice, {
+    as: "InvoicesAsBeneficiary",
+    foreignKey: "borrowed_on_behalf_of_customer_id",
+  });
   Invoice.belongsTo(User, { foreignKey: "issued_by_user_id" });
   User.hasMany(Invoice, { foreignKey: "issued_by_user_id" });
 
