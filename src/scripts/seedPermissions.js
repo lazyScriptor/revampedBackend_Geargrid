@@ -63,6 +63,9 @@ const PERMISSION_CATALOG = [
   { permission_code: "accounting:export_excel", module_name: "Accounting", description: "Export reports as Excel" },
   { permission_code: "accounting:manage_expenses", module_name: "Accounting", description: "Create/edit/delete expenses" },
 
+  // Reports — unified analytics surface
+  { permission_code: "reports:export", module_name: "Reports", description: "Export reports as CSV / PDF / Excel" },
+
   // Maintenance / Defects
   { permission_code: "defect:create", module_name: "Maintenance", description: "Report new defects" },
   { permission_code: "defect:view", module_name: "Maintenance", description: "View defect log" },

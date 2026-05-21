@@ -1,5 +1,6 @@
 import { Op, fn, col } from "sequelize";
 import * as reportService from "./reportService.js";
+import { tenantTodayYmd, tenantNDaysAgoYmd } from "../utils/dateRange.js";
 
 // ============================================================================
 // WIDGET CATALOG — source of truth for all available widgets (code-defined,
@@ -75,26 +76,26 @@ export const DEFAULT_LAYOUT = [
   { i: "maintenance_queue",   x: 6, y: 5, w: 6, h: 4 },
 ];
 
-const DEFAULT_FILTERS = {
-  startDate: (() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 30);
-    return d.toISOString().split("T")[0];
-  })(),
-  endDate: new Date().toISOString().split("T")[0],
+// Called per request so "today" is recomputed each time. Previously this was
+// an IIFE that froze the default to the server's boot time and the server's
+// UTC date — both wrong for long-lived processes and for tenants east of UTC.
+const buildDefaultFilters = (tenantTz) => ({
+  startDate: tenantNDaysAgoYmd(tenantTz, 30),
+  endDate: tenantTodayYmd(tenantTz),
   warehouseId: null,
-};
+});
 
 // ============================================================================
 // 1. DASHBOARD CONFIG — effective layout for a user (preference > role template > default)
 // ============================================================================
-export const getConfig = async (models, userId) => {
+export const getConfig = async (models, userId, tenantTz) => {
+  const defaults = buildDefaultFilters(tenantTz);
   const pref = await models.UserDashboardPreference.findOne({ where: { user_id: userId } });
 
   if (pref?.custom_layout_json?.length > 0) {
     return {
       layout: pref.custom_layout_json,
-      savedFilters: pref.saved_filters_json || DEFAULT_FILTERS,
+      savedFilters: pref.saved_filters_json || defaults,
       widgetCatalog: WIDGET_CATALOG,
       source: "user",
     };
@@ -103,19 +104,20 @@ export const getConfig = async (models, userId) => {
   // Fallback: find any active template for the user's roles (handled by controller passing roleId)
   return {
     layout: DEFAULT_LAYOUT,
-    savedFilters: DEFAULT_FILTERS,
+    savedFilters: defaults,
     widgetCatalog: WIDGET_CATALOG,
     source: "default",
   };
 };
 
-export const getConfigForRole = async (models, userId, roleId) => {
+export const getConfigForRole = async (models, userId, roleId, tenantTz) => {
+  const defaults = buildDefaultFilters(tenantTz);
   const pref = await models.UserDashboardPreference.findOne({ where: { user_id: userId } });
 
   if (pref?.custom_layout_json?.length > 0) {
     return {
       layout: pref.custom_layout_json,
-      savedFilters: pref.saved_filters_json || DEFAULT_FILTERS,
+      savedFilters: pref.saved_filters_json || defaults,
       widgetCatalog: WIDGET_CATALOG,
       source: "user",
     };
@@ -128,7 +130,7 @@ export const getConfigForRole = async (models, userId, roleId) => {
     if (template) {
       return {
         layout: template.layout_json,
-        savedFilters: DEFAULT_FILTERS,
+        savedFilters: defaults,
         widgetCatalog: WIDGET_CATALOG,
         source: "role_template",
         template_id: template.template_id,
@@ -138,7 +140,7 @@ export const getConfigForRole = async (models, userId, roleId) => {
 
   return {
     layout: DEFAULT_LAYOUT,
-    savedFilters: DEFAULT_FILTERS,
+    savedFilters: defaults,
     widgetCatalog: WIDGET_CATALOG,
     source: "default",
   };

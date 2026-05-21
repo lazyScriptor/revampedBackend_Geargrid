@@ -1,4 +1,5 @@
 import { Op, QueryTypes, fn, col, literal } from "sequelize";
+import { parseTenantDayRange } from "../utils/dateRange.js";
 
 // ============================================================================
 // HELPER: Build a Sequelize WHERE clause from common filter params
@@ -8,6 +9,25 @@ const buildDateFilter = (field, dateFrom, dateTo) => {
   if (dateFrom) return { [field]: { [Op.gte]: dateFrom } };
   if (dateTo) return { [field]: { [Op.lte]: dateTo } };
   return {};
+};
+
+// Convert YYYY-MM-DD bound strings on a query into tenant-local Date instants
+// (start-of-day / end-of-day in tenant tz). Returns null for missing bounds so
+// callers can apply one-sided filters. Mutates a shallow copy of the query.
+const normalizeDateRange = (query = {}) => {
+  if (!query.dateFrom && !query.dateTo) {
+    return { ...query, dateFrom: null, dateTo: null };
+  }
+  const { start, end } = parseTenantDayRange(
+    query.dateFrom || null,
+    query.dateTo || null,
+    query.tenantTz,
+  );
+  return {
+    ...query,
+    dateFrom: query.dateFrom ? start : null,
+    dateTo: query.dateTo ? end : null,
+  };
 };
 
 const buildAmountFilter = (field, minAmount, maxAmount) => {
@@ -39,6 +59,7 @@ const parseSorting = (query, allowedFields, defaultField = "createdAt", defaultO
 // 1. FILTERED INVOICES
 // ============================================================================
 export const getFilteredInvoices = async (models, query) => {
+  query = normalizeDateRange(query);
   const { page, pageSize, offset } = parsePagination(query);
   const order = parseSorting(query, [
     "invoice_id", "issued_date", "total_amount", "sub_total", "status",
@@ -114,6 +135,7 @@ export const getFilteredInvoices = async (models, query) => {
 // 2. FILTERED PAYMENTS
 // ============================================================================
 export const getFilteredPayments = async (models, query) => {
+  query = normalizeDateRange(query);
   const { page, pageSize, offset } = parsePagination(query);
   const order = parseSorting(query, [
     "payment_id", "payment_date", "payment_amount", "method",
@@ -177,6 +199,7 @@ export const getFilteredPayments = async (models, query) => {
 // 3. FILTERED EXPENSES (Enhanced)
 // ============================================================================
 export const getFilteredExpenses = async (models, query) => {
+  query = normalizeDateRange(query);
   const { page, pageSize, offset } = parsePagination(query);
   const order = parseSorting(query, [
     "expense_id", "date", "amount", "category",
@@ -229,6 +252,7 @@ export const getFilteredExpenses = async (models, query) => {
 // 4. TRANSACTION JOURNAL (Unified income/expense chronological view)
 // ============================================================================
 export const getTransactionJournal = async (models, query) => {
+  query = normalizeDateRange(query);
   const { page, pageSize, offset } = parsePagination(query);
   const sequelize = models.sequelize;
 
@@ -329,6 +353,7 @@ export const getTransactionJournal = async (models, query) => {
 // 5. CHART DATA AGGREGATION (For Dashboard/Workstation)
 // ============================================================================
 export const getChartData = async (models, query) => {
+  query = normalizeDateRange(query);
   const sequelize = models.sequelize;
   const replacements = { ...query };
   

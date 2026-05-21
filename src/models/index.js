@@ -10,6 +10,7 @@ import InvoiceLineFactory from "./InvoiceLine.js";
 import PaymentFactory from "./Payment.js";
 import DefectLogFactory from "./DefectLog.js";
 import InvoiceTraceFactory from "./InvoiceTrace.js";
+import InvoiceReviewFactory from "./InvoiceReview.js";
 import TenantConfigFactory from "./TenantConfig.js";
 import ExpenseFactory from "./Expense.js";
 import UserPermissionOverrideFactory from "./UserPermissionOverride.js";
@@ -29,6 +30,7 @@ export const initTenantModels = (tenantConnection) => {
   const Payment = PaymentFactory(tenantConnection);
   const DefectLog = DefectLogFactory(tenantConnection);
   const InvoiceTrace = InvoiceTraceFactory(tenantConnection);
+  const InvoiceReview = InvoiceReviewFactory(tenantConnection);
   const TenantConfig = TenantConfigFactory(tenantConnection);
   const Expense = ExpenseFactory(tenantConnection);
   const UserPermissionOverride = UserPermissionOverrideFactory(tenantConnection);
@@ -135,6 +137,14 @@ export const initTenantModels = (tenantConnection) => {
   InvoiceTrace.belongsTo(User, { foreignKey: "actor_user_id" });
   User.hasMany(InvoiceTrace, { foreignKey: "actor_user_id" }); // <-- NEW
 
+  // INVOICE REVIEWS — staff-authored per-invoice ratings + comments.
+  InvoiceReview.belongsTo(Invoice, { foreignKey: "invoice_id" });
+  Invoice.hasMany(InvoiceReview, { foreignKey: "invoice_id" });
+  InvoiceReview.belongsTo(Customer, { foreignKey: "customer_id" });
+  Customer.hasMany(InvoiceReview, { foreignKey: "customer_id" });
+  InvoiceReview.belongsTo(User, { as: "Author", foreignKey: "author_user_id" });
+  User.hasMany(InvoiceReview, { as: "AuthoredReviews", foreignKey: "author_user_id" });
+
   // EXPENSES
   Expense.belongsTo(User, { foreignKey: "recorded_by_user_id" });
   User.hasMany(Expense, { foreignKey: "recorded_by_user_id" });
@@ -168,6 +178,7 @@ export const initTenantModels = (tenantConnection) => {
     Payment,
     DefectLog,
     InvoiceTrace,
+    InvoiceReview,
     TenantConfig,
     Expense,
     UserPermissionOverride,

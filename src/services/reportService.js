@@ -1,15 +1,19 @@
 import { Op, fn, col, literal } from "sequelize";
+import { parseTenantDayRange, parseTenantDay, tenantNDaysAgoYmd } from "../utils/dateRange.js";
 
 // ============================================================================
 // 1. DASHBOARD KPIs + 30-DAY SPARKLINE
 // ============================================================================
 export const getDashboardKPIs = async (models, filters = {}) => {
-  const now = new Date();
-  const thirtyDaysAgo = new Date(now);
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-  const startDate = filters.startDate ? new Date(filters.startDate) : thirtyDaysAgo;
-  const endDate = filters.endDate ? new Date(filters.endDate) : now;
+  const tenantTz = filters.tenantTz;
+  const { start: startDate, end: endDate, startYmd } = parseTenantDayRange(
+    filters.startDate,
+    filters.endDate,
+    tenantTz,
+  );
+  // For the sparkline floor we always want the last 30 tenant-local days,
+  // regardless of the requested filter range.
+  const sparklineStartYmd = tenantNDaysAgoYmd(tenantTz, 30);
 
   // --- Total Revenue (positive payments in range) ---
   const revenueResult = await models.Payment.findOne({
@@ -59,7 +63,7 @@ export const getDashboardKPIs = async (models, filters = {}) => {
      GROUP BY DATE(payment_date)
      ORDER BY DATE(payment_date) ASC`,
     {
-      replacements: { startDate: thirtyDaysAgo.toISOString().split("T")[0] },
+      replacements: { startDate: sparklineStartYmd },
       type: models.sequelize.constructor.QueryTypes.SELECT,
     },
   );
@@ -76,13 +80,19 @@ export const getDashboardKPIs = async (models, filters = {}) => {
 // ============================================================================
 // 2. PROFIT & LOSS (Income Statement)
 // ============================================================================
-export const getProfitAndLoss = async (models, { startDate, endDate }) => {
+export const getProfitAndLoss = async (models, filters = {}) => {
+  const { start, end, startYmd, endYmd } = parseTenantDayRange(
+    filters.startDate,
+    filters.endDate,
+    filters.tenantTz,
+  );
+
   // --- Revenue: Positive payments ---
   const revenueResult = await models.Payment.findOne({
     attributes: [[fn("COALESCE", fn("SUM", col("payment_amount")), 0), "total"]],
     where: {
       payment_amount: { [Op.gt]: 0 },
-      payment_date: { [Op.between]: [startDate, endDate] },
+      payment_date: { [Op.between]: [start, end] },
     },
     raw: true,
   });
@@ -92,7 +102,7 @@ export const getProfitAndLoss = async (models, { startDate, endDate }) => {
     attributes: [[fn("COALESCE", fn("SUM", col("payment_amount")), 0), "total"]],
     where: {
       payment_amount: { [Op.lt]: 0 },
-      payment_date: { [Op.between]: [startDate, endDate] },
+      payment_date: { [Op.between]: [start, end] },
     },
     raw: true,
   });
@@ -105,18 +115,16 @@ export const getProfitAndLoss = async (models, { startDate, endDate }) => {
       [fn("COUNT", col("expense_id")), "count"],
     ],
     where: {
-      date: { [Op.between]: [startDate, endDate] },
+      date: { [Op.between]: [start, end] },
     },
     group: ["category"],
     raw: true,
   });
 
   // --- Equipment Depreciation (Linear over 60 months) ---
-  const start = new Date(startDate);
-  const end = new Date(endDate);
   const monthsInRange =
-    (end.getFullYear() - start.getFullYear()) * 12 +
-    (end.getMonth() - start.getMonth()) +
+    (end.getUTCFullYear() - start.getUTCFullYear()) * 12 +
+    (end.getUTCMonth() - start.getUTCMonth()) +
     1;
 
   const depreciationResult = await models.Equipment.findOne({
@@ -147,7 +155,7 @@ export const getProfitAndLoss = async (models, { startDate, endDate }) => {
     periodDepreciation: Math.round(periodDepreciation * 100) / 100,
     totalExpenses,
     netProfit: netRevenue - totalExpenses - periodDepreciation,
-    dateRange: { startDate, endDate },
+    dateRange: { startDate: startYmd, endDate: endYmd },
   };
 };
 
@@ -222,10 +230,13 @@ export const getAccountsReceivable = async (models) => {
 // ============================================================================
 // 4. EQUIPMENT UTILIZATION & ROI
 // ============================================================================
-export const getEquipmentUtilization = async (
-  models,
-  { startDate, endDate },
-) => {
+export const getEquipmentUtilization = async (models, filters = {}) => {
+  const { start, end } = parseTenantDayRange(
+    filters.startDate,
+    filters.endDate,
+    filters.tenantTz,
+  );
+
   const rows = await models.sequelize.query(
     `SELECT
       e.equipment_id,
@@ -264,16 +275,14 @@ export const getEquipmentUtilization = async (
     ) rent ON rent.equipment_id = e.equipment_id
     ORDER BY total_revenue DESC`,
     {
-      replacements: { startDate, endDate },
+      replacements: { startDate: start, endDate: end },
       type: models.sequelize.constructor.QueryTypes.SELECT,
     },
   );
 
   const totalDaysInRange = Math.max(
     1,
-    Math.ceil(
-      (new Date(endDate) - new Date(startDate)) / (1000 * 60 * 60 * 24),
-    ),
+    Math.ceil((end - start) / (1000 * 60 * 60 * 24)),
   );
 
   const enriched = rows.map((row) => {
@@ -303,10 +312,13 @@ export const getEquipmentUtilization = async (
 // ============================================================================
 // 5. DEFECT & MAINTENANCE COST ANALYSIS
 // ============================================================================
-export const getMaintenanceCostAnalysis = async (
-  models,
-  { startDate, endDate },
-) => {
+export const getMaintenanceCostAnalysis = async (models, filters = {}) => {
+  const { start, end } = parseTenantDayRange(
+    filters.startDate,
+    filters.endDate,
+    filters.tenantTz,
+  );
+
   // Defect counts by category
   const defects = await models.sequelize.query(
     `SELECT
@@ -322,7 +334,7 @@ export const getMaintenanceCostAnalysis = async (
     GROUP BY ec.category_id, ec.category_name
     ORDER BY defect_count DESC`,
     {
-      replacements: { startDate, endDate },
+      replacements: { startDate: start, endDate: end },
       type: models.sequelize.constructor.QueryTypes.SELECT,
     },
   );
@@ -335,7 +347,7 @@ export const getMaintenanceCostAnalysis = async (
     ],
     where: {
       category: "Repair",
-      date: { [Op.between]: [startDate, endDate] },
+      date: { [Op.between]: [start, end] },
     },
     raw: true,
   });
@@ -352,8 +364,11 @@ export const getMaintenanceCostAnalysis = async (
 // ============================================================================
 // 6. DAILY CASH FLOW RECONCILIATION
 // ============================================================================
-export const getDailyCashFlow = async (models, { date }) => {
-  const targetDate = date || new Date().toISOString().split("T")[0];
+export const getDailyCashFlow = async (models, filters = {}) => {
+  const { start, end, startYmd: targetDate } = parseTenantDay(
+    filters.date,
+    filters.tenantTz,
+  );
 
   const flows = await models.sequelize.query(
     `SELECT
@@ -363,11 +378,11 @@ export const getDailyCashFlow = async (models, { date }) => {
       SUM(payment_amount) AS net,
       COUNT(*) AS transaction_count
     FROM PAYMENTS
-    WHERE DATE(payment_date) = :targetDate
+    WHERE payment_date BETWEEN :rangeStart AND :rangeEnd
     GROUP BY method
     ORDER BY net DESC`,
     {
-      replacements: { targetDate },
+      replacements: { rangeStart: start, rangeEnd: end },
       type: models.sequelize.constructor.QueryTypes.SELECT,
     },
   );

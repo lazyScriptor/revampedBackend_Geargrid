@@ -2,6 +2,7 @@ import * as dashboardService from "../services/dashboardService.js";
 import { getCachedTenantConnection } from "../config/database.js";
 import { initTenantModels } from "../models/index.js";
 import catchAsync from "../utils/catchAsync.js";
+import { resolveTenantTz } from "../utils/dateRange.js";
 
 const getModels = (req) => {
   const connection = getCachedTenantConnection(req.user.tenantDbName);
@@ -14,7 +15,7 @@ const getModels = (req) => {
 export const getConfig = catchAsync(async (req, res) => {
   const models = getModels(req);
   const userId = req.user.userId;
-  const data = await dashboardService.getConfig(models, userId);
+  const data = await dashboardService.getConfig(models, userId, resolveTenantTz(req));
 
   // Prevent browser HTTP caching so resets are reflected immediately
   res.setHeader("Cache-Control", "no-store");
@@ -38,7 +39,10 @@ export const syncPreferences = catchAsync(async (req, res) => {
 // KPIs — revenue, profit, debt, active rentals
 // ============================================================================
 export const getKPIs = catchAsync(async (req, res) => {
-  const data = await dashboardService.getKPIs(getModels(req), req.query);
+  const data = await dashboardService.getKPIs(getModels(req), {
+    ...req.query,
+    tenantTz: resolveTenantTz(req),
+  });
   res.status(200).json({ status: "success", data });
 });
 

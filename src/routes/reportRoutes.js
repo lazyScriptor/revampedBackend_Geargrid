@@ -30,4 +30,18 @@ router.get("/maintenance-costs", requirePermission("accounting:view"), reportCon
 // Daily Cash Flow
 router.get("/cash-flow", requirePermission("accounting:view"), reportController.getCashFlow);
 
+// ─── Reports surface — Customers / Equipment / Invoices ─────────────────────
+// Permissions reuse the module-read permissions per category, so a manager
+// who can already see customers can also see customer reports without a
+// separate grant. The legacy `inventory_permission` covers all three reads
+// for tenants that haven't migrated to granular permissions yet.
+
+router.get("/customers/all", requirePermission("inventory_permission"), reportController.getAllCustomers);
+router.get("/customers/outstanding", requirePermission("inventory_permission"), reportController.getOutstandingBalances);
+
+router.get("/equipment/maintenance-by-unit", requirePermission("inventory_permission"), reportController.getEquipmentMaintenanceByUnit);
+
+router.get("/invoices/aging", requirePermission("inventory_permission"), reportController.getInvoiceAging);
+router.get("/invoices/history", requirePermission("inventory_permission"), reportController.getRentalHistory);
+
 export default router;
