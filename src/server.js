@@ -1,3 +1,4 @@
+import http from "http";
 import app from "./app.js";
 import { masterSequelize, getTenantConnection } from "./config/database.js";
 import { initTenantModels } from "./models/index.js";
@@ -5,6 +6,8 @@ import { initMasterModels } from "./models/master/index.js";
 import { QueryTypes } from "sequelize";
 import setupCronJobs from "./utils/cronJobs.js";
 import { recomputeCorsOrigins } from "./services/superAdminTenantService.js";
+import { initSocketServer } from "./sockets/index.js";
+import { startBulkJobWorker } from "./workers/bulkJobWorker.js";
 
 const PORT = process.env.PORT || 8086;
 
@@ -71,11 +74,15 @@ const startServer = async () => {
     console.log("🎉 All database schemas are up to date!");
 
     // =================================================================
-    // 3. START EXPRESS SERVER
+    // 3. START EXPRESS SERVER + SOCKET.IO + BULK JOB WORKER
     // =================================================================
-    app.listen(PORT, () => {
+    const httpServer = http.createServer(app);
+    initSocketServer(httpServer);
+    httpServer.listen(PORT, () => {
       console.log(`Revamped Production Backend is running on port ${PORT}`);
+      console.log(`🔌 socket.io listening on the same port`);
       setupCronJobs();
+      startBulkJobWorker();
     });
   } catch (error) {
     console.error(" Critical Startup Error:", error);

@@ -16,6 +16,8 @@ import ExpenseFactory from "./Expense.js";
 import UserPermissionOverrideFactory from "./UserPermissionOverride.js";
 import DashboardTemplateFactory from "./DashboardTemplate.js";
 import UserDashboardPreferenceFactory from "./UserDashboardPreference.js";
+import NotificationFactory from "./Notification.js";
+import BulkJobFactory from "./BulkJob.js";
 
 export const initTenantModels = (tenantConnection) => {
   const User = UserFactory(tenantConnection);
@@ -36,6 +38,8 @@ export const initTenantModels = (tenantConnection) => {
   const UserPermissionOverride = UserPermissionOverrideFactory(tenantConnection);
   const DashboardTemplate = DashboardTemplateFactory(tenantConnection);
   const UserDashboardPreference = UserDashboardPreferenceFactory(tenantConnection);
+  const Notification = NotificationFactory(tenantConnection);
+  const BulkJob = BulkJobFactory(tenantConnection);
 
   // ==========================================
   // AUTH & USERS
@@ -165,6 +169,15 @@ export const initTenantModels = (tenantConnection) => {
   UserDashboardPreference.belongsTo(User, { foreignKey: "user_id" });
   User.hasOne(UserDashboardPreference, { foreignKey: "user_id" });
 
+  // ==========================================
+  // NOTIFICATIONS & BULK JOBS
+  // ==========================================
+  Notification.belongsTo(User, { foreignKey: "user_id" });
+  User.hasMany(Notification, { foreignKey: "user_id" });
+
+  BulkJob.belongsTo(User, { foreignKey: "user_id" });
+  User.hasMany(BulkJob, { foreignKey: "user_id" });
+
   return {
     User,
     Role,
@@ -184,6 +197,8 @@ export const initTenantModels = (tenantConnection) => {
     UserPermissionOverride,
     DashboardTemplate,
     UserDashboardPreference,
+    Notification,
+    BulkJob,
     sequelize: tenantConnection,
   };
 };
