@@ -55,6 +55,24 @@ export const getAllCustomers = async (models, queryParams) => {
     ];
   }
 
+  // 2b. Exact-match filters for the table UI
+  // Accepts: customer_type=Individual|Business, status=Active|Blacklisted,
+  //          id_retained=true|false (drives the "IDs in vault" chip)
+  if (queryParams.customer_type) {
+    whereClause.customer_type = queryParams.customer_type;
+  }
+  if (queryParams.status) {
+    whereClause.status = queryParams.status;
+  }
+  if (typeof queryParams.id_retained !== "undefined" && queryParams.id_retained !== "") {
+    whereClause.is_id_retained_currently =
+      queryParams.id_retained === "true" || queryParams.id_retained === true;
+  }
+  if (typeof queryParams.has_parent !== "undefined" && queryParams.has_parent !== "") {
+    const wantsParent = queryParams.has_parent === "true" || queryParams.has_parent === true;
+    whereClause.parent_customer_id = wantsParent ? { [Op.ne]: null } : { [Op.is]: null };
+  }
+
   // 3. Execute Query with Relational Includes
   const { count, rows } = await models.Customer.findAndCountAll({
     where: whereClause,
