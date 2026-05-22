@@ -1,26 +1,26 @@
-import { Op } from "sequelize";
 import { writeRowsToCsv } from "./_helpers.js";
 import { fileSize } from "../../utils/jobFileStore.js";
 
 const HEADERS = [
   { key: "equipment_id", label: "ID" },
   { key: "equipment_name", label: "Equipment Name" },
+  { key: "serial_number", label: "Serial #" },
   { key: "category_name", label: "Category" },
   { key: "warehouse_name", label: "Warehouse" },
-  { key: "rental_price_per_day", label: "Rate / Day" },
-  { key: "available_quantity", label: "Available" },
-  { key: "total_quantity", label: "Total" },
-  { key: "status", label: "Status" },
+  { key: "base_rental_price", label: "Rate / Day" },
+  { key: "available_qty", label: "Available" },
+  { key: "total_owned_qty", label: "Total" },
+  { key: "rented_qty", label: "Rented" },
+  { key: "defective_qty", label: "Defective" },
 ];
 
 export default async function exportEquipmentCsv(ctx) {
   const { tenantDbName, models, job, reportProgress } = ctx;
   const params = job.params || {};
 
-  const where = { equipment_delete_status: { [Op.not]: true } };
+  const where = {};
   if (params.warehouse_id) where.warehouse_id = params.warehouse_id;
   if (params.category_id) where.category_id = params.category_id;
-  if (params.status) where.status = params.status;
 
   const total = await models.Equipment.count({ where });
   await reportProgress({ totalCount: total, processedCount: 0, progress: 5 });
@@ -33,8 +33,8 @@ export default async function exportEquipmentCsv(ctx) {
     const chunk = await models.Equipment.findAll({
       where,
       include: [
-        { model: models.EquipmentCategory, attributes: ["category_name"] },
-        { model: models.Warehouse, attributes: ["warehouse_name"] },
+        { model: models.EquipmentCategory, attributes: ["category_name"], required: false },
+        { model: models.Warehouse, attributes: ["location_name"], required: false },
       ],
       offset,
       limit: batchSize,
@@ -45,12 +45,14 @@ export default async function exportEquipmentCsv(ctx) {
       rows.push({
         equipment_id: e.equipment_id,
         equipment_name: e.equipment_name,
+        serial_number: e.serial_number,
         category_name: e.EquipmentCategory?.category_name || "",
-        warehouse_name: e.Warehouse?.warehouse_name || "",
-        rental_price_per_day: e.rental_price_per_day,
-        available_quantity: e.available_quantity,
-        total_quantity: e.total_quantity,
-        status: e.status,
+        warehouse_name: e.Warehouse?.location_name || "",
+        base_rental_price: e.base_rental_price,
+        available_qty: e.available_qty,
+        total_owned_qty: e.total_owned_qty,
+        rented_qty: e.rented_qty,
+        defective_qty: e.defective_qty,
       });
     }
     processed += chunk.length;

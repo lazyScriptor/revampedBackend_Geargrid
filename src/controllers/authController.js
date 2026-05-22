@@ -1,6 +1,9 @@
 import jwt from "jsonwebtoken";
 import * as authService from "../services/authService.js";
+import * as meService from "../services/meService.js";
 import catchAsync from "../utils/catchAsync.js";
+import { getCachedTenantConnection } from "../config/database.js";
+import { initTenantModels } from "../models/index.js";
 
 // const cookieOptions = {
 //   httpOnly: true,
@@ -56,6 +59,23 @@ export const login = catchAsync(async (req, res, next) => {
     ...cookieOptions,
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
+
+  // Best-effort: stamp last_login_at + last_login_ip. Login should not fail
+  // if this audit write throws (e.g. older tenant DB without the new columns).
+  try {
+    const ip =
+      req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+      req.socket?.remoteAddress ||
+      null;
+    const decoded = jwt.decode(accessToken);
+    if (decoded?.tenantDbName && decoded?.userId) {
+      const connection = getCachedTenantConnection(decoded.tenantDbName);
+      const models = initTenantModels(connection);
+      await meService.recordLogin(models, decoded.userId, { ip });
+    }
+  } catch {
+    // intentional: never fail login on audit-stamp failure
+  }
 
   res.status(200).json({ auth: true, user });
 });

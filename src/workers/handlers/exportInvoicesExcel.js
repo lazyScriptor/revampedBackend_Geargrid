@@ -7,11 +7,11 @@ const HEADERS = [
   { key: "customer_name", label: "Customer", width: 28 },
   { key: "issued_date", label: "Issued", width: 14 },
   { key: "status", label: "Status", width: 12 },
-  { key: "subtotal", label: "Subtotal", width: 12 },
+  { key: "sub_total", label: "Subtotal", width: 12 },
   { key: "discount_amount", label: "Discount", width: 12 },
   { key: "transport_fee", label: "Transport", width: 12 },
-  { key: "grand_total", label: "Grand Total", width: 14 },
-  { key: "amount_paid", label: "Paid", width: 12 },
+  { key: "total_amount", label: "Total", width: 14 },
+  { key: "advance_paid", label: "Advance", width: 12 },
   { key: "balance_due", label: "Balance", width: 12 },
 ];
 
@@ -38,7 +38,11 @@ export default async function exportInvoicesExcel(ctx) {
     const chunk = await models.Invoice.findAll({
       where,
       include: [
-        { model: models.Customer, attributes: ["customer_type", "company_name", "first_name", "last_name"] },
+        {
+          model: models.Customer,
+          attributes: ["customer_type", "company_name", "first_name", "last_name"],
+          required: false,
+        },
       ],
       offset,
       limit: batchSize,
@@ -52,17 +56,19 @@ export default async function exportInvoicesExcel(ctx) {
           ? c.company_name
           : `${c.first_name || ""} ${c.last_name || ""}`.trim()
         : "";
+      const total = Number(inv.total_amount || 0);
+      const advance = Number(inv.advance_paid || 0);
       rows.push({
         invoice_id: inv.invoice_id,
         customer_name: customerName,
         issued_date: inv.issued_date,
         status: inv.status,
-        subtotal: inv.subtotal,
+        sub_total: inv.sub_total,
         discount_amount: inv.discount_amount,
         transport_fee: inv.transport_fee,
-        grand_total: inv.grand_total,
-        amount_paid: inv.amount_paid,
-        balance_due: inv.balance_due,
+        total_amount: total,
+        advance_paid: advance,
+        balance_due: Math.max(0, total - advance),
       });
     }
     processed += chunk.length;

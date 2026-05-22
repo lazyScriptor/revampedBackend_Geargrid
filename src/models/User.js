@@ -20,6 +20,18 @@ export default (sequelize) => {
       address_line1: { type: DataTypes.STRING(255), allowNull: true },
       address_line2: { type: DataTypes.STRING(255), allowNull: true },
       is_active: { type: DataTypes.BOOLEAN, defaultValue: true },
+      // ── Profile + preferences (self-serve) ───────────────────────────────
+      avatar_url: { type: DataTypes.STRING(500), allowNull: true },
+      job_title: { type: DataTypes.STRING(120), allowNull: true },
+      bio: { type: DataTypes.TEXT, allowNull: true },
+      language: { type: DataTypes.STRING(10), allowNull: false, defaultValue: "en" },
+      timezone: { type: DataTypes.STRING(50), allowNull: true },
+      date_format: { type: DataTypes.STRING(20), allowNull: false, defaultValue: "YYYY-MM-DD" },
+      time_format: { type: DataTypes.ENUM("12h", "24h"), allowNull: false, defaultValue: "24h" },
+      notification_prefs: { type: DataTypes.JSON, allowNull: true },
+      last_login_at: { type: DataTypes.DATE, allowNull: true },
+      last_login_ip: { type: DataTypes.STRING(45), allowNull: true },
+      password_changed_at: { type: DataTypes.DATE, allowNull: true },
     },
     {
       tableName: "USERS",

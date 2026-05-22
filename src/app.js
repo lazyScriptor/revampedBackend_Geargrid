@@ -26,6 +26,7 @@ import accountingRoutes from "./routes/accountingRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
 import bulkJobRoutes from "./routes/bulkJobRoutes.js";
+import meRoutes from "./routes/meRoutes.js";
 import { corsOrigins } from "./config/cors-config.js";
 
 const app = express();
@@ -76,6 +77,7 @@ app.use("/api/accounting", accountingRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/bulk-jobs", bulkJobRoutes);
+app.use("/api/me", meRoutes);
 
 app.use((req, res, next) => {
   next(new AppError(`Can't find ${req.originalUrl} on this server!`, 404));
