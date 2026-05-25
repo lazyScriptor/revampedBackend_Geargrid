@@ -24,7 +24,10 @@ export default (sequelize) => {
       avatar_url: { type: DataTypes.STRING(500), allowNull: true },
       job_title: { type: DataTypes.STRING(120), allowNull: true },
       bio: { type: DataTypes.TEXT, allowNull: true },
-      language: { type: DataTypes.STRING(10), allowNull: false, defaultValue: "en" },
+      // No default — left NULL so the auth resolver falls through to
+      // tenant.default_language. A non-null value means the user explicitly
+      // chose this language on their profile and overrides the tenant default.
+      language: { type: DataTypes.STRING(10), allowNull: true },
       timezone: { type: DataTypes.STRING(50), allowNull: true },
       date_format: { type: DataTypes.STRING(20), allowNull: false, defaultValue: "YYYY-MM-DD" },
       time_format: { type: DataTypes.ENUM("12h", "24h"), allowNull: false, defaultValue: "24h" },
