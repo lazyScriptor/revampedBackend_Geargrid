@@ -341,6 +341,7 @@ const UPDATABLE_FIELDS = [
   "display_name", "contact_email", "contact_phone",
   "monthly_rate", "next_billing_date",
   "cors_whitelist", "branding", "internal_notes",
+  "default_language",
 ];
 
 const parseJsonField = (val) => {

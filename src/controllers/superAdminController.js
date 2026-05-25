@@ -79,6 +79,19 @@ export const updateTenant = catchAsync(async (req, res) => {
   res.status(200).json({ status: "success", data: { tenant } });
 });
 
+// Super-admin sets the tenant's default UI language (ISO 639-1 like "en" or
+// "si"). New tenant users inherit this until they override it on /me.
+export const updateTenantLanguage = catchAsync(async (req, res) => {
+  const { language_code } = req.body || {};
+  if (!language_code || !/^[a-z]{2,5}(-[a-z0-9]{2,8})?$/i.test(language_code)) {
+    return res.status(400).json({ status: "fail", message: "Invalid language_code." });
+  }
+  const tenant = await superAdminTenantService.updateTenantConfig(req.params.id, {
+    default_language: language_code,
+  });
+  res.status(200).json({ status: "success", data: { tenant } });
+});
+
 export const uploadTenantLogo = catchAsync(async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ status: "fail", message: "No file uploaded." });

@@ -5,6 +5,7 @@ import AuditLogFactory from "./AuditLog.js";
 import TenantSubscriptionFactory from "./TenantSubscription.js";
 import PlatformConfigFactory from "./PlatformConfig.js";
 import ContactInquiryFactory from "./ContactInquiry.js";
+import TranslationPackFactory from "./TranslationPack.js";
 
 let masterModels = null;
 
@@ -18,6 +19,7 @@ export const initMasterModels = (masterSequelize) => {
   const TenantSubscription = TenantSubscriptionFactory(masterSequelize);
   const PlatformConfig = PlatformConfigFactory(masterSequelize);
   const ContactInquiry = ContactInquiryFactory(masterSequelize);
+  const TranslationPack = TranslationPackFactory(masterSequelize);
 
   // Associations
   Tenant.hasMany(GlobalUser, { foreignKey: "target_tenant_id" });
@@ -37,6 +39,7 @@ export const initMasterModels = (masterSequelize) => {
     TenantSubscription,
     PlatformConfig,
     ContactInquiry,
+    TranslationPack,
     sequelize: masterSequelize,
   };
 

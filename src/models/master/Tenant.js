@@ -47,6 +47,16 @@ export default (sequelize) => {
       },
       // --- Internal ---
       internal_notes: { type: DataTypes.TEXT, allowNull: true },
+      // --- Localization ---
+      // ISO 639-1 code. Defaults to Sinhala per GearGrid policy; super admin
+      // can override per tenant. Frontend resolves: user.language > this >
+      // platform fallback ("si"), then loads the matching pack from
+      // /api/i18n/pack/:lang.
+      default_language: {
+        type: DataTypes.STRING(10),
+        allowNull: false,
+        defaultValue: "si",
+      },
       // --- SaaS Management ---
       subscription_status: {
         type: DataTypes.ENUM("Active", "Suspended", "Overdue"),

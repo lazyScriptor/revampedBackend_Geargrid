@@ -42,7 +42,8 @@ export const loginUser = async (email, password) => {
     globalUser.db_host,
   );
 
-  // 2b. Check tenant suspension status
+  // 2b. Check tenant suspension status + capture default language
+  let tenantDefaultLanguage = "si";
   try {
     const { Tenant } = getMasterModels();
     const tenant = await Tenant.findOne({ where: { db_name: globalUser.db_name } });
@@ -52,6 +53,7 @@ export const loginUser = async (email, password) => {
         403,
       );
     }
+    if (tenant?.default_language) tenantDefaultLanguage = tenant.default_language;
   } catch (err) {
     if (err instanceof AppError) throw err;
     // If master models aren't initialized yet, skip check
@@ -173,9 +175,15 @@ export const loginUser = async (email, password) => {
       id: tenantUser.user_id,
       username: tenantUser.username,
       email: tenantUser.email,
+      first_name: tenantUser.first_name,
+      last_name: tenantUser.last_name,
       roles: roles,
       warehouseId: tenantUser.warehouse_id,
-      configData: configData,
+      // Resolved language preference. The frontend uses this directly to load
+      // the matching i18n pack on first paint. Resolution order:
+      //   tenantUser.language (per-user override) → tenant.default_language → "si"
+      language: tenantUser.language || tenantDefaultLanguage || "si",
+      configData: configData ? { ...configData, tenant_default_language: tenantDefaultLanguage } : { tenant_default_language: tenantDefaultLanguage },
       permissions: effectivePermissions, // ✅ Now includes user-level overrides
     },
   };

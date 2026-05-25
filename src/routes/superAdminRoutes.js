@@ -3,6 +3,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import * as superAdminController from "../controllers/superAdminController.js";
+import * as i18nController from "../controllers/i18nController.js";
 import {
   protectSuperAdmin,
   logAuditAction,
@@ -130,6 +131,25 @@ router.delete(
   "/inquiries/:id",
   logAuditAction("INQUIRY_DELETED"),
   superAdminController.deleteInquiry,
+);
+
+// Localization — translation packs + per-tenant default language
+router.get("/i18n/packs", i18nController.adminListPacks);
+router.get("/i18n/packs/:lang", i18nController.adminGetPack);
+router.put(
+  "/i18n/packs/:lang",
+  logAuditAction("TRANSLATION_PACK_UPDATED"),
+  i18nController.adminUpsertPack,
+);
+router.patch(
+  "/i18n/packs/:lang/active",
+  logAuditAction("TRANSLATION_PACK_TOGGLED"),
+  i18nController.adminSetActive,
+);
+router.patch(
+  "/tenants/:id/language",
+  logAuditAction("TENANT_LANGUAGE_UPDATED"),
+  superAdminController.updateTenantLanguage,
 );
 
 export default router;
