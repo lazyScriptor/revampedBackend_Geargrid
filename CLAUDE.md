@@ -25,6 +25,7 @@ Multi-tenant equipment-rental SaaS. Node 22 + Express + Sequelize. Each tenant h
 1. **Restart the server** — `node ./src/server.js` keeps old code in memory; nothing auto-reloads unless you used `npm run dev`. Confirm new behavior with a `curl` against the real server.
 2. **Schema changes go through migrations, not `sync()`.** `sequelize.sync()` only creates missing tables; it does **not** ALTER existing ones. Every model change must be paired with a migration file in `migrations/master/` or `migrations/tenant/` (see "Database migrations" section below). The deploy workflow runs `npm run db:migrate` automatically.
 3. **Smoke test the endpoint** with the correct `Origin: http://localhost:5173` header — CORS is dynamic.
+4. **Verify CI/CD Deployment**: Push to `main` triggers `.github/workflows/deploy-backend.yml` to deploy to Oracle Cloud VM (`144.24.138.27`, PM2 `geargrid-backend`). Run `gh run list --repo lazyScriptor/revampedBackend_Geargrid` to confirm conclusion is `success`.
 
 ## Database migrations
 
@@ -68,6 +69,7 @@ Each DB tracks state in its own `SequelizeMeta` table, so master and per-tenant 
 - **`{...stringValue}` corruption**: if a JSON column comes back as a string and a client does `{...prev}`, the saved object gets numeric-indexed character keys (`{"0":"{","1":"\""…}`). `stripCorruptedSpreadKeys()` in the service file defends against this on write.
 - **Never use `sequelize.sync({ alter: true })`.** Each restart re-runs `ALTER TABLE … UNIQUE` and appends a new index (`email_2`, `email_3`, …) until MySQL hits 64 keys/column and refuses (`ER_TOO_MANY_KEYS`). Use migrations instead.
 - **Dual-Layer Auth Required (Do NOT rely solely on cookies):** Cross-port dev (`:5173` $\to$ `:8086`) omits `SameSite=Lax` cookies on fetch/XHR, and Safari drops `Secure: true` cookies over plain HTTP `localhost`. If `authMiddleware.protect` or `superAdminAuth.protectSuperAdmin` only inspects `req.cookies`, requests from the frontend fail with 401, causing an immediate redirect bounce back to `/login`. Always extract token from `req.cookies` with fallback to `req.headers.authorization?.startsWith("Bearer ")`. Return `token` and `accessToken` in JSON from `login` and `refresh`, and dynamically determine cookie options via `getCookieOptions(req)` (`secure: isHttps`).
+- **Production VM Target is Oracle Cloud Infrastructure (OCI):** VM host is `144.24.138.27` (`api.geargrid.live`), user is `ubuntu`, backend path is `/home/ubuntu/geargrid-backend`, and PM2 process name is `geargrid-backend`. Do not use deprecated DigitalOcean paths (`/var/www/rental-app/backend`, `rental-api`). Direct SSH command: `ssh -i "Oracle Keys/ssh-key-2026-10-13.key" ubuntu@144.24.138.27`. GitHub repository secrets `REMOTE_HOST`, `REMOTE_USER`, and `SSH_PRIVATE_KEY` must remain in sync with this VM.
 
 ## Conventions
 
