@@ -11,7 +11,11 @@ const SUPER_ADMIN_SECRET =
  * and attaches req.superAdmin.
  */
 export const protectSuperAdmin = (req, res, next) => {
-  const token = req.cookies.superAdminToken;
+  let token = req.cookies?.superAdminToken;
+  if (!token && req.headers.authorization?.startsWith("Bearer ")) {
+    token = req.headers.authorization.split(" ")[1];
+  }
+
   if (!token) {
     return next(
       new AppError("Super Admin authentication required.", 401),

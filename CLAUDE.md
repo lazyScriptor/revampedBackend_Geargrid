@@ -67,6 +67,7 @@ Each DB tracks state in its own `SequelizeMeta` table, so master and per-tenant 
 - **`getTenantUsers` and similar must tolerate offline tenant DBs** — wrap `getTenantConnection` calls in try/catch and return `[]` rather than crashing the super-admin console.
 - **`{...stringValue}` corruption**: if a JSON column comes back as a string and a client does `{...prev}`, the saved object gets numeric-indexed character keys (`{"0":"{","1":"\""…}`). `stripCorruptedSpreadKeys()` in the service file defends against this on write.
 - **Never use `sequelize.sync({ alter: true })`.** Each restart re-runs `ALTER TABLE … UNIQUE` and appends a new index (`email_2`, `email_3`, …) until MySQL hits 64 keys/column and refuses (`ER_TOO_MANY_KEYS`). Use migrations instead.
+- **Dual-Layer Auth Required (Do NOT rely solely on cookies):** Cross-port dev (`:5173` $\to$ `:8086`) omits `SameSite=Lax` cookies on fetch/XHR, and Safari drops `Secure: true` cookies over plain HTTP `localhost`. If `authMiddleware.protect` or `superAdminAuth.protectSuperAdmin` only inspects `req.cookies`, requests from the frontend fail with 401, causing an immediate redirect bounce back to `/login`. Always extract token from `req.cookies` with fallback to `req.headers.authorization?.startsWith("Bearer ")`. Return `token` and `accessToken` in JSON from `login` and `refresh`, and dynamically determine cookie options via `getCookieOptions(req)` (`secure: isHttps`).
 
 ## Conventions
 

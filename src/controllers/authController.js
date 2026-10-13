@@ -12,13 +12,18 @@ import { initTenantModels } from "../models/index.js";
 // };
 // src/controllers/authController.js
 
-const cookieOptions = {
-  httpOnly: true,
-  // Must be true for 'none' to work
-  secure: true,
-  // 'none' allows cross-domain cookies (localhost -> geargrid.live)
-  sameSite: process.env.NODE_ENV === "production" ? "lax" : "none",
+const getCookieOptions = (req) => {
+  const isHttps = req
+    ? Boolean(req.secure) || req.headers["x-forwarded-proto"] === "https"
+    : process.env.NODE_ENV === "production";
+  return {
+    httpOnly: true,
+    secure: isHttps,
+    sameSite: isHttps ? "none" : "lax",
+  };
 };
+
+const cookieOptions = getCookieOptions();
 
 
 export const register = catchAsync(async (req, res, next) => {
@@ -50,13 +55,15 @@ export const login = catchAsync(async (req, res, next) => {
     password,
   );
 
+  const opts = getCookieOptions(req);
+
   // Set secure cookies
   res.cookie("accessToken", accessToken, {
-    ...cookieOptions,
+    ...opts,
     maxAge: 5 * 60 * 60 * 1000,
   });
   res.cookie("refreshToken", refreshToken, {
-    ...cookieOptions,
+    ...opts,
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 
@@ -77,11 +84,25 @@ export const login = catchAsync(async (req, res, next) => {
     // intentional: never fail login on audit-stamp failure
   }
 
-  res.status(200).json({ auth: true, user });
+  // Return user and access token for dual-layer authentication
+  res.status(200).json({
+    auth: true,
+    user,
+    token: accessToken,
+    accessToken,
+    refreshToken,
+  });
 });
 
 export const refresh = catchAsync(async (req, res) => {
-  const refreshToken = req.cookies?.refreshToken;
+  let refreshToken = req.cookies?.refreshToken;
+  if (!refreshToken && req.body?.refreshToken) {
+    refreshToken = req.body.refreshToken;
+  }
+  if (!refreshToken && req.headers["x-refresh-token"]) {
+    refreshToken = req.headers["x-refresh-token"];
+  }
+
   if (!refreshToken) {
     return res
       .status(401)
@@ -112,16 +133,29 @@ export const refresh = catchAsync(async (req, res) => {
     expiresIn: "1d",
   });
 
+  const opts = getCookieOptions(req);
+
   res.cookie("accessToken", newAccessToken, {
-    ...cookieOptions,
+    ...opts,
     maxAge: 5 * 60 * 60 * 1000,
   });
 
-  res.status(200).json({ status: "success", message: "Token refreshed." });
+  res.status(200).json({
+    status: "success",
+    message: "Token refreshed.",
+    token: newAccessToken,
+    accessToken: newAccessToken,
+  });
 });
 
+export const logout = (req, res) => {
+  res.clearCookie("accessToken");
+  res.clearCookie("refreshToken");
+  res.status(200).json({ status: "success", message: "Logged out." });
+};
+
 export const verifyAuth = (req, res) => {
-  // If the request made it past the `protect` middleware, the cookie is valid!
+  // If the request made it past the `protect` middleware, the session is valid!
   res.status(200).json({
     auth: true,
     user: {
@@ -129,7 +163,7 @@ export const verifyAuth = (req, res) => {
       username: req.user.username,
       roles: req.user.roles,
       warehouseId: req.user.warehouseId,
-      tenantDbName: req.user.tenantDbName, // The frontend doesn't need this, but it proves it works!
+      tenantDbName: req.user.tenantDbName,
     },
   });
 };

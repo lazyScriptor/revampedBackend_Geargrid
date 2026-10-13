@@ -3,11 +3,18 @@ import * as superAdminTenantService from "../services/superAdminTenantService.js
 import * as superAdminInquiryService from "../services/superAdminInquiryService.js";
 import catchAsync from "../utils/catchAsync.js";
 
-const cookieOptions = {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: "lax",
+const getCookieOptions = (req) => {
+  const isHttps = req
+    ? Boolean(req.secure) || req.headers["x-forwarded-proto"] === "https"
+    : process.env.NODE_ENV === "production";
+  return {
+    httpOnly: true,
+    secure: isHttps,
+    sameSite: isHttps ? "none" : "lax",
+  };
 };
+
+const cookieOptions = getCookieOptions();
 
 // ============================================================================
 // AUTH
@@ -19,12 +26,18 @@ export const login = catchAsync(async (req, res) => {
     password,
   );
 
+  const opts = getCookieOptions(req);
+
   res.cookie("superAdminToken", token, {
-    ...cookieOptions,
+    ...opts,
     maxAge: 8 * 60 * 60 * 1000,
   });
 
-  res.status(200).json({ status: "success", data: { admin } });
+  res.status(200).json({
+    status: "success",
+    data: { admin, token },
+    token,
+  });
 });
 
 export const logout = (req, res) => {
