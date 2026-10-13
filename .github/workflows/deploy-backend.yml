@@ -14,13 +14,13 @@ jobs:
       - name: 1. Checkout repository
         uses: actions/checkout@v4
 
-      - name: 2. Sync files to Droplet (Safely)
+      - name: 2. Sync files to VM (Safely)
         uses: Burnett01/rsync-deployments@7.0.0
         with:
           # CRITICAL: We exclude node_modules, .env, and .git so rsync doesn't delete them from your server!
           switches: -avzr --delete --exclude=node_modules --exclude=.env --exclude=.git
           path: ./ # Syncs the whole backend folder
-          remote_path: /var/www/rental-app/backend # Destination on your server
+          remote_path: /home/ubuntu/geargrid-backend # Destination on your server
           remote_host: ${{ secrets.REMOTE_HOST }}
           remote_user: ${{ secrets.REMOTE_USER }}
           remote_key: ${{ secrets.SSH_PRIVATE_KEY }}
@@ -36,7 +36,7 @@ jobs:
             set -e   # fail the deploy if any step below errors
 
             # 1. Go to the backend folder
-            cd /var/www/rental-app/backend
+            cd /home/ubuntu/geargrid-backend
 
             # 2. Install any new npm packages (ignoring dev dependencies)
             npm install --omit=dev
@@ -46,4 +46,4 @@ jobs:
             npm run db:migrate
 
             # 4. Restart the live server seamlessly
-            pm2 restart rental-api
+            pm2 restart geargrid-backend
