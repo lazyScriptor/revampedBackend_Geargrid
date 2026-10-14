@@ -89,7 +89,27 @@ export const importEquipment = async (models, fileBuffer) => {
     let rowNumber = 1;
 
     // 1. Convert Buffer to String
-    let csvString = fileBuffer.toString("utf-8");
+    let csvString = fileBuffer.toString("utf-8").replace(/^[\u200B\uFEFF]/, "");
+
+    // Check if entire lines are quoted (e.g. "col1,col2,col3")
+    const firstLine = csvString.split(/\r?\n/).find((l) => l.trim().length > 0);
+    if (
+      firstLine &&
+      firstLine.trim().startsWith('"') &&
+      firstLine.trim().endsWith('"') &&
+      firstLine.includes(",")
+    ) {
+      csvString = csvString
+        .split(/\r?\n/)
+        .map((line) => {
+          let l = line.trim();
+          if (l.startsWith('"') && l.endsWith('"')) {
+            l = l.slice(1, -1).replace(/""/g, '"');
+          }
+          return l;
+        })
+        .join("\n");
+    }
 
     // 2. Hardware tools quote replacement for inches (e.g. 4.5")
     csvString = csvString.replace(/(\d)"(,|s|$)/g, "$1 inch$2");
@@ -105,7 +125,17 @@ export const importEquipment = async (models, fileBuffer) => {
       )
       .on("data", (data) => {
         rowNumber++;
-        rawItems.push({ rowNumber, data });
+        let rowData = data;
+        if (rowData && typeof rowData === "object") {
+          const keys = Object.keys(rowData);
+          if (keys.length === 1 && keys[0].includes(",")) {
+            const re = Papa.parse(`${keys[0]}\n${rowData[keys[0]]}`, {
+              header: true,
+            });
+            if (re.data && re.data[0]) rowData = re.data[0];
+          }
+        }
+        rawItems.push({ rowNumber, data: rowData });
       })
       .on("end", async () => {
         const results = [];
@@ -234,7 +264,11 @@ export const importEquipment = async (models, fileBuffer) => {
                   "base_rental_price",
                   "rental_price_per_day",
                   "rate_per_day",
+                  "rate_day",
+                  "rate/day",
+                  "rateday",
                   "daily_rate",
+                  "day_rate",
                   "rate",
                   "price",
                 ]),
@@ -289,10 +323,11 @@ export const importEquipment = async (models, fileBuffer) => {
               "bulk",
             ]);
             const isBulkItem =
-              isBulkRaw != null &&
-              (isBulkRaw.toLowerCase() === "true" ||
-                isBulkRaw === "1" ||
-                isBulkRaw.toLowerCase() === "yes");
+              isBulkRaw != null
+                ? (isBulkRaw.toLowerCase() === "true" ||
+                    isBulkRaw === "1" ||
+                    isBulkRaw.toLowerCase() === "yes")
+                : (rawCategory && rawCategory.toLowerCase().includes("bulk")) || totalOwned > 1;
 
             const warrantyMonths =
               parseInt(

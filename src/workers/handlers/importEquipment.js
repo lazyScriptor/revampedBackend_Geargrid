@@ -203,7 +203,11 @@ export default async function importEquipment(ctx) {
               "base_rental_price",
               "rental_price_per_day",
               "rate_per_day",
+              "rate_day",
+              "rate/day",
+              "rateday",
               "daily_rate",
+              "day_rate",
               "rate",
               "price",
             ]),
@@ -261,10 +265,11 @@ export default async function importEquipment(ctx) {
           "bulk",
         ]);
         const isBulkItem =
-          isBulkRaw != null &&
-          (isBulkRaw.toLowerCase() === "true" ||
-            isBulkRaw === "1" ||
-            isBulkRaw.toLowerCase() === "yes");
+          isBulkRaw != null
+            ? (isBulkRaw.toLowerCase() === "true" ||
+                isBulkRaw === "1" ||
+                isBulkRaw.toLowerCase() === "yes")
+            : (rawCategory && rawCategory.toLowerCase().includes("bulk")) || totalOwned > 1;
 
         const warrantyMonths =
           parseInt(

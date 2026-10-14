@@ -54,21 +54,102 @@ export const writeRowsToCsv = ({
   return saveOutputFile(tenantDbName, jobId, fileName, Buffer.from(csv, "utf8"));
 };
 
+import readline from "readline";
+import { Transform } from "stream";
+
+// Helper: detect if every line in a CSV is wrapped in quotes like "col1,col2,col3"
+const isWholeLineQuoted = async (filePath) => {
+  try {
+    const rl = readline.createInterface({
+      input: fs.createReadStream(filePath),
+      crlfDelay: Infinity,
+    });
+    for await (const line of rl) {
+      const trimmed = line.trim();
+      if (trimmed.length > 0) {
+        rl.close();
+        return (
+          trimmed.startsWith('"') &&
+          trimmed.endsWith('"') &&
+          trimmed.includes(",")
+        );
+      }
+    }
+  } catch {
+    return false;
+  }
+  return false;
+};
+
+// Create stream that strips outer quotes and unescapes doubled quotes if wrapped
+const createNormalizedCsvStream = (filePath, isQuoted) => {
+  if (!isQuoted) return fs.createReadStream(filePath);
+
+  const rl = readline.createInterface({
+    input: fs.createReadStream(filePath),
+    crlfDelay: Infinity,
+  });
+
+  const transform = new Transform({
+    transform(chunk, encoding, callback) {
+      callback(null, chunk);
+    },
+  });
+
+  rl.on("line", (line) => {
+    let l = line.trim();
+    if (l.startsWith('"') && l.endsWith('"')) {
+      l = l.slice(1, -1).replace(/""/g, '"');
+    }
+    transform.write(l + "\n");
+  });
+
+  rl.on("close", () => {
+    transform.end();
+  });
+
+  rl.on("error", (err) => {
+    transform.destroy(err);
+  });
+
+  return transform;
+};
+
 // Streaming CSV parse with progress callbacks. We stream so 50 MB files don't
 // blow heap. `onBatch(rows)` is called every `batchSize` rows.
 export const streamParseCsv = async (filePath, { batchSize = 500, onBatch }) => {
   if (!fs.existsSync(filePath)) {
     throw new Error(`Input file missing: ${filePath}`);
   }
+
+  const isQuoted = await isWholeLineQuoted(filePath);
+
   return new Promise((resolve, reject) => {
     let buffer = [];
     let total = 0;
 
-    Papa.parse(fs.createReadStream(filePath), {
+    const stream = createNormalizedCsvStream(filePath, isQuoted);
+
+    Papa.parse(stream, {
       header: true,
       skipEmptyLines: true,
       step: async (results, parser) => {
-        buffer.push(results.data);
+        let rowData = results.data;
+
+        // Fallback: if row parsed into a single key with commas
+        if (rowData && typeof rowData === "object") {
+          const keys = Object.keys(rowData);
+          if (keys.length === 1 && keys[0].includes(",")) {
+            const re = Papa.parse(`${keys[0]}\n${rowData[keys[0]]}`, {
+              header: true,
+            });
+            if (re.data && re.data[0]) {
+              rowData = re.data[0];
+            }
+          }
+        }
+
+        buffer.push(rowData);
         if (buffer.length >= batchSize) {
           parser.pause();
           try {
@@ -99,13 +180,15 @@ export const streamParseCsv = async (filePath, { batchSize = 500, onBatch }) => 
   });
 };
 
-export const countCsvRows = (filePath) => {
+export const countCsvRows = async (filePath) => {
   // Lightweight count (excluding header) — used to pre-fill total_count for
   // a smoother progress bar. We scan the file once with a streaming reader.
+  const isQuoted = await isWholeLineQuoted(filePath);
   return new Promise((resolve, reject) => {
     let count = 0;
     let isFirst = true;
-    Papa.parse(fs.createReadStream(filePath), {
+    const stream = createNormalizedCsvStream(filePath, isQuoted);
+    Papa.parse(stream, {
       header: false,
       skipEmptyLines: true,
       step: () => {
@@ -120,3 +203,4 @@ export const countCsvRows = (filePath) => {
     });
   });
 };
+
