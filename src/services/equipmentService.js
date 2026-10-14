@@ -63,6 +63,14 @@ export const getAllEquipment = async (models, queryParams) => {
   if (queryParams.warehouse_id)
     whereClause.warehouse_id = queryParams.warehouse_id;
 
+  if (queryParams.availability === "in_stock") {
+    whereClause.available_qty = { [Op.gt]: 0 };
+  } else if (queryParams.availability === "rented") {
+    whereClause.rented_qty = { [Op.gt]: 0 };
+  } else if (queryParams.availability === "in_repair") {
+    whereClause.defective_qty = { [Op.gt]: 0 };
+  }
+
   // 3. Setup Searching (Search by name OR serial number)
   if (queryParams.search) {
     whereClause[Op.or] = [
@@ -84,6 +92,7 @@ export const getAllEquipment = async (models, queryParams) => {
   });
 
   return {
+    total: count,
     totalItems: count,
     totalPages: Math.ceil(count / limit),
     currentPage: page,
