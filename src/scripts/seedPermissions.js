@@ -41,6 +41,7 @@ const PERMISSION_CATALOG = [
   { permission_code: "equipment:create", module_name: "Equipment", description: "Add new equipment" },
   { permission_code: "equipment:view", module_name: "Equipment", description: "View equipment list" },
   { permission_code: "equipment:edit", module_name: "Equipment", description: "Edit equipment details" },
+  { permission_code: "equipment:bulk_edit", module_name: "Equipment", description: "Bulk edit equipment records" },
   { permission_code: "equipment:delete", module_name: "Equipment", description: "Delete equipment" },
   { permission_code: "equipment:action:bulk_import", module_name: "Equipment", description: "Bulk import via CSV" },
 
@@ -54,6 +55,7 @@ const PERMISSION_CATALOG = [
   { permission_code: "customer:create", module_name: "Customers", description: "Add new customers" },
   { permission_code: "customer:view", module_name: "Customers", description: "View customer list" },
   { permission_code: "customer:edit", module_name: "Customers", description: "Edit customer details" },
+  { permission_code: "customer:bulk_edit", module_name: "Customers", description: "Bulk edit customer records" },
   { permission_code: "customer:delete", module_name: "Customers", description: "Delete customers" },
   { permission_code: "customer:action:bulk_import", module_name: "Customers", description: "Bulk import customers" },
 

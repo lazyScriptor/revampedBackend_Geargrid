@@ -104,7 +104,7 @@ export const restrictTo = (...roles) => {
  *
  * Usage: router.patch("/discount", protect, requirePermission("invoice:field:edit_discount"), controller)
  */
-export const requirePermission = (action) => {
+export const requirePermission = (...actions) => {
   return async (req, res, next) => {
     try {
       const connection = getCachedTenantConnection(req.user.tenantDbName);
@@ -165,11 +165,13 @@ export const requirePermission = (action) => {
         }
       }
 
-      // 4. Check
-      if (!effective.has(action)) {
+      // 4. Check if user has ANY of the required permissions
+      const hasAccess = actions.some((action) => effective.has(action));
+      if (!hasAccess) {
+        const requiredStr = actions.join(", ");
         return next(
           new AppError(
-            `Permission denied. The action "${action}" is required but not granted to your account. Contact your administrator to request this permission.`,
+            `Permission denied. One of [${requiredStr}] is required but not granted to your account. Contact your administrator to request this permission.`,
             403,
           ),
         );

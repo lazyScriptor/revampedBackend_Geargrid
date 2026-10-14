@@ -214,3 +214,97 @@ export const getParentOptions = async (models, { excludeId, search } = {}) => {
     limit: 50,
   });
 };
+
+export const bulkUpdateCustomers = async (models, payload) => {
+  const { ids, updates } = payload;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    throw new AppError("No customer IDs provided for bulk update.", 400);
+  }
+
+  if (!updates || Object.keys(updates).length === 0) {
+    throw new AppError("No update fields provided.", 400);
+  }
+
+  return await models.sequelize.transaction(async (t) => {
+    const customers = await models.Customer.findAll({
+      where: {
+        customer_id: { [Op.in]: ids },
+        customer_delete_status: false,
+      },
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+
+    if (customers.length === 0) {
+      throw new AppError("No matching active customers found.", 404);
+    }
+
+    const {
+      status,
+      customer_type,
+      rating,
+      parent_customer_id,
+      deposit_balance_adjustment,
+    } = updates;
+
+    // Validate parent customer if provided
+    if (parent_customer_id) {
+      if (ids.map(Number).includes(Number(parent_customer_id))) {
+        throw new AppError("A customer cannot be set as their own parent company.", 400);
+      }
+      const parent = await models.Customer.findByPk(parent_customer_id, { transaction: t });
+      if (!parent || parent.customer_delete_status) {
+        throw new AppError("Selected parent customer is invalid.", 400);
+      }
+      if (parent.status === "Blacklisted") {
+        throw new AppError("Cannot link to a blacklisted parent customer.", 400);
+      }
+    }
+
+    const updatedIds = [];
+
+    for (const cust of customers) {
+      const custPatch = {};
+
+      if (status !== undefined && ["Active", "Blacklisted"].includes(status)) {
+        custPatch.status = status;
+      }
+
+      if (customer_type !== undefined && ["Individual", "Business"].includes(customer_type)) {
+        custPatch.customer_type = customer_type;
+      }
+
+      if (rating !== undefined && rating !== "") {
+        const r = parseInt(rating, 10);
+        if (r >= 1 && r <= 5) custPatch.rating = r;
+      }
+
+      // Link or unlink parent
+      if (parent_customer_id !== undefined) {
+        custPatch.parent_customer_id =
+          parent_customer_id === null || parent_customer_id === "" ? null : Number(parent_customer_id);
+      }
+
+      // Deposit balance adjustment
+      if (deposit_balance_adjustment && typeof deposit_balance_adjustment.value === "number") {
+        const { type, value } = deposit_balance_adjustment;
+        const currentDeposit = parseFloat(cust.deposit_balance) || 0;
+        if (type === "set") {
+          custPatch.deposit_balance = Math.max(0, value);
+        } else if (type === "add") {
+          custPatch.deposit_balance = Math.max(0, currentDeposit + value);
+        }
+      }
+
+      if (Object.keys(custPatch).length > 0) {
+        await cust.update(custPatch, { transaction: t });
+        updatedIds.push(cust.customer_id);
+      }
+    }
+
+    return {
+      updatedCount: updatedIds.length,
+      ids: updatedIds,
+    };
+  });
+};

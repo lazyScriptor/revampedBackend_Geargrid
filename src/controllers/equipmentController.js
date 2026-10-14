@@ -65,3 +65,15 @@ export const deleteEquipment = catchAsync(async (req, res, next) => {
     message: "Equipment successfully deleted.",
   });
 });
+
+export const bulkUpdateEquipment = catchAsync(async (req, res, next) => {
+  const result = await equipmentService.bulkUpdateEquipment(
+    getModels(req),
+    req.body,
+  );
+  res.status(200).json({
+    status: "success",
+    message: `Successfully updated ${result.updatedCount} equipment records.`,
+    data: result,
+  });
+});

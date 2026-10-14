@@ -46,3 +46,15 @@ export const getParentCustomerOptions = catchAsync(async (req, res, next) => {
   });
   res.status(200).json({ status: 'success', data: { options } });
 });
+
+export const bulkUpdateCustomers = catchAsync(async (req, res, next) => {
+  const result = await customerService.bulkUpdateCustomers(
+    getModels(req),
+    req.body,
+  );
+  res.status(200).json({
+    status: 'success',
+    message: `Successfully updated ${result.updatedCount} customer records.`,
+    data: result,
+  });
+});

@@ -6,6 +6,7 @@ import {
   updateCustomer,
   deleteCustomer,
   getParentCustomerOptions,
+  bulkUpdateCustomers,
 } from '../controllers/customerController.js';
 import { protect, requirePermission } from '../middlewares/authMiddleware.js';
 
@@ -26,6 +27,13 @@ router.get(
   '/parents',
   requirePermission("customer:view"),
   getParentCustomerOptions,
+);
+
+// Bulk update customers (MUST be before /:id)
+router.patch(
+  '/bulk',
+  requirePermission("customer:bulk_edit", "customer:edit"),
+  bulkUpdateCustomers,
 );
 
 // GET    /api/customers/5

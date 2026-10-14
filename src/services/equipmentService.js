@@ -136,3 +136,104 @@ export const deleteEquipment = async (models, id) => {
   await equipment.destroy();
   return true;
 };
+
+export const bulkUpdateEquipment = async (models, payload) => {
+  const { ids, updates } = payload;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    throw new AppError("No equipment IDs provided for bulk update.", 400);
+  }
+
+  if (!updates || Object.keys(updates).length === 0) {
+    throw new AppError("No update fields provided.", 400);
+  }
+
+  return await models.sequelize.transaction(async (t) => {
+    const items = await models.Equipment.findAll({
+      where: { equipment_id: { [Op.in]: ids } },
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+
+    if (items.length === 0) {
+      throw new AppError("No matching equipment records found.", 404);
+    }
+
+    const {
+      category_id,
+      warehouse_id,
+      is_bulk_item,
+      base_rental_price,
+      minimum_rental_days,
+      extra_daily_rate,
+      price_adjustment,
+    } = updates;
+
+    // Validate category if updating
+    if (category_id !== undefined && category_id !== null && category_id !== "") {
+      const category = await models.EquipmentCategory.findByPk(category_id, { transaction: t });
+      if (!category) throw new AppError(`Category ID ${category_id} does not exist.`, 400);
+    }
+
+    // Validate warehouse if updating
+    if (warehouse_id !== undefined && warehouse_id !== null && warehouse_id !== "") {
+      const warehouse = await models.Warehouse.findByPk(warehouse_id, { transaction: t });
+      if (!warehouse) throw new AppError(`Warehouse ID ${warehouse_id} does not exist.`, 400);
+    }
+
+    const updatedIds = [];
+
+    for (const item of items) {
+      const itemPatch = {};
+
+      if (category_id !== undefined && category_id !== "") itemPatch.category_id = Number(category_id);
+      if (warehouse_id !== undefined && warehouse_id !== "") itemPatch.warehouse_id = Number(warehouse_id);
+      if (is_bulk_item !== undefined) itemPatch.is_bulk_item = Boolean(is_bulk_item);
+      if (minimum_rental_days !== undefined && minimum_rental_days !== "") {
+        const minDays = parseInt(minimum_rental_days, 10);
+        if (minDays > 0) itemPatch.minimum_rental_days = minDays;
+      }
+      if (base_rental_price !== undefined && base_rental_price !== "") {
+        const base = parseFloat(base_rental_price);
+        if (!isNaN(base) && base >= 0) itemPatch.base_rental_price = base;
+      }
+      if (extra_daily_rate !== undefined && extra_daily_rate !== "") {
+        const extra = parseFloat(extra_daily_rate);
+        if (!isNaN(extra) && extra >= 0) itemPatch.extra_daily_rate = extra;
+      }
+
+      // Percentage or fixed price adjustment delta across selected equipment
+      if (price_adjustment && typeof price_adjustment.value === "number") {
+        const { type, field = "both", value } = price_adjustment;
+        const currentBase = parseFloat(item.base_rental_price) || 0;
+        const currentExtra = parseFloat(item.extra_daily_rate) || 0;
+
+        if (type === "percentage") {
+          const factor = 1 + value / 100;
+          if (field === "both" || field === "base") {
+            itemPatch.base_rental_price = Math.max(0, Math.round(currentBase * factor * 100) / 100);
+          }
+          if (field === "both" || field === "extra") {
+            itemPatch.extra_daily_rate = Math.max(0, Math.round(currentExtra * factor * 100) / 100);
+          }
+        } else if (type === "fixed") {
+          if (field === "both" || field === "base") {
+            itemPatch.base_rental_price = Math.max(0, currentBase + value);
+          }
+          if (field === "both" || field === "extra") {
+            itemPatch.extra_daily_rate = Math.max(0, currentExtra + value);
+          }
+        }
+      }
+
+      if (Object.keys(itemPatch).length > 0) {
+        await item.update(itemPatch, { transaction: t });
+        updatedIds.push(item.equipment_id);
+      }
+    }
+
+    return {
+      updatedCount: updatedIds.length,
+      ids: updatedIds,
+    };
+  });
+};

@@ -6,6 +6,7 @@ import {
   updateEquipment,
   changeStatus,
   deleteEquipment,
+  bulkUpdateEquipment,
 } from "../controllers/equipmentController.js";
 import { protect, requirePermission } from "../middlewares/authMiddleware.js";
 
@@ -19,6 +20,13 @@ router.use(protect);
 router.route("/")
   .get(requirePermission("equipment:view"), getEquipment)
   .post(requirePermission("equipment:create"), createEquipment);
+
+// Bulk update equipment (MUST be before /:id)
+router.patch(
+  "/bulk",
+  requirePermission("equipment:bulk_edit", "equipment:edit"),
+  bulkUpdateEquipment,
+);
 
 // GET /api/equipment/5
 // PUT /api/equipment/5 (Full/Partial update of details like price, name)
