@@ -17,6 +17,8 @@ Multi-tenant equipment-rental SaaS. Node 22 + Express + Sequelize. Each tenant h
 | Plain start | `node ./src/server.js` |
 | Port | 8086 |
 | DB creds | `.env` → `USERNAME`, `PASSWORD`, `HOST`, `JWT_SECRET`, `JWT_REFRESH_SECRET` |
+| Super-Admin | `https://app.geargrid.live/super-admin/login` (`admin7@myrental.com` / `Admin@123`) |
+| Tenant Language | Set via Super Admin UI or DB: `UPDATE system_config SET config_value = 'en' WHERE config_key = 'default_language';` |
 | Background log | `/tmp/backend.log` when run with `> /tmp/backend.log 2>&1 &` |
 | One-off scripts | put in `scratch/` (gitignored), run with `node scratch/<file>.mjs` |
 

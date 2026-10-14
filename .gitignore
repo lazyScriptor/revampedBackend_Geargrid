@@ -4,3 +4,4 @@ node_modules/
 scratch/
 logs/
 *.log
+uploads/
