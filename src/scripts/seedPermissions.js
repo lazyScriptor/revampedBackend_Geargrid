@@ -156,8 +156,21 @@ const PERMISSION_CATALOG = [
       else skipped++;
     }
 
+    // Auto-grant all permissions to Admin roles (hierarchy_level >= 100 or role_name 'Admin')
+    const [adminRoles] = await conn.query(
+      'SELECT role_id FROM roles WHERE hierarchy_level >= 100 OR LOWER(role_name) = "admin"'
+    );
+    const [allPerms] = await conn.query('SELECT permission_id FROM permissions');
+    for (const admin of adminRoles) {
+      for (const p of allPerms) {
+        await conn.query(
+          `INSERT IGNORE INTO role_permissions (role_id, permission_id) VALUES (${admin.role_id}, ${p.permission_id})`
+        );
+      }
+    }
+
     console.log(
-      `✅ Permission seed complete for "${tenantDbName}": ${created} created, ${skipped} already existed.`,
+      `✅ Permission seed complete for "${tenantDbName}": ${created} created, ${skipped} already existed. Admin roles updated.`,
     );
     process.exit(0);
   } catch (error) {
