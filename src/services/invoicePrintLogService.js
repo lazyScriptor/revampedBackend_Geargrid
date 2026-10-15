@@ -154,7 +154,8 @@ export const getPrintLogs = async (models, query = {}) => {
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
 
-  const [totalToday, totalDirect, totalDialog] = await Promise.all([
+  const [totalAllTime, totalToday, totalDirect, totalDialog] = await Promise.all([
+    models.InvoicePrintLog.count(),
     models.InvoicePrintLog.count({
       where: { printed_at: { [Op.gte]: todayStart } },
     }),
@@ -173,7 +174,7 @@ export const getPrintLogs = async (models, query = {}) => {
     currentPage: page,
     limit,
     stats: {
-      totalPrintsAllTime: totalItems,
+      totalPrintsAllTime: totalAllTime,
       totalPrintsToday: totalToday,
       totalDirectPrints: totalDirect,
       totalDialogPrints: totalDialog,

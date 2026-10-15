@@ -142,6 +142,20 @@ export const requirePermission = (...actions) => {
       });
       req.user.roleHierarchyLevel = maxHierarchy;
 
+      // 1b. Tenant Admins and Owners (hierarchy >= 100 or role 'Admin') have full access
+      const isAdmin =
+        maxHierarchy >= 100 ||
+        user.Roles?.some((r) =>
+          ["admin", "owner", "superadmin", "super_admin"].includes(
+            (r.role_name || "").toLowerCase().trim()
+          )
+        );
+
+      if (isAdmin) {
+        req.effectivePermissions = new Set(["*"]);
+        return next();
+      }
+
       // 2. Get user-level overrides
       const overrides = await models.UserPermissionOverride.findAll({
         where: { user_id: req.user.userId },
