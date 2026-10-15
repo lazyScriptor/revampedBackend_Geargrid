@@ -49,6 +49,7 @@ const PERMISSION_CATALOG = [
   { permission_code: "invoice:action:process_return", module_name: "Invoices", description: "Process equipment returns" },
   { permission_code: "invoice:action:add_payment", module_name: "Invoices", description: "Record payment against invoice" },
   { permission_code: "invoice:action:send_reminder", module_name: "Invoices", description: "Send payment reminder emails" },
+  { permission_code: "invoice:print_log:view", module_name: "Invoices", description: "View POS bill printing audit logs" },
   { permission_code: "equipment:create", module_name: "Equipment", description: "Add new equipment" },
   { permission_code: "equipment:view", module_name: "Equipment", description: "View equipment list" },
   { permission_code: "equipment:edit", module_name: "Equipment", description: "Edit equipment details" },

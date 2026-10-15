@@ -1,6 +1,7 @@
 import express from "express";
 import * as invoiceController from "../controllers/invoiceController.js";
 import * as reviewController from "../controllers/invoiceReviewController.js";
+import * as printLogController from "../controllers/invoicePrintLogController.js";
 import { protect, requirePermission } from "../middlewares/authMiddleware.js";
 
 const router = express.Router();
@@ -12,12 +13,18 @@ router.use(protect);
 router.get("/", requirePermission("invoice:view"), invoiceController.getInvoices);
 router.post("/", requirePermission("invoice:create"), invoiceController.createInvoice);
 
+// 2. Bill Printing Audit Logs — declared before /:id so /print-logs doesn't collide with /:id
+router.post("/print-logs", printLogController.createPrintLog);
+router.get("/print-logs", requirePermission("invoice:print_log:view"), printLogController.getPrintLogs);
+router.get("/print-logs/:logId", requirePermission("invoice:print_log:view"), printLogController.getPrintLogDetails);
+
 // 3. Reviews (per-invoice ratings + comments) — declared before /:id so the
 //    "reviews/:reviewId" branch doesn't collide with the detail route.
 router.patch("/reviews/:reviewId", requirePermission("invoice:edit"), reviewController.updateReview);
 router.delete("/reviews/:reviewId", requirePermission("invoice:edit"), reviewController.deleteReview);
 
 router.get("/:id", requirePermission("invoice:view"), invoiceController.getInvoiceById); // <-- NEW
+router.get("/:id/print-logs", requirePermission("invoice:print_log:view"), printLogController.getInvoicePrintLogs);
 
 // 2. OMS Actions
 router.post("/:id/return", requirePermission("invoice:action:process_return"), invoiceController.processReturnInvoice);

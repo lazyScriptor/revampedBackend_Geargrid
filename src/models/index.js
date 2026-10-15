@@ -18,6 +18,7 @@ import DashboardTemplateFactory from "./DashboardTemplate.js";
 import UserDashboardPreferenceFactory from "./UserDashboardPreference.js";
 import NotificationFactory from "./Notification.js";
 import BulkJobFactory from "./BulkJob.js";
+import InvoicePrintLogFactory from "./InvoicePrintLog.js";
 
 export const initTenantModels = (tenantConnection) => {
   const User = UserFactory(tenantConnection);
@@ -40,6 +41,7 @@ export const initTenantModels = (tenantConnection) => {
   const UserDashboardPreference = UserDashboardPreferenceFactory(tenantConnection);
   const Notification = NotificationFactory(tenantConnection);
   const BulkJob = BulkJobFactory(tenantConnection);
+  const InvoicePrintLog = InvoicePrintLogFactory(tenantConnection);
 
   // ==========================================
   // AUTH & USERS
@@ -170,13 +172,19 @@ export const initTenantModels = (tenantConnection) => {
   User.hasOne(UserDashboardPreference, { foreignKey: "user_id" });
 
   // ==========================================
-  // NOTIFICATIONS & BULK JOBS
+  // NOTIFICATIONS & BULK JOBS & PRINT LOGS
   // ==========================================
   Notification.belongsTo(User, { foreignKey: "user_id" });
   User.hasMany(Notification, { foreignKey: "user_id" });
 
   BulkJob.belongsTo(User, { foreignKey: "user_id" });
   User.hasMany(BulkJob, { foreignKey: "user_id" });
+
+  InvoicePrintLog.belongsTo(User, { as: "PrintedBy", foreignKey: "printed_by_user_id" });
+  User.hasMany(InvoicePrintLog, { foreignKey: "printed_by_user_id" });
+
+  InvoicePrintLog.belongsTo(Invoice, { foreignKey: "invoice_id" });
+  Invoice.hasMany(InvoicePrintLog, { as: "PrintLogs", foreignKey: "invoice_id" });
 
   return {
     User,
@@ -199,6 +207,7 @@ export const initTenantModels = (tenantConnection) => {
     UserDashboardPreference,
     Notification,
     BulkJob,
+    InvoicePrintLog,
     sequelize: tenantConnection,
   };
 };
