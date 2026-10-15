@@ -246,3 +246,25 @@ export const bulkUpdateEquipment = async (models, payload) => {
     };
   });
 };
+
+export const getEquipmentStats = async (models) => {
+  const [stats] = await models.Equipment.findAll({
+    attributes: [
+      [models.sequelize.fn("COUNT", models.sequelize.col("equipment_id")), "totalModels"],
+      [models.sequelize.literal(`COALESCE(SUM(total_owned_qty), 0)`), "totalUnitsOwned"],
+      [models.sequelize.literal(`COALESCE(SUM(available_qty), 0)`), "availableUnits"],
+      [models.sequelize.literal(`COALESCE(SUM(rented_qty), 0)`), "rentedUnits"],
+      [models.sequelize.literal(`COALESCE(SUM(defective_qty), 0)`), "maintenanceUnits"],
+    ],
+    raw: true,
+  });
+
+  return {
+    totalModels: Number(stats?.totalModels || 0),
+    totalUnitsOwned: Number(stats?.totalUnitsOwned || 0),
+    availableUnits: Number(stats?.availableUnits || 0),
+    rentedUnits: Number(stats?.rentedUnits || 0),
+    maintenanceUnits: Number(stats?.maintenanceUnits || 0),
+  };
+};
+

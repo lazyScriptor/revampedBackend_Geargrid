@@ -7,6 +7,7 @@ import {
   deleteCustomer,
   getParentCustomerOptions,
   bulkUpdateCustomers,
+  getCustomerStats,
 } from '../controllers/customerController.js';
 import { protect, requirePermission } from '../middlewares/authMiddleware.js';
 
@@ -20,6 +21,13 @@ router.use(protect);
 router.route('/')
   .get(requirePermission("customer:view"), getCustomers)
   .post(requirePermission("customer:create"), createCustomer);
+
+// Aggregated live KPIs for customer dashboard
+router.get(
+  '/stats',
+  requirePermission("customer:view"),
+  getCustomerStats,
+);
 
 // Lookup for the "parent customer" dropdown — must be declared BEFORE /:id
 // so Express doesn't treat "parents" as an id.

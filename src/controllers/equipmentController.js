@@ -77,3 +77,9 @@ export const bulkUpdateEquipment = catchAsync(async (req, res, next) => {
     data: result,
   });
 });
+
+export const getEquipmentStats = catchAsync(async (req, res, next) => {
+  const stats = await equipmentService.getEquipmentStats(getModels(req));
+  res.status(200).json({ status: "success", data: stats });
+});
+

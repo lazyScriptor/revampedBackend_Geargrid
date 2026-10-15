@@ -308,3 +308,28 @@ export const bulkUpdateCustomers = async (models, payload) => {
     };
   });
 };
+
+export const getCustomerStats = async (models) => {
+  const [stats] = await models.Customer.findAll({
+    attributes: [
+      [models.sequelize.fn("COUNT", models.sequelize.col("customer_id")), "totalClients"],
+      [models.sequelize.literal(`COALESCE(SUM(CASE WHEN customer_type = 'Business' THEN 1 ELSE 0 END), 0)`), "businessCount"],
+      [models.sequelize.literal(`COALESCE(SUM(CASE WHEN customer_type = 'Individual' THEN 1 ELSE 0 END), 0)`), "individualCount"],
+      [models.sequelize.literal(`COALESCE(SUM(CASE WHEN is_id_retained_currently = 1 THEN 1 ELSE 0 END), 0)`), "idsInVault"],
+      [models.sequelize.literal(`COALESCE(SUM(deposit_balance), 0)`), "totalAdvance"],
+      [models.sequelize.literal(`COALESCE(SUM(CASE WHEN parent_customer_id IS NOT NULL THEN 1 ELSE 0 END), 0)`), "linkedToParent"],
+    ],
+    where: { customer_delete_status: false },
+    raw: true,
+  });
+
+  return {
+    totalClients: Number(stats?.totalClients || 0),
+    businessCount: Number(stats?.businessCount || 0),
+    individualCount: Number(stats?.individualCount || 0),
+    idsInVault: Number(stats?.idsInVault || 0),
+    totalAdvance: Number(stats?.totalAdvance || 0),
+    linkedToParent: Number(stats?.linkedToParent || 0),
+  };
+};
+

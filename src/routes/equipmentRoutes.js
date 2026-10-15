@@ -7,6 +7,7 @@ import {
   changeStatus,
   deleteEquipment,
   bulkUpdateEquipment,
+  getEquipmentStats,
 } from "../controllers/equipmentController.js";
 import { protect, requirePermission } from "../middlewares/authMiddleware.js";
 
@@ -20,6 +21,9 @@ router.use(protect);
 router.route("/")
   .get(requirePermission("equipment:view"), getEquipment)
   .post(requirePermission("equipment:create"), createEquipment);
+
+// Aggregated live stats for equipment dashboard
+router.get("/stats", requirePermission("equipment:view"), getEquipmentStats);
 
 // Bulk update equipment (MUST be before /:id)
 router.patch(

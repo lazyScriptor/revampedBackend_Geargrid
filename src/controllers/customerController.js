@@ -58,3 +58,8 @@ export const bulkUpdateCustomers = catchAsync(async (req, res, next) => {
     data: result,
   });
 });
+
+export const getCustomerStats = catchAsync(async (req, res, next) => {
+  const stats = await customerService.getCustomerStats(getModels(req));
+  res.status(200).json({ status: 'success', data: stats });
+});
