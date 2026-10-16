@@ -72,6 +72,14 @@ Each DB tracks state in its own `SequelizeMeta` table, so master and per-tenant 
 - **Never use `sequelize.sync({ alter: true })`.** Each restart re-runs `ALTER TABLE … UNIQUE` and appends a new index (`email_2`, `email_3`, …) until MySQL hits 64 keys/column and refuses (`ER_TOO_MANY_KEYS`). Use migrations instead.
 - **Dual-Layer Auth Required (Do NOT rely solely on cookies):** Cross-port dev (`:5173` $\to$ `:8086`) omits `SameSite=Lax` cookies on fetch/XHR, and Safari drops `Secure: true` cookies over plain HTTP `localhost`. If `authMiddleware.protect` or `superAdminAuth.protectSuperAdmin` only inspects `req.cookies`, requests from the frontend fail with 401, causing an immediate redirect bounce back to `/login`. Always extract token from `req.cookies` with fallback to `req.headers.authorization?.startsWith("Bearer ")`. Return `token` and `accessToken` in JSON from `login` and `refresh`, and dynamically determine cookie options via `getCookieOptions(req)` (`secure: isHttps`).
 - **Production VM Target is Oracle Cloud Infrastructure (OCI):** VM host is `144.24.138.27` (`api.geargrid.live`), user is `ubuntu`, backend path is `/home/ubuntu/geargrid-backend`, and PM2 process name is `geargrid-backend`. Do not use deprecated DigitalOcean paths (`/var/www/rental-app/backend`, `rental-api`). Direct SSH command: `ssh -i "Oracle Keys/ssh-key-2026-10-13.key" ubuntu@144.24.138.27`. GitHub repository secrets `REMOTE_HOST`, `REMOTE_USER`, and `SSH_PRIVATE_KEY` must remain in sync with this VM.
+- **Linux MySQL Case-Sensitive Table Names (`ROLE_PERMISSIONs`):** On the Ubuntu production VM, MySQL enforces strict table name casing. Sequelize's join table is `ROLE_PERMISSIONs` (with a lowercase `s`), NOT `ROLE_PERMISSIONS`. Always use `ROLE_PERMISSIONs` in tenant migrations. Additionally, `authMiddleware.requirePermission` must include `"role_name"` in `Role` `attributes: ["role_id", "role_name", "hierarchy_level"]` and grant full access when `maxHierarchy >= 100` or role is `Admin` / `Owner`.
+- **POS Bill Print Audit Log Service (`src/services/invoicePrintLogService.js`):**
+  - Looks up full actor name (`first_name`, `last_name`, `username`) from `models.User` when the JWT only carries `userId`/`username`, persisting `First Last (username)` in `printed_by_name`.
+  - Auto-resolves `invoice_id` from `data.invoice_id`, `bill_snapshot.invoice_id`, or `doc_number` (`INV-XX`), and fetches the full invoice (`Customer`, `OnBehalfOfCustomer`, `InvoiceLines` with `Equipment`, `Payments`) from the DB so `bill_snapshot` is always complete and normalized.
+  - Records an `InvoiceTrace` (`event_category: "BILL_PRINTING"`, `event_action: "RECEIPT_PRINTED"`) whenever tied to an invoice.
+  - Calculates `totalPrintsToday` using Sri Lanka Standard Time (`UTC+5:30`).
+- **Global KPI Aggregation Endpoints (`/api/customers/stats` & `/api/equipment/stats`):**
+  - Never rely on paginated list responses to compute global KPI cards on the frontend. `GET /api/customers/stats` returns `{ totalCustomers, blacklistCount, idsInVault }` across the entire tenant DB, and `GET /api/equipment/stats` returns `{ totalModels, totalUnits, availableUnits, outOnRent, inMaintenance }`.
 
 ## Conventions
 
@@ -90,9 +98,9 @@ Each DB tracks state in its own `SequelizeMeta` table, so master and per-tenant 
                             user CRUD across tenant DBs, CORS, audit log, logo upload
 /api/config               — current tenant's TENANT_CONFIG (read/write)
 /api/users, /api/roles, /api/permissions, /api/permission-management
-/api/equipment, /api/equipment/bulk, /api/categories, /api/defects
-/api/customers, /api/customers/bulk
-/api/invoices, /api/invoices/bulk
+/api/equipment, /api/equipment/stats, /api/equipment/bulk, /api/categories, /api/defects
+/api/customers, /api/customers/stats, /api/customers/bulk
+/api/invoices, /api/invoices/bulk, /api/invoices/print-logs, /api/invoices/:id/print-logs
 /api/dashboard, /api/reports, /api/expenses, /api/accounting, /api/contact
 /uploads/*                — static; tenant logos at /uploads/logos/<id>-<ts>.<ext>
 ```
@@ -104,3 +112,4 @@ Multer config lives **with the route** (not a shared middleware). Existing patte
 - Images: `multer.diskStorage()` writing to `uploads/<topic>/`, 5MB cap, MIME-type filter (e.g. logo upload in `routes/superAdminRoutes.js`).
 
 Served via `app.use("/uploads", express.static("uploads"))` in `app.js`.
+

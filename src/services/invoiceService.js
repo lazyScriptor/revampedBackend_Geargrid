@@ -205,6 +205,8 @@ export const getAllInvoices = async (models, queryParams) => {
   if (queryParams.status) whereClause.status = queryParams.status;
 
   const { count, rows } = await models.Invoice.findAndCountAll({
+    distinct: true,
+    col: "invoice_id",
     where: whereClause,
     include: [
       {

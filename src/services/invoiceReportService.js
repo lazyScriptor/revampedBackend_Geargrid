@@ -101,6 +101,8 @@ export const getRentalHistory = async (models, filters = {}) => {
   }
 
   const { count, rows } = await models.Invoice.findAndCountAll({
+    distinct: true,
+    col: "invoice_id",
     where,
     include: [
       {
