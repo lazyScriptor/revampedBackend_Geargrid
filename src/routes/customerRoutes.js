@@ -3,6 +3,7 @@ import {
   createCustomer,
   getCustomers,
   getSingleCustomer,
+  getCustomerInvoices,
   updateCustomer,
   deleteCustomer,
   getParentCustomerOptions,
@@ -42,6 +43,13 @@ router.patch(
   '/bulk',
   requirePermission("customer:bulk_edit", "customer:edit"),
   bulkUpdateCustomers,
+);
+
+// Customer-scoped invoice history and live stats (Total, Active, Completed)
+router.get(
+  '/:id/invoices',
+  requirePermission("customer:view"),
+  getCustomerInvoices,
 );
 
 // GET    /api/customers/5

@@ -73,6 +73,31 @@ export const getAllCustomers = async (models, queryParams) => {
     whereClause.parent_customer_id = wantsParent ? { [Op.ne]: null } : { [Op.is]: null };
   }
 
+  // 2c. Fast-path: When skip_count is true (e.g. for POS live search / autocompletes),
+  // skip the expensive SELECT count(*) table scan completely
+  if (queryParams.skip_count === "true" || queryParams.skip_count === true) {
+    const rows = await models.Customer.findAll({
+      where: whereClause,
+      include: [
+        {
+          model: models.Customer,
+          as: "ParentCompany",
+          attributes: ["customer_id", "company_name"],
+        },
+      ],
+      limit,
+      offset,
+      order: [["createdAt", "DESC"]],
+    });
+
+    return {
+      totalItems: rows.length,
+      totalPages: 1,
+      currentPage: page,
+      customers: rows,
+    };
+  }
+
   // 3. Execute Query with Relational Includes
   const { count, rows } = await models.Customer.findAndCountAll({
     where: whereClause,
@@ -139,6 +164,75 @@ export const getCustomerById = async (models, customerId) => {
   return customer;
 };
 
+// Retrieve complete invoice history & stats for a specific customer
+export const getCustomerInvoices = async (models, customerId) => {
+  const invoices = await models.Invoice.findAll({
+    where: {
+      [Op.or]: [
+        { customer_id: customerId },
+        { borrowed_on_behalf_of_customer_id: customerId },
+      ],
+    },
+    include: [
+      {
+        model: models.InvoiceLine,
+        include: [
+          {
+            model: models.Equipment,
+            attributes: ["equipment_id", "equipment_name", "is_bulk_item"],
+          },
+        ],
+      },
+      {
+        model: models.Payment,
+        attributes: ["payment_id", "payment_amount", "payment_date", "method"],
+      },
+      {
+        model: models.Customer,
+        attributes: [
+          "customer_id",
+          "first_name",
+          "last_name",
+          "company_name",
+          "phone_number",
+          "nic_number",
+          "customer_type",
+        ],
+      },
+      {
+        model: models.InvoiceTrace,
+        attributes: [
+          "trace_id",
+          "event_category",
+          "event_action",
+          "comments",
+          "createdAt",
+        ],
+        required: false,
+      },
+    ],
+    order: [["issued_date", "DESC"]],
+  });
+
+  const total = invoices.length;
+  let active = 0;
+  let completed = 0;
+
+  for (const inv of invoices) {
+    if (inv.status === "Active") active++;
+    else if (inv.status === "Completed") completed++;
+  }
+
+  return {
+    invoices,
+    stats: {
+      total,
+      active,
+      completed,
+    },
+  };
+};
+
 export const updateCustomer = async (models, customerId, updateData) => {
   // We use the basic findByPk here to avoid pulling in all the relations just to update
   const customer = await models.Customer.findByPk(customerId);
@@ -169,7 +263,23 @@ export const deleteCustomer = async (models, customerId) => {
   const customer = await models.Customer.findByPk(customerId);
   if (!customer) throw new AppError("Customer not found.", 404);
 
-  // Instead of completely destroying the record (which breaks old invoices), we soft-delete it
+  if (customer.is_id_retained_currently) {
+    throw new AppError("Cannot delete customer. Physical ID card is currently held in the vault.", 400);
+  }
+
+  if (models.Invoice) {
+    const activeInvoiceCount = await models.Invoice.count({
+      where: {
+        customer_id: customerId,
+        status: { [Op.in]: ["Active", "PendingPayment"] },
+      },
+    });
+    if (activeInvoiceCount > 0) {
+      throw new AppError("Cannot delete customer with active rental contracts or outstanding balances.", 400);
+    }
+  }
+
+  // Soft-delete the record
   await customer.update({ customer_delete_status: true });
   return true;
 };

@@ -139,20 +139,30 @@ export const createDispatchInvoice = async (models, payload, userId) => {
     }
 
     if (fees.advance > 0) {
+      const advMethod =
+        payload.advance_payment_method ||
+        fees.advance_payment_method ||
+        payload.payment_method ||
+        "Cash";
+
       await models.Payment.create(
         {
           invoice_id: newInvoice.invoice_id,
           payment_amount: fees.advance,
-          method: "Cash",
+          method: advMethod,
         },
         { transaction: t },
       );
 
-      const customer = await models.Customer.findByPk(customer_id, {
-        transaction: t,
-      });
-      if (customer && customer.deposit_balance > 0) {
-        const newBalance = Math.max(0, customer.deposit_balance - fees.advance);
+      // Only deduct from client wallet if explicitly using deposit balance
+      if (advMethod === "WalletDeposit") {
+        const customer = await models.Customer.findByPk(customer_id, {
+          transaction: t,
+        });
+        if (!customer || Number(customer.deposit_balance) < Number(fees.advance)) {
+          throw new AppError("Insufficient customer deposit balance in wallet.", 400);
+        }
+        const newBalance = Math.max(0, Number(customer.deposit_balance) - Number(fees.advance));
         await customer.update(
           { deposit_balance: newBalance },
           { transaction: t },
@@ -202,62 +212,87 @@ export const getAllInvoices = async (models, queryParams) => {
     }
   }
 
+  if (queryParams.customer_id) {
+    whereClause[Op.or] = [
+      { customer_id: queryParams.customer_id },
+      { borrowed_on_behalf_of_customer_id: queryParams.customer_id },
+    ];
+  }
+
   if (queryParams.status) whereClause.status = queryParams.status;
 
-  const { count, rows } = await models.Invoice.findAndCountAll({
-    distinct: true,
-    col: "invoice_id",
-    where: whereClause,
-    include: [
-      {
-        model: models.Customer,
-        where:
-          Object.keys(customerWhereClause).length > 0
-            ? customerWhereClause
-            : undefined,
-        attributes: [
-          "customer_id",
-          "first_name",
-          "last_name",
-          "company_name",
-          "customer_type",
-          "phone_number",
-          "is_id_retained_currently",
-        ],
-      },
-      {
-        model: models.Customer,
-        as: "OnBehalfOfCustomer",
-        attributes: [
-          "customer_id",
-          "first_name",
-          "last_name",
-          "company_name",
-          "customer_type",
-        ],
-        required: false,
-      },
-      {
-        model: models.InvoiceLine,
-        include: [
-          {
-            model: models.Equipment,
-            attributes: ["equipment_name", "is_bulk_item"],
-          },
-        ],
-      },
-      {
-        model: models.Payment,
-        attributes: ["payment_id", "payment_amount", "payment_date", "method"],
-      },
-      { model: models.InvoiceTrace },
-    ],
-    limit,
-    offset,
-    order: [["issued_date", "DESC"]],
-  });
+  const [countsResult, findResult] = await Promise.all([
+    Promise.all([
+      models.Invoice.count(),
+      models.Invoice.count({ where: { status: "Active" } }),
+      models.Invoice.count({ where: { status: "Completed" } }),
+    ]),
+    models.Invoice.findAndCountAll({
+      distinct: true,
+      col: "invoice_id",
+      where: whereClause,
+      include: [
+        {
+          model: models.Customer,
+          where:
+            Object.keys(customerWhereClause).length > 0
+              ? customerWhereClause
+              : undefined,
+          attributes: [
+            "customer_id",
+            "first_name",
+            "last_name",
+            "company_name",
+            "customer_type",
+            "phone_number",
+            "is_id_retained_currently",
+          ],
+        },
+        {
+          model: models.Customer,
+          as: "OnBehalfOfCustomer",
+          attributes: [
+            "customer_id",
+            "first_name",
+            "last_name",
+            "company_name",
+            "customer_type",
+          ],
+          required: false,
+        },
+        {
+          model: models.InvoiceLine,
+          include: [
+            {
+              model: models.Equipment,
+              attributes: ["equipment_name", "is_bulk_item"],
+            },
+          ],
+        },
+        {
+          model: models.Payment,
+          attributes: ["payment_id", "payment_amount", "payment_date", "method"],
+        },
+        { model: models.InvoiceTrace },
+      ],
+      limit,
+      offset,
+      order: [["issued_date", "DESC"]],
+    }),
+  ]);
 
-  return { totalItems: count, invoices: rows };
+  const [allCount, activeCount, completedCount] = countsResult;
+  const { count, rows } = findResult;
+
+  return {
+    totalItems: count,
+    invoices: rows,
+    counts: {
+      all: allCount,
+      active: activeCount,
+      completed: completedCount,
+    },
+  };
 };
 
 // --- 3. GET SINGLE INVOICE DETAILS ---
@@ -305,6 +340,7 @@ export const processReturn = async (models, payload, userId) => {
     final_payment_amount,
     release_id_card,
     payment_method,
+    customer_rating,
   } = payload;
 
   return await models.sequelize.transaction(async (t) => {
@@ -440,20 +476,40 @@ export const processReturn = async (models, payload, userId) => {
       where: { invoice_id, line_status: "Active" },
       transaction: t,
     });
-    const finalStatus = activeLinesCount === 0 ? "Completed" : "Active";
+
+    const totalPaid =
+      (await models.Payment.sum("payment_amount", {
+        where: { invoice_id },
+        transaction: t,
+      })) || 0;
+
+    const isPaidOff = Number(totalPaid) >= Number(newGrandTotal);
+    const finalStatus =
+      activeLinesCount === 0
+        ? (isPaidOff ? "Completed" : "PendingPayment")
+        : "Active";
+
+    const shouldReleaseId = release_id_card && isPaidOff;
 
     await invoice.update(
       {
         total_amount: newGrandTotal,
         status: finalStatus,
-        id_card_status: release_id_card ? 0 : invoice.id_card_status,
+        id_card_status: shouldReleaseId ? 0 : invoice.id_card_status,
       },
       { transaction: t },
     );
 
-    if (release_id_card) {
+    if (shouldReleaseId) {
       await models.Customer.update(
         { is_id_retained_currently: false },
+        { where: { customer_id: invoice.customer_id }, transaction: t },
+      );
+    }
+
+    if (customer_rating && invoice.customer_id) {
+      await models.Customer.update(
+        { rating: Number(customer_rating) },
         { where: { customer_id: invoice.customer_id }, transaction: t },
       );
     }
@@ -524,13 +580,15 @@ export const toggleVaultStatus = async (models, invoiceId, userId) => {
     if (!invoice) throw new AppError("Invoice not found", 404);
 
     const customer = invoice.Customer;
-    const isCurrentlyRetained = customer.is_id_retained_currently;
+    const isCurrentlyRetained = customer ? Boolean(customer.is_id_retained_currently) : false;
     const newStatus = !isCurrentlyRetained;
 
-    await customer.update(
-      { is_id_retained_currently: newStatus },
-      { transaction: t },
-    );
+    if (customer) {
+      await customer.update(
+        { is_id_retained_currently: newStatus },
+        { transaction: t },
+      );
+    }
     await invoice.update(
       { id_card_status: newStatus ? 1 : 0 },
       { transaction: t },
@@ -547,7 +605,10 @@ export const toggleVaultStatus = async (models, invoiceId, userId) => {
       { transaction: t },
     );
 
-    return newStatus;
+    return {
+      is_id_retained_currently: newStatus,
+      id_card_status: newStatus ? 1 : 0,
+    };
   });
 };
 // --- 7. DYNAMIC FEE ADJUSTMENT ---
@@ -558,10 +619,16 @@ export const updateInvoiceFees = async (models, invoiceId, payload, userId) => {
     });
     if (!invoice) throw new AppError("Invoice not found", 404);
 
-    const oldTransport = Number(invoice.transport_fee);
-    const oldDiscount = Number(invoice.discount_amount);
-    const newTransport = Number(payload.transport_fee) || 0;
-    const newDiscount = Number(payload.discount_amount) || 0;
+    const oldTransport = Number(invoice.transport_fee) || 0;
+    const oldDiscount = Number(invoice.discount_amount) || 0;
+    const newTransport =
+      payload.transport_fee !== undefined
+        ? Number(payload.transport_fee) || 0
+        : oldTransport;
+    const newDiscount =
+      payload.discount_amount !== undefined
+        ? Number(payload.discount_amount) || 0
+        : oldDiscount;
 
     // Recalculate the Grand Total with the new fees
     const newTotal =

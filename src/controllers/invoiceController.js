@@ -87,17 +87,18 @@ export const addPayment = catchAsync(async (req, res, next) => {
 
 export const toggleVault = catchAsync(async (req, res, next) => {
   const userId = req.user?.id || 1;
-  const newStatus = await invoiceService.toggleVaultStatus(
+  const result = await invoiceService.toggleVaultStatus(
     getModels(req),
     req.params.id,
     userId,
   );
+  const isRetained = typeof result === "object" ? result.is_id_retained_currently : Boolean(result);
   res.status(200).json({
     status: "success",
-    message: newStatus
+    message: isRetained
       ? "ID Card logged into vault."
       : "ID Card released from vault.",
-    data: { is_id_retained_currently: newStatus },
+    data: typeof result === "object" ? result : { is_id_retained_currently: isRetained, id_card_status: isRetained ? 1 : 0 },
   });
 });
 export const updateFees = catchAsync(async (req, res, next) => {

@@ -23,6 +23,11 @@ export const getSingleCustomer = catchAsync(async (req, res, next) => {
   res.status(200).json({ status: 'success', data: { customer } });
 });
 
+export const getCustomerInvoices = catchAsync(async (req, res, next) => {
+  const result = await customerService.getCustomerInvoices(getModels(req), req.params.id);
+  res.status(200).json({ status: 'success', data: result });
+});
+
 export const updateCustomer = catchAsync(async (req, res, next) => {
   const updatedCustomer = await customerService.updateCustomer(getModels(req), req.params.id, req.body);
   res.status(200).json({ status: 'success', data: { customer: updatedCustomer } });
