@@ -122,7 +122,7 @@ export const requirePermission = (...actions) => {
                 through: { attributes: [] },
               },
             ],
-            attributes: ["role_id", "hierarchy_level"],
+            attributes: ["role_id", "role_name", "hierarchy_level"],
           },
         ],
       });
