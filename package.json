@@ -5,7 +5,9 @@
   "main": "src/server.js",
   "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "start": "node ./src/server.js",
     "dev": "nodemon ./src/server.js",
     "db:migrate": "node ./src/scripts/migrate.js up",
@@ -38,6 +40,9 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "nodemon": "^3.1.0"
+    "@vitest/coverage-v8": "^5.0.5",
+    "nodemon": "^3.1.0",
+    "supertest": "^7.3.1",
+    "vitest": "^5.0.5"
   }
 }
