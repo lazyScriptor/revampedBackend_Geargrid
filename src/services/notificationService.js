@@ -85,6 +85,11 @@ export const createNotification = async (
   });
 
   const json = sanitize(row);
-  emitToUser(userId, "notification:new", json);
+  const tenantDbName = models.sequelize?.config?.database;
+  if (tenantDbName) {
+    emitToUser(tenantDbName, userId, "notification:new", json);
+  } else {
+    emitToUser(userId, "notification:new", json);
+  }
   return json;
 };

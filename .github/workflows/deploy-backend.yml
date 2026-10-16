@@ -1,15 +1,43 @@
-name: CI/CD Backend Deployment
+name: CI/CD Backend Deployment & Quality Gate
 
 on:
   push:
-    branches: [ main ] # Triggers when you push to main
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
-  deploy-backend:
+  test-backend:
+    name: Backend Quality Gate & Test Suite
     runs-on: ubuntu-latest
     env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true # Future-proofing the Node version!
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      JWT_SECRET: "test-jwt-secret-super-long-geargrid-key-32chars"
+      JWT_REFRESH_SECRET: "test-jwt-refresh-secret-geargrid-key-32chars"
+      NODE_ENV: test
+    steps:
+      - name: 1. Checkout Repository
+        uses: actions/checkout@v4
 
+      - name: 2. Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: 3. Install Dependencies
+        run: npm ci || npm install
+
+      - name: 4. Execute Vitest Test Suites
+        run: npm test -- --reporter=verbose
+
+  deploy-backend:
+    name: Deploy to Production VM
+    needs: [test-backend]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - name: 1. Checkout repository
         uses: actions/checkout@v4
@@ -17,23 +45,21 @@ jobs:
       - name: 2. Sync files to VM (Safely)
         uses: Burnett01/rsync-deployments@7.0.0
         with:
-          # CRITICAL: We exclude node_modules, .env, and .git so rsync doesn't delete them from your server!
           switches: -avzr --delete --exclude=node_modules --exclude=.env --exclude=.git
-          path: ./ # Syncs the whole backend folder
-          remote_path: /home/ubuntu/geargrid-backend # Destination on your server
+          path: ./
+          remote_path: /home/ubuntu/geargrid-backend
           remote_host: ${{ secrets.REMOTE_HOST }}
           remote_user: ${{ secrets.REMOTE_USER }}
           remote_key: ${{ secrets.SSH_PRIVATE_KEY }}
 
       - name: 3. Install Dependencies, Migrate DB, and Restart PM2
-        # This action logs into your server to run terminal commands
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.REMOTE_HOST }}
           username: ${{ secrets.REMOTE_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            set -e   # fail the deploy if any step below errors
+            set -e
 
             # 1. Go to the backend folder
             cd /home/ubuntu/geargrid-backend
@@ -42,7 +68,6 @@ jobs:
             npm install --omit=dev
 
             # 3. Apply pending DB migrations (master + every tenant).
-            #    Fails the deploy if any migration errors — better than a half-deployed schema.
             npm run db:migrate
 
             # 4. Restart the live server seamlessly

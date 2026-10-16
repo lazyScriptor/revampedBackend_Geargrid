@@ -12,7 +12,25 @@ const safeEmit = (room, event, payload) => {
   }
 };
 
-export const emitToUser = (userId, event, payload) => {
+export const emitToUser = (userIdOrTenant, eventOrUserId, payloadOrEvent, maybePayload) => {
+  // Scoped invocation: emitToUser(tenantDbName, userId, event, payload)
+  if (maybePayload !== undefined) {
+    const tenantDbName = userIdOrTenant;
+    const userId = eventOrUserId;
+    const event = payloadOrEvent;
+    const payload = maybePayload;
+    if (tenantDbName && userId != null) {
+      safeEmit(`tenant:${tenantDbName}:user:${userId}`, event, payload);
+    } else if (userId != null) {
+      safeEmit(`user:${userId}`, event, payload);
+    }
+    return;
+  }
+
+  // Legacy fallback: emitToUser(userId, event, payload)
+  const userId = userIdOrTenant;
+  const event = eventOrUserId;
+  const payload = payloadOrEvent;
   if (userId == null) return;
   safeEmit(`user:${userId}`, event, payload);
 };

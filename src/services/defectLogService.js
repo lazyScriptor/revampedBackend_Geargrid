@@ -22,7 +22,25 @@ export const createDefectLog = async (models, data) => {
       { transaction: t },
     );
 
-    // Note: Inventory deduction is already handled by the invoiceService during returns!
+    // Note: Inventory deduction is already handled by invoiceService during returns!
+    // But for internal shelf audit reports, we must deduct from available stock:
+    if (!data.reported_on_invoice_id && data.source !== "RETURN") {
+      const defectQty = Number(data.defective_quantity) || 1;
+      if (equipment.available_qty < defectQty) {
+        throw new AppError(
+          `Insufficient available equipment to flag as defective. Only ${equipment.available_qty} available on shelf.`,
+          400,
+        );
+      }
+      await equipment.update(
+        {
+          available_qty: equipment.available_qty - defectQty,
+          defective_qty: equipment.defective_qty + defectQty,
+        },
+        { transaction: t },
+      );
+    }
+
     await t.commit();
     return log;
   } catch (error) {

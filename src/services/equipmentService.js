@@ -137,9 +137,14 @@ export const deleteEquipment = async (models, id) => {
   const equipment = await models.Equipment.findByPk(id);
 
   if (!equipment) {
-    const error = new Error("Equipment not found.");
-    error.statusCode = 404;
-    throw error;
+    throw new AppError("Equipment not found.", 404);
+  }
+
+  if (Number(equipment.rented_qty) > 0) {
+    throw new AppError(
+      `Cannot delete equipment "${equipment.equipment_name}". ${equipment.rented_qty} units are currently checked out on active rental contracts.`,
+      400,
+    );
   }
 
   await equipment.destroy();

@@ -76,7 +76,12 @@ export const cancelJob = async (models, jobId, userId) => {
   row.status = "cancelled";
   row.finished_at = new Date();
   await row.save();
-  emitToUser(userId, "bulkJob:update", sanitize(row));
+  const dbName = models.sequelize?.config?.database;
+  if (dbName) {
+    emitToUser(dbName, userId, "bulkJob:update", sanitize(row));
+  } else {
+    emitToUser(userId, "bulkJob:update", sanitize(row));
+  }
   return sanitize(row);
 };
 
@@ -134,7 +139,12 @@ export const completeJob = async (
   if (resultPayload) row.result_payload = resultPayload;
   if (outputFilePath) row.output_file_path = outputFilePath;
   await row.save();
-  emitToUser(row.user_id, "bulkJob:complete", sanitize(row));
+  const dbName = models.sequelize?.config?.database;
+  if (dbName) {
+    emitToUser(dbName, row.user_id, "bulkJob:complete", sanitize(row));
+  } else {
+    emitToUser(row.user_id, "bulkJob:complete", sanitize(row));
+  }
   return sanitize(row);
 };
 
@@ -145,7 +155,12 @@ export const failJob = async (models, jobId, errorMessage) => {
   row.error_message = errorMessage || "Unknown error";
   row.finished_at = new Date();
   await row.save();
-  emitToUser(row.user_id, "bulkJob:complete", sanitize(row));
+  const dbName = models.sequelize?.config?.database;
+  if (dbName) {
+    emitToUser(dbName, row.user_id, "bulkJob:complete", sanitize(row));
+  } else {
+    emitToUser(row.user_id, "bulkJob:complete", sanitize(row));
+  }
   return sanitize(row);
 };
 
@@ -161,6 +176,11 @@ export const markAwaitingConfirmation = async (
   if (resultPayload) row.result_payload = resultPayload;
   if (outputFilePath) row.output_file_path = outputFilePath;
   await row.save();
-  emitToUser(row.user_id, "bulkJob:update", sanitize(row));
+  const dbName = models.sequelize?.config?.database;
+  if (dbName) {
+    emitToUser(dbName, row.user_id, "bulkJob:update", sanitize(row));
+  } else {
+    emitToUser(row.user_id, "bulkJob:update", sanitize(row));
+  }
   return sanitize(row);
 };

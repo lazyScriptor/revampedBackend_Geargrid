@@ -59,7 +59,11 @@ export const initSocketServer = (httpServer) => {
   ioInstance.on("connection", (socket) => {
     const { userId, tenantDbName } = socket.user || {};
 
-    if (userId) socket.join(`user:${userId}`);
+    if (userId && tenantDbName) {
+      socket.join(`tenant:${tenantDbName}:user:${userId}`);
+    } else if (userId) {
+      socket.join(`user:${userId}`);
+    }
     if (tenantDbName) socket.join(`tenant:${tenantDbName}`);
 
     // eslint-disable-next-line no-console

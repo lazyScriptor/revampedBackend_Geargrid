@@ -66,7 +66,6 @@ export const createUser = async (models, tenantDbName, payload) => {
   // 4. Create GlobalUser now that tenant transaction has committed
   try {
     await GlobalUser.create({
-      global_user_id: newUser.user_id,
       email,
       password_hash,
       target_tenant_id: tenantId,
@@ -96,16 +95,21 @@ export const updateUser = async (models, userId, payload) => {
 
   const { GlobalUser } = initMasterModels(masterSequelize);
 
+  const globalUpdates = {};
   if (payload.email && payload.email !== user.email) {
     const emailExists = await models.User.findOne({ where: { email: payload.email } });
     if (emailExists) throw new AppError("Email already in use.", 400);
-    await GlobalUser.update({ email: payload.email }, { where: { email: user.email } });
+    globalUpdates.email = payload.email;
   }
 
   if (payload.password) {
     payload.password_hash = await bcrypt.hash(payload.password, 12);
-    await GlobalUser.update({ password_hash: payload.password_hash }, { where: { email: user.email } });
+    globalUpdates.password_hash = payload.password_hash;
     delete payload.password;
+  }
+
+  if (Object.keys(globalUpdates).length > 0) {
+    await GlobalUser.update(globalUpdates, { where: { email: user.email } });
   }
 
   await user.update(payload);
@@ -120,8 +124,31 @@ export const updateUser = async (models, userId, payload) => {
 };
 
 export const deleteUser = async (models, userId) => {
-  const user = await models.User.findByPk(userId);
+  const user = await models.User.findByPk(userId, {
+    include: [{ model: models.Role, attributes: ["hierarchy_level"] }],
+  });
   if (!user) throw new AppError("User not found.", 404);
+
+  // Check if target user is an administrator
+  const isAdmin = user.Roles?.some((r) => Number(r.hierarchy_level) >= 100);
+  if (isAdmin) {
+    const otherAdmin = await models.User.findOne({
+      where: {
+        user_id: { [Op.ne]: userId },
+        is_active: true,
+      },
+      include: [
+        {
+          model: models.Role,
+          where: { hierarchy_level: { [Op.gte]: 100 } },
+          attributes: ["role_id"],
+        },
+      ],
+    });
+    if (!otherAdmin) {
+      throw new AppError("Cannot deactivate the only active administrator of the company.", 400);
+    }
+  }
 
   user.is_active = false;
   await user.save();
