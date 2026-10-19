@@ -1,0 +1,18 @@
+{
+  "name": "@geargrid/contracts",
+  "version": "0.1.0",
+  "description": "Vendored build artifact of @geargrid/contracts. DO NOT EDIT — regenerate via scripts/vendor-contracts.sh.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "peerDependencies": {
+    "zod": "^4.3.6"
+  }
+}

@@ -2,9 +2,17 @@ import express from "express";
 import * as invoiceController from "../controllers/invoiceController.js";
 import * as reviewController from "../controllers/invoiceReviewController.js";
 import * as printLogController from "../controllers/invoicePrintLogController.js";
+import * as invoiceService from "../services/invoiceService.js";
 import { protect, requirePermission } from "../middlewares/authMiddleware.js";
+import { registerContract } from "../utils/contractAdapter.js";
+import { getCachedTenantConnection } from "../config/database.js";
+import { initTenantModels } from "../models/index.js";
+import { VaultToggleContract } from "@geargrid/contracts";
 
 const router = express.Router();
+
+const resolveTenantModels = (req) =>
+  initTenantModels(getCachedTenantConnection(req.user.tenantDbName));
 
 // Apply the auth middleware to all invoice routes
 router.use(protect);
@@ -29,7 +37,17 @@ router.get("/:id/print-logs", requirePermission("invoice:print_log:view"), print
 // 2. OMS Actions
 router.post("/:id/return", requirePermission("invoice:action:process_return"), invoiceController.processReturnInvoice);
 router.post("/:id/payments", requirePermission("invoice:action:add_payment"), invoiceController.addPayment); // <-- NEW
-router.patch("/:id/vault", requirePermission("invoice:edit"), invoiceController.toggleVault); // <-- NEW
+// Governed by @geargrid/contracts: VaultToggleContract.
+// Request/response shape, path, and method all live in shared/geargrid-contracts
+// and are vendored into revampedBackend_Geargrid/vendor/@geargrid/contracts/.
+registerContract(router, VaultToggleContract, {
+  basePath: "/invoices",
+  middlewares: [requirePermission("invoice:edit")],
+  handler: async ({ params, req }) => {
+    const userId = req.user?.id || 1;
+    return invoiceService.toggleVaultStatus(resolveTenantModels(req), params.id, userId);
+  },
+});
 router.patch("/:id/fees", requirePermission("invoice:edit"), invoiceController.updateFees);
 
 // 4. Reviews — invoice-scoped list/create
