@@ -19,6 +19,8 @@ import UserDashboardPreferenceFactory from "./UserDashboardPreference.js";
 import NotificationFactory from "./Notification.js";
 import BulkJobFactory from "./BulkJob.js";
 import InvoicePrintLogFactory from "./InvoicePrintLog.js";
+import SignatureRequestFactory from "./SignatureRequest.js";
+import InvoiceSignatureFactory from "./InvoiceSignature.js";
 
 export const initTenantModels = (tenantConnection) => {
   const User = UserFactory(tenantConnection);
@@ -42,6 +44,8 @@ export const initTenantModels = (tenantConnection) => {
   const Notification = NotificationFactory(tenantConnection);
   const BulkJob = BulkJobFactory(tenantConnection);
   const InvoicePrintLog = InvoicePrintLogFactory(tenantConnection);
+  const SignatureRequest = SignatureRequestFactory(tenantConnection);
+  const InvoiceSignature = InvoiceSignatureFactory(tenantConnection);
 
   // ==========================================
   // AUTH & USERS
@@ -186,6 +190,17 @@ export const initTenantModels = (tenantConnection) => {
   InvoicePrintLog.belongsTo(Invoice, { foreignKey: "invoice_id" });
   Invoice.hasMany(InvoicePrintLog, { as: "PrintLogs", foreignKey: "invoice_id" });
 
+  // ── Signature capture subsystem associations ───────────────────────────
+  SignatureRequest.belongsTo(Invoice, { foreignKey: "invoice_id" });
+  Invoice.hasMany(SignatureRequest, { as: "SignatureRequests", foreignKey: "invoice_id" });
+  SignatureRequest.belongsTo(User, { as: "RequestedBy", foreignKey: "requested_by_user_id" });
+  SignatureRequest.hasMany(InvoiceSignature, { as: "Signatures", foreignKey: "signature_request_id" });
+
+  InvoiceSignature.belongsTo(Invoice, { foreignKey: "invoice_id" });
+  Invoice.hasMany(InvoiceSignature, { as: "Signatures", foreignKey: "invoice_id" });
+  InvoiceSignature.belongsTo(SignatureRequest, { foreignKey: "signature_request_id" });
+  InvoiceSignature.belongsTo(User, { as: "SignatoryUser", foreignKey: "signatory_user_id" });
+
   return {
     User,
     Role,
@@ -208,6 +223,8 @@ export const initTenantModels = (tenantConnection) => {
     Notification,
     BulkJob,
     InvoicePrintLog,
+    SignatureRequest,
+    InvoiceSignature,
     sequelize: tenantConnection,
   };
 };

@@ -7,7 +7,12 @@ import { protect, requirePermission } from "../middlewares/authMiddleware.js";
 import { registerContract } from "../utils/contractAdapter.js";
 import { getCachedTenantConnection } from "../config/database.js";
 import { initTenantModels } from "../models/index.js";
-import { VaultToggleContract } from "@geargrid/contracts";
+import {
+  VaultToggleContract,
+  CreateSignatureRequestContract,
+  ListInvoiceSignaturesContract,
+} from "@geargrid/contracts";
+import * as signatureService from "../services/signatureService.js";
 
 const router = express.Router();
 
@@ -53,5 +58,27 @@ router.patch("/:id/fees", requirePermission("invoice:edit"), invoiceController.u
 // 4. Reviews — invoice-scoped list/create
 router.get("/:id/reviews", requirePermission("invoice:view"), reviewController.listForInvoice);
 router.post("/:id/reviews", requirePermission("invoice:edit"), reviewController.createReview);
+
+// 5. Signatures — create capture session + list captured signatures.
+//    Public endpoints for the mobile sign page live under /api/signatures/*
+//    in signatureRoutes.js. Contract-governed via @geargrid/contracts.
+registerContract(router, CreateSignatureRequestContract, {
+  basePath: "/invoices",
+  middlewares: [requirePermission("invoice:signature:request")],
+  handler: ({ params, body, req }) =>
+    signatureService.createSignatureRequest(
+      resolveTenantModels(req),
+      req.user,
+      params.id,
+      body,
+    ),
+});
+
+registerContract(router, ListInvoiceSignaturesContract, {
+  basePath: "/invoices",
+  middlewares: [requirePermission("invoice:signature:view")],
+  handler: ({ params, req }) =>
+    signatureService.listInvoiceSignatures(resolveTenantModels(req), params.id),
+});
 
 export default router;

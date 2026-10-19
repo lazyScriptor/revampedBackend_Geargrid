@@ -18,6 +18,11 @@ export default (sequelize) => {
       timezone: { type: DataTypes.STRING(50), defaultValue: "Asia/Colombo" },
       custom_settings: { type: DataTypes.JSON, allowNull: true },
       status: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: 1 },
+      // ── Per-tenant rental terms shown on the mobile sign page ────────────
+      // markdown rendered on the phone; version bumped on each edit so every
+      // historical signature records which version the signatory agreed to.
+      rental_terms_markdown: { type: DataTypes.TEXT("long"), allowNull: true },
+      rental_terms_version: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
     },
     {
       tableName: "TENANT_CONFIG",

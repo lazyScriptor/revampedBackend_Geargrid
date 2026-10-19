@@ -28,6 +28,7 @@ import notificationRoutes from "./routes/notificationRoutes.js";
 import bulkJobRoutes from "./routes/bulkJobRoutes.js";
 import meRoutes from "./routes/meRoutes.js";
 import i18nRoutes from "./routes/i18nRoutes.js";
+import signatureRoutes from "./routes/signatureRoutes.js";
 import { corsOrigins } from "./config/cors-config.js";
 
 const app = express();
@@ -80,6 +81,10 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/bulk-jobs", bulkJobRoutes);
 app.use("/api/me", meRoutes);
 app.use("/api/i18n", i18nRoutes);
+// Signature capture — public endpoints under /api/signatures/public/* skip
+// auth; invoice-scoped and config-scoped signature endpoints live in their
+// respective routers (invoiceRoutes, meRoutes, tenantConfigRoutes).
+app.use("/api/signatures", signatureRoutes);
 
 app.use((req, res, next) => {
   next(new AppError(`Can't find ${req.originalUrl} on this server!`, 404));
