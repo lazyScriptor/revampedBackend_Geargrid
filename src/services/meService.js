@@ -47,6 +47,8 @@ const PUBLIC_USER_ATTRS = [
   "last_login_at",
   "last_login_ip",
   "password_changed_at",
+  "signature_url",
+  "signature_captured_at",
   "createdAt",
   "updatedAt",
 ];
