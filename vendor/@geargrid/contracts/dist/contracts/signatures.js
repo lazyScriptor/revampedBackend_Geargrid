@@ -184,4 +184,108 @@ export const UpdateRentalTermsContract = {
         updated_at: ISODate,
     })),
 };
+// ─────────────────────────────────────────────────────────────────────────
+// Paired-PWA device flow
+//
+// A phone installs the frontend as a PWA, generates its own device_id
+// (crypto.randomUUID stored in localStorage), and pairs itself to an
+// operator via a one-time 6-char code the operator GENERATES on their POS.
+// Once paired, the phone is a known operator surface:
+//   • Backend knows the operator's user_id and tenant from the device_id
+//   • Phone can poll for pending signature requests on that operator
+//   • Phone's simplified sign page needs no login, no name, no agree box
+//
+// Pairing codes live cross-tenant in geargrid_master.DEVICE_PAIRING_CODES
+// so the phone can claim one without knowing the tenant yet. OPERATOR_DEVICES
+// stays per-tenant.
+// ─────────────────────────────────────────────────────────────────────────
+const TenantBrandingLite = z.object({
+    business_display_name: z.string(),
+    logo_url: z.string().nullable(),
+    primary_color: z.string(),
+    secondary_color: z.string(),
+});
+const PairedOperatorInfo = z.object({
+    user_id: PositiveInt,
+    operator_name: z.string(),
+    has_saved_signature: z.boolean(),
+});
+// POST /api/me/devices/pairing-code  (auth; operator on POS generates code)
+export const MintPairingCodeContract = {
+    path: "/me/devices/pairing-code",
+    method: "POST",
+    response: successEnvelope(z.object({
+        code: z.string(),
+        expires_at: ISODate,
+    })),
+};
+// POST /api/public/devices/pair  (public; phone claims the code)
+export const ClaimPairingCodeContract = {
+    path: "/public/devices/pair",
+    method: "POST",
+    body: z.object({
+        code: z.string().min(4).max(16),
+        device_id: z.string().min(8).max(64),
+        device_label: z.string().max(100).optional(),
+    }),
+    response: successEnvelope(z.object({
+        operator_device_id: PositiveInt,
+        device_id: z.string(),
+        operator: PairedOperatorInfo,
+        tenant: TenantBrandingLite,
+        paired_at: ISODate,
+    })),
+};
+// GET /api/public/devices/:device_id/status  (public, phone polls on launch)
+export const GetDeviceStatusContract = {
+    path: "/public/devices/:device_id/status",
+    method: "GET",
+    params: z.object({ device_id: z.string().min(8).max(64) }),
+    response: successEnvelope(z.object({
+        paired: z.boolean(),
+        operator: PairedOperatorInfo.nullable(),
+        tenant: TenantBrandingLite.nullable(),
+    })),
+};
+// GET /api/me/devices  (auth; operator lists their paired phones)
+export const ListMyDevicesContract = {
+    path: "/me/devices",
+    method: "GET",
+    response: successEnvelope(z.object({
+        devices: z.array(z.object({
+            operator_device_id: PositiveInt,
+            device_id: z.string(),
+            device_label: z.string().nullable(),
+            user_agent: z.string().nullable(),
+            paired_at: ISODate,
+            last_seen_at: ISODate.nullable(),
+        })),
+    })),
+};
+// DELETE /api/me/devices/:operator_device_id  (auth; operator unpairs)
+export const UnpairDeviceContract = {
+    path: "/me/devices/:operator_device_id",
+    method: "DELETE",
+    params: z.object({ operator_device_id: PositiveInt }),
+    response: successEnvelope(z.object({ unpaired: z.boolean() })),
+};
+// GET /api/public/devices/:device_id/pending-signatures  (public, phone polls)
+// Returns pending signature requests addressed to the device's paired
+// operator — the PWA uses this on launch to auto-navigate to the sign page.
+export const GetDevicePendingSignaturesContract = {
+    path: "/public/devices/:device_id/pending-signatures",
+    method: "GET",
+    params: z.object({ device_id: z.string().min(8).max(64) }),
+    response: successEnvelope(z.object({
+        pending: z.array(z.object({
+            token: z.string(),
+            invoice_id: PositiveInt,
+            invoice_number: z.string(),
+            checkpoint: SignatureCheckpoint,
+            required_roles: z.array(SignatureRole),
+            pending_roles: z.array(SignatureRole),
+            expires_at: ISODate,
+        })),
+    })),
+};
 //# sourceMappingURL=signatures.js.map

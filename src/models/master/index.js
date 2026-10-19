@@ -6,6 +6,7 @@ import TenantSubscriptionFactory from "./TenantSubscription.js";
 import PlatformConfigFactory from "./PlatformConfig.js";
 import ContactInquiryFactory from "./ContactInquiry.js";
 import TranslationPackFactory from "./TranslationPack.js";
+import DevicePairingCodeFactory from "./DevicePairingCode.js";
 
 let masterModels = null;
 
@@ -20,6 +21,7 @@ export const initMasterModels = (masterSequelize) => {
   const PlatformConfig = PlatformConfigFactory(masterSequelize);
   const ContactInquiry = ContactInquiryFactory(masterSequelize);
   const TranslationPack = TranslationPackFactory(masterSequelize);
+  const DevicePairingCode = DevicePairingCodeFactory(masterSequelize);
 
   // Associations
   Tenant.hasMany(GlobalUser, { foreignKey: "target_tenant_id" });
@@ -40,6 +42,7 @@ export const initMasterModels = (masterSequelize) => {
     PlatformConfig,
     ContactInquiry,
     TranslationPack,
+    DevicePairingCode,
     sequelize: masterSequelize,
   };
 

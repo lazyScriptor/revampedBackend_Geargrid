@@ -278,4 +278,140 @@ export declare const UpdateRentalTermsContract: {
         }, z.core.$strip>;
     }, z.core.$strip>;
 };
+export declare const MintPairingCodeContract: {
+    readonly path: "/me/devices/pairing-code";
+    readonly method: "POST";
+    readonly response: z.ZodObject<{
+        status: z.ZodLiteral<"success">;
+        message: z.ZodOptional<z.ZodString>;
+        data: z.ZodObject<{
+            code: z.ZodString;
+            expires_at: z.ZodString;
+        }, z.core.$strip>;
+    }, z.core.$strip>;
+};
+export declare const ClaimPairingCodeContract: {
+    readonly path: "/public/devices/pair";
+    readonly method: "POST";
+    readonly body: z.ZodObject<{
+        code: z.ZodString;
+        device_id: z.ZodString;
+        device_label: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>;
+    readonly response: z.ZodObject<{
+        status: z.ZodLiteral<"success">;
+        message: z.ZodOptional<z.ZodString>;
+        data: z.ZodObject<{
+            operator_device_id: z.ZodCoercedNumber<unknown>;
+            device_id: z.ZodString;
+            operator: z.ZodObject<{
+                user_id: z.ZodCoercedNumber<unknown>;
+                operator_name: z.ZodString;
+                has_saved_signature: z.ZodBoolean;
+            }, z.core.$strip>;
+            tenant: z.ZodObject<{
+                business_display_name: z.ZodString;
+                logo_url: z.ZodNullable<z.ZodString>;
+                primary_color: z.ZodString;
+                secondary_color: z.ZodString;
+            }, z.core.$strip>;
+            paired_at: z.ZodString;
+        }, z.core.$strip>;
+    }, z.core.$strip>;
+};
+export declare const GetDeviceStatusContract: {
+    readonly path: "/public/devices/:device_id/status";
+    readonly method: "GET";
+    readonly params: z.ZodObject<{
+        device_id: z.ZodString;
+    }, z.core.$strip>;
+    readonly response: z.ZodObject<{
+        status: z.ZodLiteral<"success">;
+        message: z.ZodOptional<z.ZodString>;
+        data: z.ZodObject<{
+            paired: z.ZodBoolean;
+            operator: z.ZodNullable<z.ZodObject<{
+                user_id: z.ZodCoercedNumber<unknown>;
+                operator_name: z.ZodString;
+                has_saved_signature: z.ZodBoolean;
+            }, z.core.$strip>>;
+            tenant: z.ZodNullable<z.ZodObject<{
+                business_display_name: z.ZodString;
+                logo_url: z.ZodNullable<z.ZodString>;
+                primary_color: z.ZodString;
+                secondary_color: z.ZodString;
+            }, z.core.$strip>>;
+        }, z.core.$strip>;
+    }, z.core.$strip>;
+};
+export declare const ListMyDevicesContract: {
+    readonly path: "/me/devices";
+    readonly method: "GET";
+    readonly response: z.ZodObject<{
+        status: z.ZodLiteral<"success">;
+        message: z.ZodOptional<z.ZodString>;
+        data: z.ZodObject<{
+            devices: z.ZodArray<z.ZodObject<{
+                operator_device_id: z.ZodCoercedNumber<unknown>;
+                device_id: z.ZodString;
+                device_label: z.ZodNullable<z.ZodString>;
+                user_agent: z.ZodNullable<z.ZodString>;
+                paired_at: z.ZodString;
+                last_seen_at: z.ZodNullable<z.ZodString>;
+            }, z.core.$strip>>;
+        }, z.core.$strip>;
+    }, z.core.$strip>;
+};
+export declare const UnpairDeviceContract: {
+    readonly path: "/me/devices/:operator_device_id";
+    readonly method: "DELETE";
+    readonly params: z.ZodObject<{
+        operator_device_id: z.ZodCoercedNumber<unknown>;
+    }, z.core.$strip>;
+    readonly response: z.ZodObject<{
+        status: z.ZodLiteral<"success">;
+        message: z.ZodOptional<z.ZodString>;
+        data: z.ZodObject<{
+            unpaired: z.ZodBoolean;
+        }, z.core.$strip>;
+    }, z.core.$strip>;
+};
+export declare const GetDevicePendingSignaturesContract: {
+    readonly path: "/public/devices/:device_id/pending-signatures";
+    readonly method: "GET";
+    readonly params: z.ZodObject<{
+        device_id: z.ZodString;
+    }, z.core.$strip>;
+    readonly response: z.ZodObject<{
+        status: z.ZodLiteral<"success">;
+        message: z.ZodOptional<z.ZodString>;
+        data: z.ZodObject<{
+            pending: z.ZodArray<z.ZodObject<{
+                token: z.ZodString;
+                invoice_id: z.ZodCoercedNumber<unknown>;
+                invoice_number: z.ZodString;
+                checkpoint: z.ZodEnum<{
+                    DEPOSIT_COLLECTED: "DEPOSIT_COLLECTED";
+                    EQUIPMENT_DISPATCHED: "EQUIPMENT_DISPATCHED";
+                    EQUIPMENT_RETURNED: "EQUIPMENT_RETURNED";
+                    PAYMENT_RECEIVED: "PAYMENT_RECEIVED";
+                    OTHER: "OTHER";
+                }>;
+                required_roles: z.ZodArray<z.ZodEnum<{
+                    CUSTOMER: "CUSTOMER";
+                    OPERATOR: "OPERATOR";
+                    GUARANTOR: "GUARANTOR";
+                    WITNESS: "WITNESS";
+                }>>;
+                pending_roles: z.ZodArray<z.ZodEnum<{
+                    CUSTOMER: "CUSTOMER";
+                    OPERATOR: "OPERATOR";
+                    GUARANTOR: "GUARANTOR";
+                    WITNESS: "WITNESS";
+                }>>;
+                expires_at: z.ZodString;
+            }, z.core.$strip>>;
+        }, z.core.$strip>;
+    }, z.core.$strip>;
+};
 //# sourceMappingURL=signatures.d.ts.map

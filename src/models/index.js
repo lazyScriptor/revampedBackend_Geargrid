@@ -21,6 +21,7 @@ import BulkJobFactory from "./BulkJob.js";
 import InvoicePrintLogFactory from "./InvoicePrintLog.js";
 import SignatureRequestFactory from "./SignatureRequest.js";
 import InvoiceSignatureFactory from "./InvoiceSignature.js";
+import OperatorDeviceFactory from "./OperatorDevice.js";
 
 export const initTenantModels = (tenantConnection) => {
   const User = UserFactory(tenantConnection);
@@ -46,6 +47,7 @@ export const initTenantModels = (tenantConnection) => {
   const InvoicePrintLog = InvoicePrintLogFactory(tenantConnection);
   const SignatureRequest = SignatureRequestFactory(tenantConnection);
   const InvoiceSignature = InvoiceSignatureFactory(tenantConnection);
+  const OperatorDevice = OperatorDeviceFactory(tenantConnection);
 
   // ==========================================
   // AUTH & USERS
@@ -201,6 +203,10 @@ export const initTenantModels = (tenantConnection) => {
   InvoiceSignature.belongsTo(SignatureRequest, { foreignKey: "signature_request_id" });
   InvoiceSignature.belongsTo(User, { as: "SignatoryUser", foreignKey: "signatory_user_id" });
 
+  // ── Paired-PWA signature-capture devices ──────────────────────────────
+  OperatorDevice.belongsTo(User, { foreignKey: "user_id" });
+  User.hasMany(OperatorDevice, { foreignKey: "user_id" });
+
   return {
     User,
     Role,
@@ -225,6 +231,7 @@ export const initTenantModels = (tenantConnection) => {
     InvoicePrintLog,
     SignatureRequest,
     InvoiceSignature,
+    OperatorDevice,
     sequelize: tenantConnection,
   };
 };
