@@ -35,7 +35,8 @@ export const up = async ({ context: queryInterface }) => {
       // Short, uppercase, dash-separated for human reading. Random.
       code: { type: DataTypes.STRING(16), allowNull: false, unique: true },
       // Which tenant / operator this code is bound to at mint time.
-      tenant_id: { type: DataTypes.INTEGER, allowNull: false },
+      // tenant_id is UUID STRING(36) to match master.TENANTS.tenant_id.
+      tenant_id: { type: DataTypes.STRING(36), allowNull: false },
       user_id: { type: DataTypes.INTEGER, allowNull: false },
       status: {
         type: DataTypes.ENUM("PENDING", "CLAIMED", "EXPIRED"),

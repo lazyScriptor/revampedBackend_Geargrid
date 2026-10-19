@@ -10,7 +10,8 @@ export default (sequelize) => {
         autoIncrement: true,
       },
       code: { type: DataTypes.STRING(16), allowNull: false, unique: true },
-      tenant_id: { type: DataTypes.INTEGER, allowNull: false },
+      // tenant_id matches master.TENANTS.tenant_id (UUID stored as STRING(36)).
+      tenant_id: { type: DataTypes.STRING(36), allowNull: false },
       user_id: { type: DataTypes.INTEGER, allowNull: false },
       status: {
         type: DataTypes.ENUM("PENDING", "CLAIMED", "EXPIRED"),
