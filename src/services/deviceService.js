@@ -264,15 +264,20 @@ export const getPendingSignaturesForDevice = async (masterModels, device_id) => 
     limit: 10,
   });
 
+  // INVOICE has no dedicated `invoice_number` column — the display number is
+  // derived from invoice_id as `INV-<id>` everywhere else in the codebase
+  // (reports, receipt). Asking for `invoice_number` as an attribute makes
+  // MySQL throw ER_BAD_FIELD_ERROR, which was the cause of the phone's
+  // "Couldn't fetch pending requests" alert.
   const invoiceIds = [...new Set(requests.map((r) => r.invoice_id))];
   const invoices = invoiceIds.length
     ? await tenantModels.Invoice.findAll({
         where: { invoice_id: { [Op.in]: invoiceIds } },
-        attributes: ["invoice_id", "invoice_number"],
+        attributes: ["invoice_id"],
       })
     : [];
   const invoiceNumberById = Object.fromEntries(
-    invoices.map((i) => [i.invoice_id, i.invoice_number || `INV-${i.invoice_id}`]),
+    invoices.map((i) => [i.invoice_id, `INV-${i.invoice_id}`]),
   );
 
   const requestIds = requests.map((r) => r.request_id);
