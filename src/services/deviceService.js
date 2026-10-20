@@ -21,7 +21,9 @@ const PAIRING_CODE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const PENDING_LOOKBACK_MS = 30 * 60 * 1000; // show requests from last 30 min
 
 // Readable, ambiguous-free alphabet. No 0/O, 1/I/L.
-const ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+// (Previously included `L` by mistake, which collides with 1/I visually and
+// tripped the "no ambiguous chars" unit test flakily.)
+const ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
 
 const nowUtc = () => new Date();
 
