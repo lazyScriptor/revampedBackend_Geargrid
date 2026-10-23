@@ -19,6 +19,7 @@ export const getDashboardKPIs = async (models, filters = {}) => {
   const revenueResult = await models.Payment.findOne({
     attributes: [[fn("COALESCE", fn("SUM", col("payment_amount")), 0), "total"]],
     where: {
+      is_voided: false,
       payment_amount: { [Op.gt]: 0 },
       payment_date: { [Op.between]: [startDate, endDate] },
     },
@@ -93,6 +94,7 @@ export const getProfitAndLoss = async (models, filters = {}) => {
   const revenueResult = await models.Payment.findOne({
     attributes: [[fn("COALESCE", fn("SUM", col("payment_amount")), 0), "total"]],
     where: {
+      is_voided: false,
       payment_amount: { [Op.gt]: 0 },
       payment_date: { [Op.between]: [start, end] },
     },
@@ -103,6 +105,7 @@ export const getProfitAndLoss = async (models, filters = {}) => {
   const refundResult = await models.Payment.findOne({
     attributes: [[fn("COALESCE", fn("SUM", col("payment_amount")), 0), "total"]],
     where: {
+      is_voided: false,
       payment_amount: { [Op.lt]: 0 },
       payment_date: { [Op.between]: [start, end] },
     },

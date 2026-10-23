@@ -142,6 +142,7 @@ export const getFilteredPayments = async (models, query) => {
   ], "payment_date", "DESC");
 
   const where = {
+    is_voided: false,
     ...buildDateFilter("payment_date", query.dateFrom, query.dateTo),
     ...buildAmountFilter("payment_amount", query.minAmount, query.maxAmount),
   };

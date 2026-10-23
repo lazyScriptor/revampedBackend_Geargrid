@@ -20,7 +20,9 @@ export default (sequelize) => {
     {
       tableName: "PAYMENTS",
       timestamps: false,
-      defaultScope: { where: { is_voided: false } },
+      // NOTE: deliberately NO defaultScope here — a scope `where` makes every `include: Payment`
+      // an INNER JOIN and hides invoices with no payments. Voided payments only ever belong to
+      // deleted invoices (already excluded); direct Payment queries filter is_voided explicitly.
     },
   );
   return Payment;

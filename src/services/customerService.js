@@ -153,6 +153,7 @@ export const getCustomerById = async (models, customerId) => {
       },
       {
         model: models.Invoice,
+        required: false, // Invoice has a default scope (hides deleted) — never turn this into an INNER JOIN
         attributes: ["invoice_id", "total_amount", "status", "issued_date"],
         limit: 5, // Top 5 recent invoices for the POS Snapshot widget
         order: [["issued_date", "DESC"]],

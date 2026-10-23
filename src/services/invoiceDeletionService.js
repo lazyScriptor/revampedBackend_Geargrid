@@ -81,7 +81,7 @@ export const deleteInvoice = async (models, invoiceId, actor, { reason, note } =
     if (!invoice) throw new AppError("Invoice not found.", 404);
     if (invoice.is_deleted) throw new AppError("This invoice is already deleted.", 409);
 
-    const payments = await models.Payment.findAll({ where: { invoice_id: invoiceId }, transaction: t });
+    const payments = await models.Payment.findAll({ where: { invoice_id: invoiceId, is_voided: false }, transaction: t });
     const paidTotal = payments.reduce((s, p) => s + Number(p.payment_amount || 0), 0);
     const hasMoney = payments.length > 0 || Number(invoice.advance_paid || 0) > 0;
     if (hasMoney && !canAny) {
@@ -121,7 +121,7 @@ export const deleteInvoice = async (models, invoiceId, actor, { reason, note } =
     // 3. Void (do not erase) the money so it can be reconciled.
     await models.Payment.update(
       { is_voided: true, voided_at: new Date() },
-      { where: { invoice_id: invoiceId }, transaction: t },
+      { where: { invoice_id: invoiceId, is_voided: false }, transaction: t },
     );
 
     await invoice.update(
