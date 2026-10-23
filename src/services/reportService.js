@@ -49,6 +49,7 @@ export const getDashboardKPIs = async (models, filters = {}) => {
       GROUP BY invoice_id
     ) p ON p.invoice_id = i.invoice_id
     WHERE i.status = 'Active'
+      AND i.is_deleted = 0
       AND (i.total_amount - i.advance_paid - COALESCE(p.paid, 0)) > 0`,
     { type: models.sequelize.constructor.QueryTypes.SELECT },
   );
@@ -59,6 +60,7 @@ export const getDashboardKPIs = async (models, filters = {}) => {
     `SELECT DATE(payment_date) AS date, SUM(payment_amount) AS revenue
      FROM PAYMENTS
      WHERE payment_amount > 0
+       AND is_voided = 0
        AND payment_date >= :startDate
      GROUP BY DATE(payment_date)
      ORDER BY DATE(payment_date) ASC`,
@@ -187,6 +189,7 @@ export const getAccountsReceivable = async (models) => {
       GROUP BY invoice_id
     ) p ON p.invoice_id = i.invoice_id
     WHERE i.status = 'Active'
+      AND i.is_deleted = 0
       AND (i.total_amount - i.advance_paid - COALESCE(p.total_paid, 0)) > 0
     ORDER BY days_overdue DESC`,
     { type: models.sequelize.constructor.QueryTypes.SELECT },
@@ -258,7 +261,7 @@ export const getEquipmentUtilization = async (models, filters = {}) => {
       SELECT il.equipment_id,
              SUM(il.line_total_amount) AS total_revenue
       FROM INVOICE_LINES il
-      JOIN INVOICES i ON i.invoice_id = il.invoice_id
+      JOIN INVOICES i ON i.invoice_id = il.invoice_id AND i.is_deleted = 0
       WHERE i.issued_date BETWEEN :startDate AND :endDate
       GROUP BY il.equipment_id
     ) rev ON rev.equipment_id = e.equipment_id
@@ -269,7 +272,7 @@ export const getEquipmentUtilization = async (models, filters = {}) => {
                il.borrow_date
              )) * il.borrow_quantity) AS total_days_rented
       FROM INVOICE_LINES il
-      JOIN INVOICES i ON i.invoice_id = il.invoice_id
+      JOIN INVOICES i ON i.invoice_id = il.invoice_id AND i.is_deleted = 0
       WHERE i.issued_date BETWEEN :startDate AND :endDate
       GROUP BY il.equipment_id
     ) rent ON rent.equipment_id = e.equipment_id
@@ -378,7 +381,8 @@ export const getDailyCashFlow = async (models, filters = {}) => {
       SUM(payment_amount) AS net,
       COUNT(*) AS transaction_count
     FROM PAYMENTS
-    WHERE payment_date BETWEEN :rangeStart AND :rangeEnd
+    WHERE is_voided = 0
+      AND payment_date BETWEEN :rangeStart AND :rangeEnd
     GROUP BY method
     ORDER BY net DESC`,
     {

@@ -45,7 +45,7 @@ export const getEquipmentMaintenanceByUnit = async (models, filters = {}) => {
       LEFT JOIN (
         SELECT il.equipment_id, SUM(il.line_total_amount) AS total_revenue
         FROM INVOICE_LINES il
-        JOIN INVOICES i ON i.invoice_id = il.invoice_id
+        JOIN INVOICES i ON i.invoice_id = il.invoice_id AND i.is_deleted = 0
         WHERE i.issued_date BETWEEN :rangeStart AND :rangeEnd
         GROUP BY il.equipment_id
       ) rev ON rev.equipment_id = e.equipment_id

@@ -38,6 +38,7 @@ export const getInvoiceAging = async (models, filters = {}) => {
         GROUP BY invoice_id
       ) earliest_due ON earliest_due.invoice_id = i.invoice_id
       WHERE i.status = 'Active'
+        AND i.is_deleted = 0
         AND (i.total_amount - i.advance_paid - COALESCE(p.total_paid, 0)) > 0
       ORDER BY days_overdue DESC, balance_due DESC`,
     { type: QueryTypes.SELECT },

@@ -291,7 +291,7 @@ export const getTransactionJournal = async (models, query) => {
       SELECT p.payment_id as id, p.payment_date as date, 'income' as type,
              p.payment_amount as amount
       FROM PAYMENTS p
-      WHERE 1=1 ${dateClause.replace(/\bdate\b/g, "p.payment_date")} ${amountClause.replace(/\bamount\b/g, "p.payment_amount")}
+      WHERE p.is_voided = 0 ${dateClause.replace(/\bdate\b/g, "p.payment_date")} ${amountClause.replace(/\bamount\b/g, "p.payment_amount")}
 
       UNION ALL
 
@@ -314,7 +314,7 @@ export const getTransactionJournal = async (models, query) => {
         p.payment_amount as amount,
         p.invoice_id as ref_id
       FROM PAYMENTS p
-      WHERE 1=1 ${dateClause.replace(/\bdate\b/g, "p.payment_date")} ${amountClause.replace(/\bamount\b/g, "p.payment_amount")}
+      WHERE p.is_voided = 0 ${dateClause.replace(/\bdate\b/g, "p.payment_date")} ${amountClause.replace(/\bamount\b/g, "p.payment_amount")}
 
       UNION ALL
 
@@ -416,7 +416,7 @@ export const getChartData = async (models, query) => {
       SUM(expense) as expense 
     FROM (
       SELECT p.payment_date as date, p.payment_amount as income, 0 as expense
-      FROM PAYMENTS p WHERE 1=1 ${dateClauseP} ${searchClauseP} ${amountClauseP}
+      FROM PAYMENTS p WHERE p.is_voided = 0 ${dateClauseP} ${searchClauseP} ${amountClauseP}
       UNION ALL
       SELECT e.date as date, 0 as income, e.amount as expense
       FROM EXPENSES e WHERE 1=1 ${dateClauseE} ${amountClauseE}
@@ -436,14 +436,14 @@ export const getChartData = async (models, query) => {
   // 3. Invoices by Status
   const invoicesByStatusSql = `
     SELECT i.status as name, SUM(i.total_amount) as value, COUNT(*) as count
-    FROM INVOICES i WHERE 1=1 ${dateClauseI} ${searchClauseI} ${amountClauseI} ${statusClauseI}
+    FROM INVOICES i WHERE i.is_deleted = 0 ${dateClauseI} ${searchClauseI} ${amountClauseI} ${statusClauseI}
     GROUP BY i.status
   `;
 
   // 4. Payments by Method
   const paymentsByMethodSql = `
     SELECT p.method as name, SUM(p.payment_amount) as value
-    FROM PAYMENTS p WHERE 1=1 ${dateClauseP} ${searchClauseP} ${amountClauseP}
+    FROM PAYMENTS p WHERE p.is_voided = 0 ${dateClauseP} ${searchClauseP} ${amountClauseP}
     GROUP BY p.method
     ORDER BY value DESC
   `;

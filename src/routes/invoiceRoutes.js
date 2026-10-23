@@ -36,6 +36,11 @@ router.get("/print-logs/:logId", requirePermission("invoice:print_log:view"), pr
 router.patch("/reviews/:reviewId", requirePermission("invoice:edit"), reviewController.updateReview);
 router.delete("/reviews/:reviewId", requirePermission("invoice:edit"), reviewController.deleteReview);
 
+// Deleted-invoices report + delete/restore (MUST be before /:id)
+router.get("/deleted", requirePermission("invoice:restore", "invoice:delete:any"), invoiceController.getDeletedInvoices);
+router.delete("/:id", requirePermission("invoice:delete", "invoice:delete:any"), invoiceController.deleteInvoice);
+router.post("/:id/restore", requirePermission("invoice:restore"), invoiceController.restoreInvoice);
+
 router.get("/:id", requirePermission("invoice:view"), invoiceController.getInvoiceById); // <-- NEW
 router.get("/:id/print-logs", requirePermission("invoice:print_log:view"), printLogController.getInvoicePrintLogs);
 

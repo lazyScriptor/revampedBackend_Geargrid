@@ -1,4 +1,5 @@
 import * as invoiceService from "../services/invoiceService.js";
+import * as invoiceDeletion from "../services/invoiceDeletionService.js";
 import { getCachedTenantConnection } from "../config/database.js";
 import { initTenantModels } from "../models/index.js";
 import catchAsync from "../utils/catchAsync.js";
@@ -114,4 +115,22 @@ export const updateFees = catchAsync(async (req, res, next) => {
     message: "Invoice fees updated successfully.",
     data: { invoice },
   });
+});
+
+// --- Soft delete / restore / deleted-invoices report ---
+const actorOf = (req) => ({ userId: req.user.userId, permissions: req.effectivePermissions });
+
+export const deleteInvoice = catchAsync(async (req, res) => {
+  const data = await invoiceDeletion.deleteInvoice(getModels(req), Number(req.params.id), actorOf(req), req.body || {});
+  res.status(200).json({ status: "success", message: "Invoice deleted.", data });
+});
+
+export const restoreInvoice = catchAsync(async (req, res) => {
+  const data = await invoiceDeletion.restoreInvoice(getModels(req), Number(req.params.id), actorOf(req));
+  res.status(200).json({ status: "success", message: "Invoice restored.", data });
+});
+
+export const getDeletedInvoices = catchAsync(async (req, res) => {
+  const data = await invoiceDeletion.listDeletedInvoices(getModels(req), req.query);
+  res.status(200).json({ status: "success", data });
 });

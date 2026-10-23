@@ -195,7 +195,7 @@ export const getUtilizationSparkline = async (models, { warehouseId } = {}) => {
       const [result] = await models.sequelize.query(
         `SELECT COALESCE(SUM(il.borrow_quantity), 0) AS rented_qty
          FROM INVOICE_LINES il
-         JOIN INVOICES i ON i.invoice_id = il.invoice_id
+         JOIN INVOICES i ON i.invoice_id = il.invoice_id AND i.is_deleted = 0
          WHERE il.line_status = 'Active'
            AND il.borrow_date <= :day
            AND (
@@ -237,7 +237,7 @@ export const getReturnsDueToday = async (models, { warehouseId } = {}) => {
       il.borrow_quantity,
       DATEDIFF(CURDATE(), il.expected_return_date) AS days_overdue
     FROM INVOICE_LINES il
-    JOIN INVOICES i   ON i.invoice_id   = il.invoice_id
+    JOIN INVOICES i   ON i.invoice_id   = il.invoice_id AND i.is_deleted = 0
     JOIN CUSTOMERS c  ON c.customer_id  = i.customer_id
     JOIN EQUIPMENT e  ON e.equipment_id = il.equipment_id
     WHERE il.line_status = 'Active'

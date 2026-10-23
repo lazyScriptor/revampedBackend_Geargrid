@@ -56,10 +56,22 @@ export default (sequelize) => {
         defaultValue: "Active",
       },
       issued_date: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
+      // Soft delete ("void with a reason"). Deleted invoices are hidden everywhere by the
+      // default scope; use Invoice.unscoped() for the delete/restore flow and the deleted report.
+      is_deleted: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+      deleted_at: { type: DataTypes.DATE, allowNull: true },
+      deleted_by: { type: DataTypes.INTEGER, allowNull: true },
+      deleted_by_role: { type: DataTypes.STRING(100), allowNull: true },
+      delete_reason: { type: DataTypes.STRING(100), allowNull: true },
+      delete_note: { type: DataTypes.STRING(500), allowNull: true },
+      delete_flagged: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+      restored_at: { type: DataTypes.DATE, allowNull: true },
+      restored_by: { type: DataTypes.INTEGER, allowNull: true },
     },
     {
       tableName: "INVOICES",
       timestamps: false,
+      defaultScope: { where: { is_deleted: false } },
     },
   );
   return Invoice;

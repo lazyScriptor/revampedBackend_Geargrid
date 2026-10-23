@@ -47,11 +47,12 @@ export const getAllCustomersReport = async (models, filters = {}) => {
       FROM CUSTOMERS c
       LEFT JOIN INVOICES i
         ON i.customer_id = c.customer_id
+       AND i.is_deleted = 0
        AND i.issued_date BETWEEN :rangeStart AND :rangeEnd
       LEFT JOIN (
         SELECT i.customer_id, SUM(p.payment_amount) AS total_paid
         FROM PAYMENTS p
-        JOIN INVOICES i ON i.invoice_id = p.invoice_id
+        JOIN INVOICES i ON i.invoice_id = p.invoice_id AND i.is_deleted = 0
         WHERE p.payment_amount > 0
           AND p.payment_date BETWEEN :rangeStart AND :rangeEnd
         GROUP BY i.customer_id
@@ -65,7 +66,7 @@ export const getAllCustomersReport = async (models, filters = {}) => {
                  0
                )) AS overdue_amount
         FROM INVOICE_LINES il
-        JOIN INVOICES i ON i.invoice_id = il.invoice_id
+        JOIN INVOICES i ON i.invoice_id = il.invoice_id AND i.is_deleted = 0
         WHERE il.line_status = 'Active'
           AND il.actual_return_date IS NULL
           AND il.expected_return_date < CURDATE()
