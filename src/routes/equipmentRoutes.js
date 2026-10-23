@@ -8,6 +8,7 @@ import {
   deleteEquipment,
   bulkUpdateEquipment,
   getEquipmentStats,
+  convertNamesToSinhala,
 } from "../controllers/equipmentController.js";
 import { protect, requirePermission } from "../middlewares/authMiddleware.js";
 
@@ -31,6 +32,9 @@ router.patch(
   requirePermission("equipment:bulk_edit", "equipment:edit"),
   bulkUpdateEquipment,
 );
+
+// One-click: translate equipment names to Sinhala (MUST be before /:id)
+router.post("/convert-names-si", requirePermission("equipment:edit"), convertNamesToSinhala);
 
 // GET /api/equipment/5
 // PUT /api/equipment/5 (Full/Partial update of details like price, name)

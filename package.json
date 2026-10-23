@@ -18,6 +18,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.1.0",
     "@geargrid/contracts": "file:./vendor/@geargrid/contracts",
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",

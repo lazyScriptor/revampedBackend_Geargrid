@@ -1,5 +1,6 @@
 import { Op } from "sequelize";
 import AppError from "../utils/AppError.js";
+import { translateNamesToSinhala } from "./equipmentTranslateService.js";
 
 export const createEquipment = async (models, data) => {
   // 1. Force strict defaults for fresh equipment
@@ -75,6 +76,7 @@ export const getAllEquipment = async (models, queryParams) => {
   if (queryParams.search) {
     whereClause[Op.or] = [
       { equipment_name: { [Op.like]: `%${queryParams.search}%` } },
+      { equipment_name_si: { [Op.like]: `%${queryParams.search}%` } },
       { serial_number: { [Op.like]: `%${queryParams.search}%` } },
     ];
   }
@@ -273,3 +275,37 @@ export const getEquipmentStats = async (models) => {
   };
 };
 
+
+/**
+ * One-click "convert names to Sinhala". Translates the English name of the given
+ * equipment (or every machine still missing a Sinhala name) and saves it.
+ * Existing Sinhala names are kept unless `overwrite` is true.
+ */
+export const convertEquipmentNamesToSinhala = async (models, { ids, overwrite = false } = {}) => {
+  const where = {};
+  if (Array.isArray(ids) && ids.length > 0) where.equipment_id = { [Op.in]: ids.map(Number) };
+  if (!overwrite) {
+    where[Op.and] = [
+      { [Op.or]: [{ equipment_name_si: null }, { equipment_name_si: "" }] },
+    ];
+  }
+  const rows = await models.Equipment.findAll({
+    where,
+    attributes: ["equipment_id", "equipment_name"],
+  });
+  if (rows.length === 0) return { converted: 0, skipped: 0, total: 0 };
+
+  const translated = await translateNamesToSinhala(
+    rows.map((r) => ({ id: r.equipment_id, name: r.equipment_name })),
+  );
+
+  let converted = 0;
+  for (const row of rows) {
+    const si = translated.get(row.equipment_id);
+    if (si) {
+      await models.Equipment.update({ equipment_name_si: si }, { where: { equipment_id: row.equipment_id } });
+      converted += 1;
+    }
+  }
+  return { converted, skipped: rows.length - converted, total: rows.length };
+};

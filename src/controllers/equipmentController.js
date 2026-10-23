@@ -83,3 +83,11 @@ export const getEquipmentStats = catchAsync(async (req, res, next) => {
   res.status(200).json({ status: "success", data: stats });
 });
 
+
+export const convertNamesToSinhala = catchAsync(async (req, res, next) => {
+  const result = await equipmentService.convertEquipmentNamesToSinhala(getModels(req), {
+    ids: req.body?.ids,
+    overwrite: Boolean(req.body?.overwrite),
+  });
+  res.status(200).json({ status: "success", data: result });
+});
