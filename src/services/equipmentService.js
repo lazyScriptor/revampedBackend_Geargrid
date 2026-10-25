@@ -86,7 +86,13 @@ export const getAllEquipment = async (models, queryParams) => {
     where: whereClause,
     limit,
     offset,
-    order: [["createdAt", "DESC"]], // Newest first
+    // Newest first. equipment_id breaks ties: a bulk import stamps every row with the same
+    // createdAt, and MySQL orders tied rows arbitrarily per query — so OFFSET paging returned
+    // the same machines on several pages and skipped others.
+    order: [
+      ["createdAt", "DESC"],
+      ["equipment_id", "DESC"],
+    ],
     include: [
       { model: models.EquipmentCategory, attributes: ["category_name"] },
       { model: models.Warehouse, attributes: ["location_name"] },

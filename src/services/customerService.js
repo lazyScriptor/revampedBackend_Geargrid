@@ -87,7 +87,11 @@ export const getAllCustomers = async (models, queryParams) => {
       ],
       limit,
       offset,
-      order: [["createdAt", "DESC"]],
+      // customer_id breaks createdAt ties (bulk imports) so OFFSET paging is stable
+      order: [
+        ["createdAt", "DESC"],
+        ["customer_id", "DESC"],
+      ],
     });
 
     return {
@@ -110,7 +114,10 @@ export const getAllCustomers = async (models, queryParams) => {
     ],
     limit,
     offset,
-    order: [["createdAt", "DESC"]],
+    order: [
+      ["createdAt", "DESC"],
+      ["customer_id", "DESC"],
+    ],
   });
 
   return {
