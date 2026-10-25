@@ -243,6 +243,7 @@ export const getReturnsDueToday = async (models, { warehouseId } = {}) => {
     WHERE il.line_status = 'Active'
       AND il.actual_return_date IS NULL
       AND il.expected_return_date <= CURDATE()
+      AND (il.track_overdue IS NULL OR il.track_overdue = TRUE)
       ${warehouseId ? "AND e.warehouse_id = :warehouseId" : ""}
     ORDER BY il.expected_return_date ASC
     LIMIT 60`,
