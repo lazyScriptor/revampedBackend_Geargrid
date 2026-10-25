@@ -35,10 +35,9 @@ export const getAllCustomersReport = async (models, filters = {}) => {
         c.deposit_balance,
         COUNT(DISTINCT i.invoice_id) AS invoice_count,
         COALESCE(SUM(i.total_amount), 0) AS total_revenue,
-        COALESCE(SUM(i.advance_paid), 0) + COALESCE(p_agg.total_paid, 0) AS total_paid,
+        COALESCE(p_agg.total_paid, 0) AS total_paid,
         GREATEST(0,
           COALESCE(SUM(i.total_amount), 0)
-          - COALESCE(SUM(i.advance_paid), 0)
           - COALESCE(p_agg.total_paid, 0)
         ) AS balance_due,
         COALESCE(od.overdue_amount, 0) AS overdue_amount,

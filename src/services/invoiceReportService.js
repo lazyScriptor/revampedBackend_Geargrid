@@ -1,6 +1,7 @@
 // invoiceReportService.js — invoice-centric reports for the Reports surface.
 
 import { Op, QueryTypes } from "sequelize";
+import { OPEN_INVOICE_STATUSES_SQL, PAID_PER_INVOICE_SQL, owedExpr } from "../utils/invoiceBalance.js";
 import { parseTenantDayRange } from "../utils/dateRange.js";
 
 // Aging report — every active invoice with a positive balance, bucketed by
@@ -22,24 +23,20 @@ export const getInvoiceAging = async (models, filters = {}) => {
         c.customer_type,
         c.phone_number,
         COALESCE(p.total_paid, 0) AS total_paid,
-        (i.total_amount - i.advance_paid - COALESCE(p.total_paid, 0)) AS balance_due,
+        ${owedExpr()} AS balance_due,
         DATEDIFF(CURDATE(), COALESCE(earliest_due.due_date, i.issued_date)) AS days_overdue
       FROM INVOICES i
       JOIN CUSTOMERS c ON c.customer_id = i.customer_id
-      LEFT JOIN (
-        SELECT invoice_id, SUM(CASE WHEN payment_amount > 0 THEN payment_amount ELSE 0 END) AS total_paid
-        FROM PAYMENTS
-        GROUP BY invoice_id
-      ) p ON p.invoice_id = i.invoice_id
+      LEFT JOIN ${PAID_PER_INVOICE_SQL} p ON p.invoice_id = i.invoice_id
       LEFT JOIN (
         SELECT invoice_id, MIN(expected_return_date) AS due_date
         FROM INVOICE_LINES
         WHERE line_status = 'Active' AND actual_return_date IS NULL
         GROUP BY invoice_id
       ) earliest_due ON earliest_due.invoice_id = i.invoice_id
-      WHERE i.status = 'Active'
+      WHERE i.status IN ${OPEN_INVOICE_STATUSES_SQL}
         AND i.is_deleted = 0
-        AND (i.total_amount - i.advance_paid - COALESCE(p.total_paid, 0)) > 0
+        AND ${owedExpr()} > 0
       ORDER BY days_overdue DESC, balance_due DESC`,
     { type: QueryTypes.SELECT },
   );

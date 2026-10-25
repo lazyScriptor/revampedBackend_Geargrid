@@ -13,7 +13,7 @@ const getModels = (req) => {
 // --- 1. Create a New Dispatch Invoice ---
 export const createInvoice = catchAsync(async (req, res, next) => {
   const { customer_id, items, fees } = req.body;
-  const userId = req.user?.id || 1;
+  const userId = req.user.userId;
 
   const newInvoice = await invoiceService.createDispatchInvoice(
     getModels(req),
@@ -42,7 +42,7 @@ export const getInvoices = catchAsync(async (req, res, next) => {
 // --- 3. Process a Return & Settlement ---
 export const processReturnInvoice = catchAsync(async (req, res, next) => {
   const invoice_id = req.params.id;
-  const userId = req.user?.id || 1;
+  const userId = req.user.userId;
 
   // Combine the URL parameter with the request body payload
   const payload = {
@@ -70,7 +70,7 @@ export const getInvoiceById = catchAsync(async (req, res, next) => {
 });
 
 export const addPayment = catchAsync(async (req, res, next) => {
-  const userId = req.user?.id || 1;
+  const userId = req.user.userId;
   const payment = await invoiceService.addContinuousPayment(
     getModels(req),
     req.params.id,
@@ -87,7 +87,7 @@ export const addPayment = catchAsync(async (req, res, next) => {
 });
 
 export const toggleVault = catchAsync(async (req, res, next) => {
-  const userId = req.user?.id || 1;
+  const userId = req.user.userId;
   const result = await invoiceService.toggleVaultStatus(
     getModels(req),
     req.params.id,
@@ -103,7 +103,7 @@ export const toggleVault = catchAsync(async (req, res, next) => {
   });
 });
 export const updateFees = catchAsync(async (req, res, next) => {
-  const userId = req.user?.id || 1;
+  const userId = req.user.userId;
   const invoice = await invoiceService.updateInvoiceFees(
     getModels(req),
     req.params.id,

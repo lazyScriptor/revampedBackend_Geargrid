@@ -9,7 +9,7 @@ const getModels = (req) => {
 };
 
 export const createExpense = catchAsync(async (req, res) => {
-  const userId = req.user?.id || 1;
+  const userId = req.user.userId;
   const expense = await expenseService.createExpense(getModels(req), req.body, userId);
   res.status(201).json({
     status: "success",

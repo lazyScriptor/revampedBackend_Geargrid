@@ -1,4 +1,5 @@
 import { Op, fn, col, literal } from "sequelize";
+import { OPEN_INVOICE_STATUSES_SQL, PAID_PER_INVOICE_SQL, owedExpr } from "../utils/invoiceBalance.js";
 import { parseTenantDayRange, parseTenantDay, tenantNDaysAgoYmd } from "../utils/dateRange.js";
 
 // ============================================================================
@@ -39,19 +40,12 @@ export const getDashboardKPIs = async (models, filters = {}) => {
 
   // --- Outstanding Debt (Active invoices with remaining balance) ---
   const outstandingQuery = await models.sequelize.query(
-    `SELECT COALESCE(SUM(
-      i.total_amount - i.advance_paid - COALESCE(p.paid, 0)
-    ), 0) AS outstanding
+    `SELECT COALESCE(SUM(${owedExpr()}), 0) AS outstanding
     FROM INVOICES i
-    LEFT JOIN (
-      SELECT invoice_id, SUM(payment_amount) AS paid
-      FROM PAYMENTS
-      WHERE payment_amount > 0
-      GROUP BY invoice_id
-    ) p ON p.invoice_id = i.invoice_id
-    WHERE i.status = 'Active'
+    LEFT JOIN ${PAID_PER_INVOICE_SQL} p ON p.invoice_id = i.invoice_id
+    WHERE i.status IN ${OPEN_INVOICE_STATUSES_SQL}
       AND i.is_deleted = 0
-      AND (i.total_amount - i.advance_paid - COALESCE(p.paid, 0)) > 0`,
+      AND ${owedExpr()} > 0`,
     { type: models.sequelize.constructor.QueryTypes.SELECT },
   );
   const outstandingDebt = parseFloat(outstandingQuery[0]?.outstanding) || 0;
@@ -182,18 +176,14 @@ export const getAccountsReceivable = async (models) => {
       c.customer_type,
       c.phone_number,
       COALESCE(p.total_paid, 0) AS total_paid,
-      (i.total_amount - i.advance_paid - COALESCE(p.total_paid, 0)) AS outstanding,
+      ${owedExpr()} AS outstanding,
       DATEDIFF(CURDATE(), i.issued_date) AS days_overdue
     FROM INVOICES i
     JOIN CUSTOMERS c ON c.customer_id = i.customer_id
-    LEFT JOIN (
-      SELECT invoice_id, SUM(CASE WHEN payment_amount > 0 THEN payment_amount ELSE 0 END) AS total_paid
-      FROM PAYMENTS
-      GROUP BY invoice_id
-    ) p ON p.invoice_id = i.invoice_id
-    WHERE i.status = 'Active'
+    LEFT JOIN ${PAID_PER_INVOICE_SQL} p ON p.invoice_id = i.invoice_id
+    WHERE i.status IN ${OPEN_INVOICE_STATUSES_SQL}
       AND i.is_deleted = 0
-      AND (i.total_amount - i.advance_paid - COALESCE(p.total_paid, 0)) > 0
+      AND ${owedExpr()} > 0
     ORDER BY days_overdue DESC`,
     { type: models.sequelize.constructor.QueryTypes.SELECT },
   );

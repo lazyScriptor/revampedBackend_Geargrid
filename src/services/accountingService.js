@@ -123,7 +123,7 @@ export const getFilteredInvoices = async (models, query) => {
     return {
       ...json,
       total_paid: totalPaid,
-      outstanding: parseFloat(json.sub_total || 0) - totalPaid,
+      outstanding: parseFloat(json.total_amount || 0) - totalPaid,
       payment_count: (json.Payments || []).length,
     };
   });
