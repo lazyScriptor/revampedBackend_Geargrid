@@ -1,0 +1,512 @@
+[
+ {
+  "key": "narassanaya",
+  "pattern": "narassanaya",
+  "skip": true,
+  "why": "local tool name, no reliable stock photo"
+ },
+ {
+  "key": "scaffold-pin",
+  "pattern": "^pin\\b",
+  "skip": true,
+  "why": "tiny part, no reliable stock photo"
+ },
+ {
+  "key": "concrete-column",
+  "pattern": "concrete columns?",
+  "skip": true,
+  "why": "precast columns, no reliable stock photo"
+ },
+ {
+  "key": "putty-cut-machine",
+  "pattern": "putty cut",
+  "skip": true,
+  "why": "unclear item"
+ },
+ {
+  "key": "hilti-bit",
+  "pattern": "hilti bit",
+  "terms": [
+   "sds drill bits",
+   "masonry drill bit"
+  ]
+ },
+ {
+  "key": "spray-gun",
+  "pattern": "spray gun",
+  "terms": [
+   "paint spray gun",
+   "spray gun"
+  ]
+ },
+ {
+  "key": "rotary-hammer",
+  "pattern": "rotary hammer|^hilti",
+  "terms": [
+   "rotary hammer drill",
+   "sds hammer drill"
+  ]
+ },
+ {
+  "key": "hammer-drill",
+  "pattern": "hammer drill|drill.*with hammer",
+  "terms": [
+   "hammer drill",
+   "impact drill"
+  ]
+ },
+ {
+  "key": "battery-drill",
+  "pattern": "battery drill",
+  "terms": [
+   "cordless drill",
+   "cordless drill driver"
+  ]
+ },
+ {
+  "key": "bench-drill",
+  "pattern": "bench drill",
+  "terms": [
+   "drill press",
+   "bench drill press"
+  ]
+ },
+ {
+  "key": "impact-driver",
+  "pattern": "impact driver",
+  "terms": [
+   "impact driver",
+   "cordless impact driver"
+  ]
+ },
+ {
+  "key": "power-drill",
+  "pattern": "^drill\\b",
+  "terms": [
+   "electric drill",
+   "power drill"
+  ]
+ },
+ {
+  "key": "demolition-breaker",
+  "pattern": "breaker",
+  "terms": [
+   "demolition hammer",
+   "electric jackhammer"
+  ]
+ },
+ {
+  "key": "angle-grinder",
+  "pattern": "grinder",
+  "terms": [
+   "angle grinder"
+  ]
+ },
+ {
+  "key": "plate-compactor",
+  "pattern": "plate compactor",
+  "terms": [
+   "plate compactor"
+  ]
+ },
+ {
+  "key": "scaffold-frame",
+  "pattern": "scaffolding frame",
+  "terms": [
+   "scaffolding frame",
+   "scaffold frame"
+  ]
+ },
+ {
+  "key": "scaffold-plank",
+  "pattern": "scaffolding plank|^plate\\b",
+  "terms": [
+   "scaffold plank",
+   "steel scaffold plank"
+  ]
+ },
+ {
+  "key": "scaffolding",
+  "pattern": "scaffolding",
+  "terms": [
+   "scaffolding",
+   "construction scaffolding"
+  ]
+ },
+ {
+  "key": "scaffold-jack",
+  "pattern": "jack pipe|^t jack",
+  "terms": [
+   "scaffolding screw jack",
+   "adjustable screw jack base"
+  ]
+ },
+ {
+  "key": "scaffold-clamp",
+  "pattern": "^clamp",
+  "terms": [
+   "scaffolding clamp",
+   "scaffold coupler"
+  ]
+ },
+ {
+  "key": "wheelbarrow",
+  "pattern": "wheel ?barrow",
+  "terms": [
+   "wheelbarrow",
+   "construction wheelbarrow"
+  ]
+ },
+ {
+  "key": "scaffold-wheel",
+  "pattern": "^wheel\\s*$",
+  "terms": [
+   "heavy duty caster wheel",
+   "scaffold caster wheel"
+  ]
+ },
+ {
+  "key": "gi-pipe",
+  "pattern": "^g\\.i",
+  "terms": [
+   "galvanized steel pipe",
+   "steel pipes"
+  ]
+ },
+ {
+  "key": "generator",
+  "pattern": "generator",
+  "terms": [
+   "diesel generator",
+   "portable generator"
+  ]
+ },
+ {
+  "key": "excavator",
+  "pattern": "excavator",
+  "terms": [
+   "mini excavator"
+  ]
+ },
+ {
+  "key": "extension-ladder",
+  "pattern": "extension ladder",
+  "terms": [
+   "extension ladder aluminum"
+  ]
+ },
+ {
+  "key": "trestle-ladder",
+  "pattern": "trestle ladder",
+  "terms": [
+   "trestle ladder",
+   "aluminium a frame ladder"
+  ]
+ },
+ {
+  "key": "straight-ladder",
+  "pattern": "straight ladder",
+  "terms": [
+   "aluminum ladder",
+   "ladder"
+  ]
+ },
+ {
+  "key": "step-ladder",
+  "pattern": "step ladder",
+  "terms": [
+   "step ladder",
+   "folding step ladder"
+  ]
+ },
+ {
+  "key": "putty-mixer",
+  "pattern": "putty mixer",
+  "terms": [
+   "paint mixer paddle drill",
+   "hand held mortar mixer"
+  ]
+ },
+ {
+  "key": "concrete-mixer",
+  "pattern": "concrete mixer",
+  "terms": [
+   "concrete mixer",
+   "cement mixer"
+  ]
+ },
+ {
+  "key": "air-compressor",
+  "pattern": "compressor",
+  "terms": [
+   "air compressor"
+  ]
+ },
+ {
+  "key": "concrete-vibrator",
+  "pattern": "vibrator|^poker",
+  "terms": [
+   "concrete vibrator",
+   "poker vibrator"
+  ]
+ },
+ {
+  "key": "concrete-cutter",
+  "pattern": "concrete cutter",
+  "terms": [
+   "concrete cutter saw",
+   "cut off saw"
+  ]
+ },
+ {
+  "key": "mig-welder",
+  "pattern": "mig welder",
+  "terms": [
+   "mig welder",
+   "welding machine"
+  ]
+ },
+ {
+  "key": "welding-machine",
+  "pattern": "arc welder|welding plant",
+  "terms": [
+   "welding machine",
+   "arc welding machine"
+  ]
+ },
+ {
+  "key": "plasma-cutter",
+  "pattern": "plasma cutter",
+  "terms": [
+   "plasma cutter"
+  ]
+ },
+ {
+  "key": "safety-helmet",
+  "pattern": "helmet",
+  "terms": [
+   "safety helmet",
+   "hard hat"
+  ]
+ },
+ {
+  "key": "safety-harness",
+  "pattern": "harness",
+  "terms": [
+   "safety harness",
+   "fall protection harness"
+  ]
+ },
+ {
+  "key": "traffic-cone",
+  "pattern": "traffic cone",
+  "terms": [
+   "traffic cone"
+  ]
+ },
+ {
+  "key": "safety-barrier",
+  "pattern": "barrier board",
+  "terms": [
+   "road barrier",
+   "safety barrier"
+  ]
+ },
+ {
+  "key": "chain-hoist",
+  "pattern": "chain hoist|^hoister",
+  "terms": [
+   "electric chain hoist",
+   "hoist"
+  ]
+ },
+ {
+  "key": "chain-block",
+  "pattern": "chain block",
+  "terms": [
+   "chain block hoist",
+   "manual chain hoist"
+  ]
+ },
+ {
+  "key": "road-roller",
+  "pattern": "roller",
+  "terms": [
+   "walk behind road roller",
+   "vibratory roller compactor"
+  ]
+ },
+ {
+  "key": "mobile-tower",
+  "pattern": "mobile tower",
+  "terms": [
+   "mobile scaffold tower",
+   "aluminium scaffold tower"
+  ]
+ },
+ {
+  "key": "water-pump",
+  "pattern": "submersible pump|water mo[tr]er",
+  "terms": [
+   "water pump",
+   "submersible water pump"
+  ]
+ },
+ {
+  "key": "inspection-camera",
+  "pattern": "inspection camera",
+  "terms": [
+   "pipe inspection camera"
+  ]
+ },
+ {
+  "key": "pipe-threader",
+  "pattern": "threading machine",
+  "terms": [
+   "pipe threading machine"
+  ]
+ },
+ {
+  "key": "lawn-mower",
+  "pattern": "lawnmower",
+  "terms": [
+   "lawn mower"
+  ]
+ },
+ {
+  "key": "grass-cutter",
+  "pattern": "grass cutter",
+  "terms": [
+   "brush cutter",
+   "grass trimmer"
+  ]
+ },
+ {
+  "key": "chainsaw",
+  "pattern": "chainsaw",
+  "terms": [
+   "chainsaw"
+  ]
+ },
+ {
+  "key": "tiller",
+  "pattern": "tiller",
+  "terms": [
+   "rotary tiller",
+   "cultivator tiller"
+  ]
+ },
+ {
+  "key": "hedge-trimmer",
+  "pattern": "hedge trimmer",
+  "terms": [
+   "hedge trimmer"
+  ]
+ },
+ {
+  "key": "circular-saw",
+  "pattern": "circular saw",
+  "terms": [
+   "circular saw"
+  ]
+ },
+ {
+  "key": "miter-saw",
+  "pattern": "miter saw",
+  "terms": [
+   "miter saw"
+  ]
+ },
+ {
+  "key": "jig-saw",
+  "pattern": "jig ?saw",
+  "terms": [
+   "jigsaw power tool"
+  ]
+ },
+ {
+  "key": "floor-polisher",
+  "pattern": "floor polisher",
+  "terms": [
+   "floor polisher machine",
+   "floor buffer"
+  ]
+ },
+ {
+  "key": "blower",
+  "pattern": "^blower",
+  "terms": [
+   "leaf blower",
+   "electric blower"
+  ]
+ },
+ {
+  "key": "vacuum-cleaner",
+  "pattern": "vaccum|vacuum",
+  "terms": [
+   "industrial vacuum cleaner",
+   "vacuum cleaner"
+  ]
+ },
+ {
+  "key": "bar-cutter",
+  "pattern": "bar cutter",
+  "terms": [
+   "rebar cutter",
+   "steel bar cutting machine"
+  ]
+ },
+ {
+  "key": "tile-cutter",
+  "pattern": "tile cutter",
+  "terms": [
+   "tile cutter",
+   "manual tile cutter"
+  ]
+ },
+ {
+  "key": "sledgehammer",
+  "pattern": "big hammer",
+  "terms": [
+   "sledgehammer"
+  ]
+ },
+ {
+  "key": "shovel",
+  "pattern": "showel|shovel",
+  "terms": [
+   "shovel"
+  ]
+ },
+ {
+  "key": "router",
+  "pattern": "^router",
+  "terms": [
+   "wood router tool",
+   "electric router"
+  ]
+ },
+ {
+  "key": "extension-cord",
+  "pattern": "wire code|extension cord",
+  "terms": [
+   "extension cord reel",
+   "power cable reel"
+  ]
+ },
+ {
+  "key": "heat-gun",
+  "pattern": "heat gun",
+  "terms": [
+   "heat gun"
+  ]
+ },
+ {
+  "key": "sander",
+  "pattern": "sander",
+  "terms": [
+   "orbital sander",
+   "electric sander"
+  ]
+ }
+]

@@ -1,0 +1,27 @@
+{
+ "images": {
+  "air-compressor": "air-compressor.webp",
+  "bar-cutter": "bar-cutter.webp",
+  "battery-drill": "battery-drill.webp",
+  "excavator": "excavator.webp",
+  "hilti-bit": "hilti-bit.webp",
+  "impact-driver": "impact-driver.webp",
+  "lawn-mower": "lawn-mower.webp",
+  "miter-saw": "miter-saw.webp",
+  "power-drill": "power-drill.webp",
+  "safety-barrier": "safety-barrier.webp",
+  "safety-helmet": "safety-helmet.webp",
+  "sander": "sander.webp",
+  "scaffold-frame": "scaffold-frame.webp",
+  "scaffold-wheel": "scaffold-wheel.webp",
+  "scaffolding": "scaffolding.webp",
+  "shovel": "shovel.webp",
+  "spray-gun": "spray-gun.webp",
+  "step-ladder": "step-ladder.webp",
+  "straight-ladder": "straight-ladder.webp",
+  "tiller": "tiller.webp",
+  "traffic-cone": "traffic-cone.webp",
+  "vacuum-cleaner": "vacuum-cleaner.webp",
+  "wheelbarrow": "wheelbarrow.webp"
+ }
+}
