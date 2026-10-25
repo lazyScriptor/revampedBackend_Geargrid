@@ -12,6 +12,7 @@ const HEADERS = [
   { key: "transport_fee", label: "Transport", width: 12 },
   { key: "total_amount", label: "Total", width: 14 },
   { key: "advance_paid", label: "Advance", width: 12 },
+  { key: "total_paid", label: "Total paid", width: 12 },
   { key: "balance_due", label: "Balance", width: 12 },
 ];
 
@@ -43,6 +44,7 @@ export default async function exportInvoicesExcel(ctx) {
           attributes: ["customer_type", "company_name", "first_name", "last_name"],
           required: false,
         },
+        { model: models.Payment, attributes: ["payment_amount"], required: false },
       ],
       offset,
       limit: batchSize,
@@ -58,6 +60,7 @@ export default async function exportInvoicesExcel(ctx) {
         : "";
       const total = Number(inv.total_amount || 0);
       const advance = Number(inv.advance_paid || 0);
+      const paid = (inv.Payments || []).reduce((sum, p) => sum + Number(p.payment_amount || 0), 0);
       rows.push({
         invoice_id: inv.invoice_id,
         customer_name: customerName,
@@ -68,7 +71,8 @@ export default async function exportInvoicesExcel(ctx) {
         transport_fee: inv.transport_fee,
         total_amount: total,
         advance_paid: advance,
-        balance_due: Math.max(0, total - advance),
+        total_paid: paid,
+        balance_due: Math.max(0, total - paid),
       });
     }
     processed += chunk.length;

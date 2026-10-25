@@ -150,6 +150,7 @@ export const createDispatchInvoice = async (models, payload, userId) => {
           invoice_id: newInvoice.invoice_id,
           payment_amount: fees.advance,
           method: advMethod,
+          received_by_user_id: userId,
         },
         { transaction: t },
       );
@@ -466,6 +467,7 @@ export const processReturn = async (models, payload, userId) => {
           invoice_id,
           payment_amount: final_payment_amount,
           method: payment_method || "Cash",
+          received_by_user_id: userId,
         },
         { transaction: t },
       );
@@ -538,7 +540,11 @@ export const addContinuousPayment = async (
   userId,
 ) => {
   const { amount, method, is_refund } = payload;
-  const actualAmount = is_refund ? -Math.abs(amount) : Math.abs(amount);
+  const numeric = Math.abs(Number(amount));
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    throw new AppError("Payment amount must be greater than 0.", 400);
+  }
+  const actualAmount = is_refund ? -numeric : numeric;
 
   return await models.sequelize.transaction(async (t) => {
     const invoice = await models.Invoice.findByPk(invoiceId, {
@@ -546,11 +552,29 @@ export const addContinuousPayment = async (
     });
     if (!invoice) throw new AppError("Invoice not found", 404);
 
+    // A refund can never exceed what has actually been paid (net of earlier refunds).
+    if (is_refund) {
+      const netPaid =
+        Number(
+          await models.Payment.sum("payment_amount", {
+            where: { invoice_id: invoiceId, is_voided: false },
+            transaction: t,
+          }),
+        ) || 0;
+      if (numeric > netPaid + 0.005) {
+        throw new AppError(
+          `Cannot refund Rs.${numeric.toLocaleString()} — only Rs.${Math.max(0, netPaid).toLocaleString()} has been paid on this invoice.`,
+          400,
+        );
+      }
+    }
+
     const payment = await models.Payment.create(
       {
         invoice_id: invoiceId,
         payment_amount: actualAmount,
         method: method || "Cash",
+        received_by_user_id: userId,
       },
       { transaction: t },
     );

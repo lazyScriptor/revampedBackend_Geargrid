@@ -13,6 +13,7 @@ import InvoiceTraceFactory from "./InvoiceTrace.js";
 import InvoiceReviewFactory from "./InvoiceReview.js";
 import TenantConfigFactory from "./TenantConfig.js";
 import ExpenseFactory from "./Expense.js";
+import ExpenseAuditFactory from "./ExpenseAudit.js";
 import UserPermissionOverrideFactory from "./UserPermissionOverride.js";
 import DashboardTemplateFactory from "./DashboardTemplate.js";
 import UserDashboardPreferenceFactory from "./UserDashboardPreference.js";
@@ -39,6 +40,7 @@ export const initTenantModels = (tenantConnection) => {
   const InvoiceReview = InvoiceReviewFactory(tenantConnection);
   const TenantConfig = TenantConfigFactory(tenantConnection);
   const Expense = ExpenseFactory(tenantConnection);
+  const ExpenseAudit = ExpenseAuditFactory(tenantConnection);
   const UserPermissionOverride = UserPermissionOverrideFactory(tenantConnection);
   const DashboardTemplate = DashboardTemplateFactory(tenantConnection);
   const UserDashboardPreference = UserDashboardPreferenceFactory(tenantConnection);
@@ -158,6 +160,7 @@ export const initTenantModels = (tenantConnection) => {
   User.hasMany(InvoiceReview, { as: "AuthoredReviews", foreignKey: "author_user_id" });
 
   // EXPENSES
+  Payment.belongsTo(User, { foreignKey: "received_by_user_id" });
   Expense.belongsTo(User, { foreignKey: "recorded_by_user_id" });
   User.hasMany(Expense, { foreignKey: "recorded_by_user_id" });
   Expense.belongsTo(Warehouse, { foreignKey: "warehouse_id" });
@@ -223,6 +226,7 @@ export const initTenantModels = (tenantConnection) => {
     InvoiceReview,
     TenantConfig,
     Expense,
+    ExpenseAudit,
     UserPermissionOverride,
     DashboardTemplate,
     UserDashboardPreference,

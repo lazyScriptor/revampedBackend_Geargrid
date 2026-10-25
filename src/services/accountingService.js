@@ -185,7 +185,10 @@ export const getFilteredPayments = async (models, query) => {
 
   const { count, rows } = await models.Payment.findAndCountAll({
     where,
-    include: [invoiceInclude],
+    include: [
+      invoiceInclude,
+      { model: models.User, attributes: ["user_id", "username"], required: false },
+    ],
     limit: pageSize,
     offset,
     order,
@@ -284,15 +287,18 @@ export const getTransactionJournal = async (models, query) => {
     typeClause = " AND type = 'income'";
   } else if (query.type === "expense") {
     typeClause = " AND type = 'expense'";
+  } else if (query.type === "refund") {
+    typeClause = " AND type = 'refund'";
   }
 
   // UNION query: payments as income, expenses as outflow
   const countSql = `
     SELECT COUNT(*) as total FROM (
-      SELECT p.payment_id as id, p.payment_date as date, 'income' as type,
-             p.payment_amount as amount
+      SELECT p.payment_id as id, p.payment_date as date,
+             CASE WHEN p.payment_amount < 0 THEN 'refund' ELSE 'income' END as type,
+             ABS(p.payment_amount) as amount
       FROM PAYMENTS p
-      WHERE p.is_voided = 0 ${dateClause.replace(/\bdate\b/g, "p.payment_date")} ${amountClause.replace(/\bamount\b/g, "p.payment_amount")}
+      WHERE p.is_voided = 0 ${dateClause.replace(/\bdate\b/g, "p.payment_date")} ${amountClause.replace(/\bamount\b/g, "ABS(p.payment_amount)")}
 
       UNION ALL
 
@@ -308,14 +314,15 @@ export const getTransactionJournal = async (models, query) => {
       SELECT
         p.payment_id as id,
         p.payment_date as date,
-        'income' as type,
-        CONCAT('Payment for Invoice #', p.invoice_id) as description,
+        CASE WHEN p.payment_amount < 0 THEN 'refund' ELSE 'income' END as type,
+        CONCAT(CASE WHEN p.payment_amount < 0 THEN 'Refund for Invoice #' ELSE 'Payment for Invoice #' END, p.invoice_id) as description,
         CONCAT('INV-', p.invoice_id) as reference,
         p.method as category,
-        p.payment_amount as amount,
+        ABS(p.payment_amount) as amount,
+        p.payment_amount as signed_amount,
         p.invoice_id as ref_id
       FROM PAYMENTS p
-      WHERE p.is_voided = 0 ${dateClause.replace(/\bdate\b/g, "p.payment_date")} ${amountClause.replace(/\bamount\b/g, "p.payment_amount")}
+      WHERE p.is_voided = 0 ${dateClause.replace(/\bdate\b/g, "p.payment_date")} ${amountClause.replace(/\bamount\b/g, "ABS(p.payment_amount)")}
 
       UNION ALL
 
@@ -327,6 +334,7 @@ export const getTransactionJournal = async (models, query) => {
         CONCAT('EXP-', e.expense_id) as reference,
         e.category as category,
         e.amount as amount,
+        -e.amount as signed_amount,
         NULL as ref_id
       FROM EXPENSES e
       WHERE 1=1 ${dateClause.replace(/\bdate\b/g, "e.date")} ${amountClause.replace(/\bamount\b/g, "e.amount")}
@@ -384,7 +392,7 @@ export const getChartData = async (models, query) => {
     const searchParam = `%${query.search}%`;
     replacements.searchParam = searchParam;
     searchClauseI = " AND (i.invoice_id LIKE :searchParam OR EXISTS (SELECT 1 FROM CUSTOMERS c WHERE c.customer_id = i.customer_id AND (c.first_name LIKE :searchParam OR c.last_name LIKE :searchParam OR c.company_name LIKE :searchParam)))";
-    searchClauseP = " AND (p.invoice_id LIKE :searchParam OR EXISTS (SELECT 1 FROM CUSTOMERS c WHERE c.customer_id = p.customer_id AND (c.first_name LIKE :searchParam OR c.last_name LIKE :searchParam OR c.company_name LIKE :searchParam)))";
+    searchClauseP = " AND (p.invoice_id LIKE :searchParam OR EXISTS (SELECT 1 FROM INVOICES pi JOIN CUSTOMERS c ON c.customer_id = pi.customer_id WHERE pi.invoice_id = p.invoice_id AND (c.first_name LIKE :searchParam OR c.last_name LIKE :searchParam OR c.company_name LIKE :searchParam)))";
   }
 
   if (query.minAmount) {

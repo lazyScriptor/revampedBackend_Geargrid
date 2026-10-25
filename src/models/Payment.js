@@ -13,6 +13,8 @@ export default (sequelize) => {
       payment_amount: { type: DataTypes.DECIMAL(12, 2), allowNull: false },
       payment_date: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
       method: { type: DataTypes.STRING(50), allowNull: false },
+      // Who took the money (cashier accountability)
+      received_by_user_id: { type: DataTypes.INTEGER, allowNull: true },
       // Set when the parent invoice is deleted: excluded from revenue but kept for reconciliation.
       is_voided: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
       voided_at: { type: DataTypes.DATE, allowNull: true },

@@ -27,7 +27,7 @@ export const getExpenses = catchAsync(async (req, res) => {
 });
 
 export const updateExpense = catchAsync(async (req, res) => {
-  const expense = await expenseService.updateExpense(getModels(req), req.params.id, req.body);
+  const expense = await expenseService.updateExpense(getModels(req), req.params.id, req.body, req.user.userId);
   res.status(200).json({
     status: "success",
     message: "Expense updated successfully.",
@@ -36,7 +36,7 @@ export const updateExpense = catchAsync(async (req, res) => {
 });
 
 export const deleteExpense = catchAsync(async (req, res) => {
-  await expenseService.deleteExpense(getModels(req), req.params.id);
+  await expenseService.deleteExpense(getModels(req), req.params.id, req.user.userId);
   res.status(200).json({
     status: "success",
     message: "Expense deleted successfully.",

@@ -5,6 +5,80 @@ import { parseTenantDayRange, parseTenantDay, tenantNDaysAgoYmd } from "../utils
 // ============================================================================
 // 1. DASHBOARD KPIs + 30-DAY SPARKLINE
 // ============================================================================
+
+// ============================================================================
+// SHARED FINANCIAL DEFINITIONS (one source of truth for Overview + P&L)
+//   net revenue  = positive payments − refunds            (cash basis, voided payments excluded)
+//   operating expenses = all expenses EXCEPT "Asset Purchase" (those are capital: covered by depreciation)
+//   depreciation = per machine, straight line over 60 months from the day it was added, only for the
+//                  days that fall inside the requested range
+//   net profit   = net revenue − operating expenses − depreciation
+// ============================================================================
+export const ASSET_PURCHASE_CATEGORY = "Asset Purchase";
+const DEPRECIATION_MONTHS = 60;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const AVG_MONTH_DAYS = 30.4375;
+
+export const computeDepreciation = (machines, rangeStart, rangeEnd) => {
+  let total = 0;
+  for (const m of machines) {
+    const cost = parseFloat(m.purchase_cost) || 0;
+    if (cost <= 0) continue;
+    const from = new Date(m.createdAt || 0).getTime();
+    const life = DEPRECIATION_MONTHS * AVG_MONTH_DAYS * DAY_MS;
+    const overlapStart = Math.max(from, rangeStart.getTime());
+    const overlapEnd = Math.min(from + life, rangeEnd.getTime());
+    if (overlapEnd <= overlapStart) continue;
+    total += (cost / (DEPRECIATION_MONTHS * AVG_MONTH_DAYS)) * ((overlapEnd - overlapStart) / DAY_MS);
+  }
+  return Math.round(total * 100) / 100;
+};
+
+const computeFinancials = async (models, start, end) => {
+  const sumPayments = (cmp) =>
+    models.Payment.findOne({
+      attributes: [[fn("COALESCE", fn("SUM", col("payment_amount")), 0), "total"]],
+      where: { is_voided: false, payment_amount: cmp, payment_date: { [Op.between]: [start, end] } },
+      raw: true,
+    });
+  const [revenueResult, refundResult, expenseRows, machines] = await Promise.all([
+    sumPayments({ [Op.gt]: 0 }),
+    sumPayments({ [Op.lt]: 0 }),
+    models.Expense.findAll({
+      attributes: ["category", [fn("SUM", col("amount")), "total"], [fn("COUNT", col("expense_id")), "count"]],
+      where: { date: { [Op.between]: [start, end] } },
+      group: ["category"],
+      raw: true,
+    }),
+    models.Equipment.findAll({
+      attributes: ["purchase_cost", "createdAt"],
+      where: { purchase_cost: { [Op.gt]: 0 } },
+      raw: true,
+    }),
+  ]);
+
+  const grossRevenue = parseFloat(revenueResult.total) || 0;
+  const totalRefunds = Math.abs(parseFloat(refundResult.total) || 0);
+  const netRevenue = grossRevenue - totalRefunds;
+  const operating = expenseRows.filter((e) => e.category !== ASSET_PURCHASE_CATEGORY);
+  const capitalPurchases = expenseRows
+    .filter((e) => e.category === ASSET_PURCHASE_CATEGORY)
+    .reduce((sum, e) => sum + parseFloat(e.total), 0);
+  const totalExpenses = operating.reduce((sum, e) => sum + parseFloat(e.total), 0);
+  const periodDepreciation = computeDepreciation(machines, start, end);
+
+  return {
+    grossRevenue,
+    totalRefunds,
+    netRevenue,
+    expenses: operating,
+    capitalPurchases,
+    totalExpenses,
+    periodDepreciation,
+    netProfit: netRevenue - totalExpenses - periodDepreciation,
+  };
+};
+
 export const getDashboardKPIs = async (models, filters = {}) => {
   const tenantTz = filters.tenantTz;
   const { start: startDate, end: endDate, startYmd } = parseTenantDayRange(
@@ -16,27 +90,7 @@ export const getDashboardKPIs = async (models, filters = {}) => {
   // regardless of the requested filter range.
   const sparklineStartYmd = tenantNDaysAgoYmd(tenantTz, 30);
 
-  // --- Total Revenue (positive payments in range) ---
-  const revenueResult = await models.Payment.findOne({
-    attributes: [[fn("COALESCE", fn("SUM", col("payment_amount")), 0), "total"]],
-    where: {
-      is_voided: false,
-      payment_amount: { [Op.gt]: 0 },
-      payment_date: { [Op.between]: [startDate, endDate] },
-    },
-    raw: true,
-  });
-  const totalRevenue = parseFloat(revenueResult.total) || 0;
-
-  // --- Total Expenses in range ---
-  const expenseResult = await models.Expense.findOne({
-    attributes: [[fn("COALESCE", fn("SUM", col("amount")), 0), "total"]],
-    where: {
-      date: { [Op.between]: [startDate, endDate] },
-    },
-    raw: true,
-  });
-  const totalExpenses = parseFloat(expenseResult.total) || 0;
+  const fin = await computeFinancials(models, startDate, endDate);
 
   // --- Outstanding Debt (Active invoices with remaining balance) ---
   const outstandingQuery = await models.sequelize.query(
@@ -54,8 +108,7 @@ export const getDashboardKPIs = async (models, filters = {}) => {
   const revenueTrend = await models.sequelize.query(
     `SELECT DATE(payment_date) AS date, SUM(payment_amount) AS revenue
      FROM PAYMENTS
-     WHERE payment_amount > 0
-       AND is_voided = 0
+     WHERE is_voided = 0
        AND payment_date >= :startDate
      GROUP BY DATE(payment_date)
      ORDER BY DATE(payment_date) ASC`,
@@ -66,9 +119,13 @@ export const getDashboardKPIs = async (models, filters = {}) => {
   );
 
   return {
-    totalRevenue,
-    totalExpenses,
-    netProfit: totalRevenue - totalExpenses,
+    totalRevenue: fin.netRevenue, // net of refunds — same definition as the P&L
+    grossRevenue: fin.grossRevenue,
+    totalRefunds: fin.totalRefunds,
+    totalExpenses: fin.totalExpenses, // operating expenses (asset purchases are capital, see depreciation)
+    capitalPurchases: fin.capitalPurchases,
+    depreciation: fin.periodDepreciation,
+    netProfit: fin.netProfit,
     outstandingDebt,
     revenueTrend,
   };
@@ -84,76 +141,17 @@ export const getProfitAndLoss = async (models, filters = {}) => {
     filters.tenantTz,
   );
 
-  // --- Revenue: Positive payments ---
-  const revenueResult = await models.Payment.findOne({
-    attributes: [[fn("COALESCE", fn("SUM", col("payment_amount")), 0), "total"]],
-    where: {
-      is_voided: false,
-      payment_amount: { [Op.gt]: 0 },
-      payment_date: { [Op.between]: [start, end] },
-    },
-    raw: true,
-  });
-
-  // --- Refunds: Negative payments ---
-  const refundResult = await models.Payment.findOne({
-    attributes: [[fn("COALESCE", fn("SUM", col("payment_amount")), 0), "total"]],
-    where: {
-      is_voided: false,
-      payment_amount: { [Op.lt]: 0 },
-      payment_date: { [Op.between]: [start, end] },
-    },
-    raw: true,
-  });
-
-  // --- Expenses grouped by category ---
-  const expenses = await models.Expense.findAll({
-    attributes: [
-      "category",
-      [fn("SUM", col("amount")), "total"],
-      [fn("COUNT", col("expense_id")), "count"],
-    ],
-    where: {
-      date: { [Op.between]: [start, end] },
-    },
-    group: ["category"],
-    raw: true,
-  });
-
-  // --- Equipment Depreciation (Linear over 60 months) ---
-  const monthsInRange =
-    (end.getUTCFullYear() - start.getUTCFullYear()) * 12 +
-    (end.getUTCMonth() - start.getUTCMonth()) +
-    1;
-
-  const depreciationResult = await models.Equipment.findOne({
-    attributes: [
-      [fn("COALESCE", fn("SUM", col("purchase_cost")), 0), "totalCost"],
-    ],
-    where: { purchase_cost: { [Op.gt]: 0 } },
-    raw: true,
-  });
-
-  const totalPurchaseCost = parseFloat(depreciationResult.totalCost) || 0;
-  const monthlyDepreciation = totalPurchaseCost / 60;
-  const periodDepreciation = monthlyDepreciation * Math.min(monthsInRange, 60);
-
-  const grossRevenue = parseFloat(revenueResult.total) || 0;
-  const totalRefunds = Math.abs(parseFloat(refundResult.total) || 0);
-  const netRevenue = grossRevenue - totalRefunds;
-  const totalExpenses = expenses.reduce(
-    (sum, e) => sum + parseFloat(e.total),
-    0,
-  );
+  const fin = await computeFinancials(models, start, end);
 
   return {
-    grossRevenue,
-    totalRefunds,
-    netRevenue,
-    expenses,
-    periodDepreciation: Math.round(periodDepreciation * 100) / 100,
-    totalExpenses,
-    netProfit: netRevenue - totalExpenses - periodDepreciation,
+    grossRevenue: fin.grossRevenue,
+    totalRefunds: fin.totalRefunds,
+    netRevenue: fin.netRevenue,
+    expenses: fin.expenses,
+    capitalPurchases: fin.capitalPurchases,
+    periodDepreciation: fin.periodDepreciation,
+    totalExpenses: fin.totalExpenses,
+    netProfit: fin.netProfit,
     dateRange: { startDate: startYmd, endDate: endYmd },
   };
 };
@@ -177,10 +175,17 @@ export const getAccountsReceivable = async (models) => {
       c.phone_number,
       COALESCE(p.total_paid, 0) AS total_paid,
       ${owedExpr()} AS outstanding,
-      DATEDIFF(CURDATE(), i.issued_date) AS days_overdue
+      DATEDIFF(CURDATE(), i.issued_date) AS age_days,
+      GREATEST(0, DATEDIFF(CURDATE(), COALESCE(earliest_due.due_date, i.issued_date))) AS days_overdue
     FROM INVOICES i
     JOIN CUSTOMERS c ON c.customer_id = i.customer_id
     LEFT JOIN ${PAID_PER_INVOICE_SQL} p ON p.invoice_id = i.invoice_id
+    LEFT JOIN (
+      SELECT invoice_id, MIN(expected_return_date) AS due_date
+      FROM INVOICE_LINES
+      WHERE line_status = 'Active' AND actual_return_date IS NULL
+      GROUP BY invoice_id
+    ) earliest_due ON earliest_due.invoice_id = i.invoice_id
     WHERE i.status IN ${OPEN_INVOICE_STATUSES_SQL}
       AND i.is_deleted = 0
       AND ${owedExpr()} > 0
@@ -394,6 +399,11 @@ export const getDailyCashFlow = async (models, filters = {}) => {
     },
     { totalIncome: 0, totalRefunds: 0, totalNet: 0, totalTransactions: 0 },
   );
+
+  // WalletDeposit = rent paid out of the customer's stored deposit, not cash/card/bank taken today.
+  const wallet = flows.find((r) => r.method === "WalletDeposit");
+  totals.walletUsed = parseFloat(wallet?.net) || 0;
+  totals.totalCashIn = totals.totalNet - totals.walletUsed;
 
   return { date: targetDate, methods: flows, totals };
 };

@@ -9,8 +9,9 @@ export default (sequelize) => {
         autoIncrement: true,
         primaryKey: true,
       },
+      // VARCHAR (was ENUM) so categories can grow; the allowed list lives in services/expenseService.js
       category: {
-        type: DataTypes.ENUM("Operational", "Repair", "Asset Purchase", "Other"),
+        type: DataTypes.STRING(50),
         allowNull: false,
       },
       amount: {

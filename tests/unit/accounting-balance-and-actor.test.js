@@ -39,7 +39,8 @@ const captureSql = () => {
   const models = {
     sequelize: { query: vi.fn(async (sql) => { sqls.push(sql); return [{ outstanding: 0 }]; }), constructor: { QueryTypes: { SELECT: "SELECT" } } },
     Payment: { findOne: vi.fn(async () => ({ total: 0 })) },
-    Expense: { findOne: vi.fn(async () => ({ total: 0 })) },
+    Expense: { findOne: vi.fn(async () => ({ total: 0 })), findAll: vi.fn(async () => []) },
+    Equipment: { findAll: vi.fn(async () => []) },
   };
   return { models, sqls };
 };
