@@ -4,9 +4,10 @@
 // parent, or a worker rents on behalf of their company.
 
 import { DataTypes } from "sequelize";
+import { addColumnIfMissing } from "../lib/schemaGuards.js";
 
 export const up = async ({ context: queryInterface }) => {
-  await queryInterface.addColumn("INVOICES", "borrowed_on_behalf_of_customer_id", {
+  await addColumnIfMissing(queryInterface, "INVOICES", "borrowed_on_behalf_of_customer_id", {
     type: DataTypes.INTEGER,
     allowNull: true,
   });

@@ -24,6 +24,7 @@ import {
   masterSequelize,
   getTenantConnection,
 } from "../config/database.js";
+import { EXIT_CRASHED, exitCodeFor, formatFailureSummary } from "./migrationSummary.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..", "..");
@@ -106,15 +107,25 @@ const cmdUp = async () => {
   await master.up();
 
   const tenants = await listTenants();
+  const failures = [];
   for (const t of tenants) {
     console.log(`→ tenant: ${t.db_name}`);
     try {
       await withTenantUmzug(t, async (umzug) => umzug.up());
     } catch (err) {
+      // One broken tenant must not stop the others from migrating, but it must never go unnoticed:
+      // it is collected and reported (and fails the deploy) once every tenant has been tried.
       console.error(`  ✗ ${t.db_name} failed:`, err.message);
+      failures.push({ db_name: t.db_name, message: err.message });
     }
   }
-  console.log("✅ migrations complete");
+  if (failures.length) {
+    console.error(formatFailureSummary(failures));
+    console.log(`migrations finished with ${failures.length} failed tenant(s)`);
+  } else {
+    console.log("✅ migrations complete");
+  }
+  return exitCodeFor(failures);
 };
 
 const cmdStatus = async () => {
@@ -244,8 +255,8 @@ const run = async () => {
 };
 
 run()
-  .then(() => process.exit(0))
+  .then((code) => process.exit(typeof code === "number" ? code : 0))
   .catch((err) => {
     console.error("Migration runner crashed:", err);
-    process.exit(1);
+    process.exit(EXIT_CRASHED);
   });

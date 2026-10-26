@@ -6,6 +6,7 @@
 // the customer-level average.
 
 import { DataTypes } from "sequelize";
+import { addIndexIfMissing } from "../lib/schemaGuards.js";
 
 export const up = async ({ context: queryInterface }) => {
   await queryInterface.createTable("INVOICE_REVIEWS", {
@@ -42,8 +43,8 @@ export const up = async ({ context: queryInterface }) => {
     updatedAt: { type: DataTypes.DATE, allowNull: false },
   });
 
-  await queryInterface.addIndex("INVOICE_REVIEWS", ["invoice_id"]);
-  await queryInterface.addIndex("INVOICE_REVIEWS", ["customer_id", "createdAt"]);
+  await addIndexIfMissing(queryInterface, "INVOICE_REVIEWS", ["invoice_id"]);
+  await addIndexIfMissing(queryInterface, "INVOICE_REVIEWS", ["customer_id", "createdAt"]);
 };
 
 export const down = async ({ context: queryInterface }) => {

@@ -13,7 +13,7 @@ import { initTenantModels } from "../../src/models/index.js";
 import * as wa from "../../src/services/whatsappService.js";
 import { up as migrateUp, down as migrateDown } from "../../migrations/tenant/20261027100000-whatsapp-hub.js";
 
-const DB_URL = process.env.GG_TEST_MYSQL_URL;
+import { DB_URL, openTestDb } from "./mysqlTestDb.js";
 
 describe.skipIf(!DB_URL)("WhatsApp hub on real MySQL", () => {
   let sequelize;
@@ -58,8 +58,7 @@ describe.skipIf(!DB_URL)("WhatsApp hub on real MySQL", () => {
     sequelize.query("UPDATE WHATSAPP_MESSAGE_LOGS SET createdAt = DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? HOUR) WHERE log_id = ?", { replacements: [hours, logId] });
 
   beforeAll(async () => {
-    sequelize = new Sequelize(DB_URL, { dialect: "mysql", logging: false });
-    if (!/test/i.test(sequelize.config.database)) throw new Error(`Refusing to wipe "${sequelize.config.database}": the database name must contain "test".`);
+    sequelize = await openTestDb("wa");
     models = initTenantModels(sequelize);
     await sequelize.query("SET FOREIGN_KEY_CHECKS = 0");
     await sequelize.sync({ force: true });
@@ -431,7 +430,7 @@ describe.skipIf(!DB_URL)("WhatsApp hub on real MySQL", () => {
     it("stores Sinhala and emoji even when the database default charset is latin1", async () => {
       // the migration pins utf8mb4 on its own tables; trusting the database default would break on a latin1 server
       const u = new URL(DB_URL);
-      const dbName = `${u.pathname.slice(1)}_latin1`;
+      const dbName = `${sequelize.config.database}_latin1`;
       await sequelize.query(`DROP DATABASE IF EXISTS \`${dbName}\``);
       await sequelize.query(`CREATE DATABASE \`${dbName}\` CHARACTER SET latin1`);
       u.pathname = `/${dbName}`;

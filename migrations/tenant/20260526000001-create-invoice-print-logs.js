@@ -3,6 +3,7 @@
 // Seeds the fine-grained permission 'invoice:print_log:view' and grants it to high-privilege roles.
 
 import { DataTypes } from "sequelize";
+import { addIndexIfMissing } from "../lib/schemaGuards.js";
 
 export const up = async ({ context: queryInterface }) => {
   // 1. Create INVOICE_PRINT_LOGS table
@@ -142,10 +143,10 @@ export const up = async ({ context: queryInterface }) => {
   });
 
   // 2. Indexes
-  await queryInterface.addIndex("INVOICE_PRINT_LOGS", ["invoice_id"]);
-  await queryInterface.addIndex("INVOICE_PRINT_LOGS", ["printed_by_user_id"]);
-  await queryInterface.addIndex("INVOICE_PRINT_LOGS", ["doc_number"]);
-  await queryInterface.addIndex("INVOICE_PRINT_LOGS", ["printed_at"]);
+  await addIndexIfMissing(queryInterface, "INVOICE_PRINT_LOGS", ["invoice_id"]);
+  await addIndexIfMissing(queryInterface, "INVOICE_PRINT_LOGS", ["printed_by_user_id"]);
+  await addIndexIfMissing(queryInterface, "INVOICE_PRINT_LOGS", ["doc_number"]);
+  await addIndexIfMissing(queryInterface, "INVOICE_PRINT_LOGS", ["printed_at"]);
 
   // 3. Seed 'invoice:print_log:view' permission into PERMISSIONS if not present
   try {

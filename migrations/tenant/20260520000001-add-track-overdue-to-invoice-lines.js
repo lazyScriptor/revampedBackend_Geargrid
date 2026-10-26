@@ -4,9 +4,10 @@
 // existing rows keep their overdue tracking behaviour unchanged.
 
 import { DataTypes } from "sequelize";
+import { addColumnIfMissing } from "../lib/schemaGuards.js";
 
 export const up = async ({ context: queryInterface }) => {
-  await queryInterface.addColumn("INVOICE_LINES", "track_overdue", {
+  await addColumnIfMissing(queryInterface, "INVOICE_LINES", "track_overdue", {
     type: DataTypes.BOOLEAN,
     allowNull: false,
     defaultValue: true,

@@ -68,7 +68,21 @@ jobs:
             npm install --omit=dev
 
             # 3. Apply pending DB migrations (master + every tenant).
+            #    exit 0 = all good | 1 = runner crashed (do NOT restart) | 3 = some tenant failed
+            #    (restart anyway so the healthy tenants get the new code, but fail the run so it is seen).
+            set +e
             npm run db:migrate
+            MIGRATE_EXIT=$?
+            set -e
+            if [ "$MIGRATE_EXIT" -ne 0 ] && [ "$MIGRATE_EXIT" -ne 3 ]; then
+              echo "::error::Migration runner crashed (exit $MIGRATE_EXIT) - not restarting the server"
+              exit "$MIGRATE_EXIT"
+            fi
 
             # 4. Restart the live server seamlessly
             pm2 restart geargrid-backend
+
+            if [ "$MIGRATE_EXIT" -eq 3 ]; then
+              echo "::error::One or more TENANT databases failed to migrate - see the migration summary above"
+              exit 1
+            fi
