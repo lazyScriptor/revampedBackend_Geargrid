@@ -4,6 +4,7 @@
 //  • EXPENSE_AUDIT — every expense create/edit/delete is logged with a full snapshot
 // Idempotent.
 import { DataTypes } from "sequelize";
+import { repairZeroDates } from "../lib/schemaGuards.js";
 
 const tableExists = async (qi, t) => {
   try { await qi.describeTable(t); return true; } catch { return false; }
@@ -17,6 +18,9 @@ export const up = async ({ context: qi }) => {
 
   const exp = await qi.describeTable("EXPENSES");
   if (exp.category && !/varchar/i.test(exp.category.type)) {
+    // changing the column type makes MySQL copy the table, and strict mode refuses rows holding the invalid
+    // date 0000-00-00 (seen on the seeded demo tenant) — repair those first.
+    await repairZeroDates(qi, "EXPENSES");
     await qi.changeColumn("EXPENSES", "category", { type: DataTypes.STRING(50), allowNull: false });
   }
 

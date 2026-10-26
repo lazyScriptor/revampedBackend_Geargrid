@@ -35,3 +35,39 @@ export const addIndexIfMissing = async (qi, table, columns, options = {}) => {
   await qi.addIndex(table, columns, options);
   return true;
 };
+
+/**
+ * Replace invalid "zero dates" (0000-00-00 [00:00:00]) in every date/datetime/timestamp column of `table`
+ * (NULL where the column allows it, otherwise the current time). Legacy rows written while MySQL's date
+ * checks were off keep such values; they are harmless until a migration makes MySQL copy the table
+ * (changeColumn, …), when strict mode rejects them: "Incorrect datetime value: '0000-00-00 00:00:00'".
+ * Runs on ONE connection (a transaction) so the relaxed sql_mode applies to exactly these statements,
+ * and puts the previous sql_mode back afterwards (pooled connections are reused).
+ * @returns {Promise<number>} how many cells were repaired
+ */
+export const repairZeroDates = async (qi, table) => {
+  const sequelize = qi.sequelize;
+  const cols = await sequelize.query(
+    "SELECT COLUMN_NAME AS name, IS_NULLABLE AS nullable FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND DATA_TYPE IN ('date', 'datetime', 'timestamp')",
+    { replacements: [table], type: "SELECT" },
+  );
+  if (!cols.length) return 0;
+
+  let repaired = 0;
+  await sequelize.transaction(async (t) => {
+    const [{ mode }] = await sequelize.query("SELECT @@SESSION.sql_mode AS mode", { type: "SELECT", transaction: t });
+    await sequelize.query("SET SESSION sql_mode = REPLACE(REPLACE(@@SESSION.sql_mode, 'NO_ZERO_DATE', ''), 'NO_ZERO_IN_DATE', '')", { transaction: t });
+    try {
+      for (const col of cols) {
+        const where = `CAST(\`${col.name}\` AS CHAR) LIKE '0000-00-00%'`;
+        const [{ n }] = await sequelize.query(`SELECT COUNT(*) AS n FROM \`${table}\` WHERE ${where}`, { type: "SELECT", transaction: t });
+        if (!Number(n)) continue;
+        await sequelize.query(`UPDATE \`${table}\` SET \`${col.name}\` = ${col.nullable === "YES" ? "NULL" : "CURRENT_TIMESTAMP"} WHERE ${where}`, { transaction: t });
+        repaired += Number(n);
+      }
+    } finally {
+      await sequelize.query("SET SESSION sql_mode = ?", { replacements: [mode], transaction: t });
+    }
+  });
+  return repaired;
+};
