@@ -38,6 +38,8 @@ const PERMISSION_CATALOG = [
   { permission_code: "invoice:action:process_return", module_name: "Invoices", description: "Process equipment returns" },
   { permission_code: "invoice:action:add_payment", module_name: "Invoices", description: "Record payment against invoice" },
   { permission_code: "invoice:action:send_reminder", module_name: "Invoices", description: "Send payment reminder emails" },
+  { permission_code: "whatsapp:send", module_name: "Messages", description: "Use the WhatsApp hub: send receipts, reminders and follow-ups" },
+  { permission_code: "whatsapp:manage", module_name: "Messages", description: "Edit WhatsApp message templates and settings" },
   { permission_code: "invoice:print_log:view", module_name: "Invoices", description: "View POS bill printing audit logs" },
 
   // Equipment

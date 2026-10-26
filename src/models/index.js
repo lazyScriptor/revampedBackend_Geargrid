@@ -23,6 +23,8 @@ import InvoicePrintLogFactory from "./InvoicePrintLog.js";
 import SignatureRequestFactory from "./SignatureRequest.js";
 import InvoiceSignatureFactory from "./InvoiceSignature.js";
 import OperatorDeviceFactory from "./OperatorDevice.js";
+import WhatsappMessageLogFactory from "./WhatsappMessageLog.js";
+import WhatsappTemplateFactory from "./WhatsappTemplate.js";
 
 export const initTenantModels = (tenantConnection) => {
   const User = UserFactory(tenantConnection);
@@ -50,6 +52,8 @@ export const initTenantModels = (tenantConnection) => {
   const SignatureRequest = SignatureRequestFactory(tenantConnection);
   const InvoiceSignature = InvoiceSignatureFactory(tenantConnection);
   const OperatorDevice = OperatorDeviceFactory(tenantConnection);
+  const WhatsappMessageLog = WhatsappMessageLogFactory(tenantConnection);
+  const WhatsappTemplate = WhatsappTemplateFactory(tenantConnection);
 
   // ==========================================
   // AUTH & USERS
@@ -236,6 +240,8 @@ export const initTenantModels = (tenantConnection) => {
     SignatureRequest,
     InvoiceSignature,
     OperatorDevice,
+    WhatsappMessageLog,
+    WhatsappTemplate,
     sequelize: tenantConnection,
   };
 };

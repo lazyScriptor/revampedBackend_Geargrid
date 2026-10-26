@@ -41,6 +41,8 @@ export default (sequelize) => {
       address_line2: { type: DataTypes.STRING(255) },
 
       // --- CRM & Collateral ---
+      // Customer asked not to be messaged on WhatsApp — the hub will not compose for them.
+      whatsapp_opt_out: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
       is_id_retained_currently: {
         type: DataTypes.BOOLEAN,
         defaultValue: false, // Flips to true when the shop physically holds their NIC
