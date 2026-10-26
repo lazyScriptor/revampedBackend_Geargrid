@@ -269,7 +269,7 @@ export const getAllInvoices = async (models, queryParams) => {
           include: [
             {
               model: models.Equipment,
-              attributes: ["equipment_name", "is_bulk_item"],
+              attributes: ["equipment_name", "equipment_name_si", "serial_number", "image_url", "is_bulk_item"],
             },
           ],
         },
@@ -322,7 +322,7 @@ export const getInvoiceById = async (models, invoiceId) => {
         include: [
           {
             model: models.Equipment,
-            attributes: ["equipment_name", "is_bulk_item"],
+            attributes: ["equipment_name", "equipment_name_si", "serial_number", "image_url", "is_bulk_item"],
           },
         ],
       },
