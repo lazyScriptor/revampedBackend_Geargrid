@@ -18,7 +18,7 @@ export default (sequelize) => {
       status: { type: DataTypes.STRING(20), allowNull: false, defaultValue: "opened" },
       sent_by_user_id: { type: DataTypes.INTEGER, allowNull: true },
     },
-    { tableName: "WHATSAPP_MESSAGE_LOGS", timestamps: true },
+    { tableName: "WHATSAPP_MESSAGE_LOGS", timestamps: true, charset: "utf8mb4", collate: "utf8mb4_unicode_ci" },
   );
   return WhatsappMessageLog;
 };

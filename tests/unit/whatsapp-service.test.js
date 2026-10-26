@@ -41,7 +41,20 @@ function makeModels(seed = {}) {
 
   const models = {
     _db: db,
-    sequelize: { query: async (sql) => (sql.includes("INVOICE_LINES") ? db.returnRows : db.paymentRows) },
+    // stands in for the three "returns" statements (one per section) and the "money owed" one
+    sequelize: {
+      query: async (sql, opts = {}) => {
+        if (!sql.includes("INVOICE_LINES")) return db.paymentRows;
+        const r = opts.replacements || {};
+        const cap = Number(/LIMIT (\d+)/.exec(sql)[1]);
+        let rows;
+        if (sql.includes("< :today")) rows = db.returnRows.filter((x) => x.due_date < r.today);
+        else if (sql.includes("= :today")) rows = db.returnRows.filter((x) => x.due_date === r.today);
+        else if (sql.includes("= :tomorrow")) rows = db.returnRows.filter((x) => x.due_date === r.tomorrow);
+        else throw new Error(`unexpected returns SQL: ${sql}`);
+        return rows.slice(0, cap);
+      },
+    },
     Invoice: { findByPk: async (id) => db.invoices.find((i) => i.invoice_id == id) || null },
     InvoiceLine: { findAll: async ({ where }) => db.lines.filter((l) => asArray(where.invoice_id).includes(l.invoice_id)) },
     Payment: { findAll: async ({ where }) => db.payments.filter((p) => p.invoice_id == where.invoice_id && p.is_voided === where.is_voided) },
@@ -585,6 +598,33 @@ describe("getWorklist", () => {
     const w = await wa.getWorklist(makeModels(seed({ logs })), { now: NOW, language: "en" });
     expect(w.sections.overdue_returns.find((i) => i.invoice_id === 11).language).toBe("en");
     await expect(wa.getWorklist(makeModels(seed()), { now: NOW, language: "ta" })).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  describe("many invoices", () => {
+    const bulk = (n, due, startId) => Array.from({ length: n }, (_, i) => ret(startId + i, 1, due));
+
+    it("a pile of old overdue invoices never crowds out today and tomorrow", async () => {
+      const m = makeModels(seed({ returnRows: [...bulk(350, "2026-08-01", 1000), ret(12, 2, "2026-10-26"), ret(13, 3, "2026-10-27")], paymentRows: [] }));
+      const w = await wa.getWorklist(m, { now: NOW });
+      expect(w.sections.returns_due_today.map((i) => i.invoice_id)).toEqual([12]);
+      expect(w.sections.returns_due_tomorrow.map((i) => i.invoice_id)).toEqual([13]);
+      expect(w.sections.overdue_returns).toHaveLength(300);
+      expect(w.truncated).toEqual({ overdue_returns: true, returns_due_today: false, returns_due_tomorrow: false, payments_pending: false });
+    });
+
+    it("exactly at the cap is not reported as truncated", async () => {
+      const m = makeModels(seed({ returnRows: bulk(300, "2026-08-01", 1000), paymentRows: [] }));
+      const w = await wa.getWorklist(m, { now: NOW });
+      expect(w.sections.overdue_returns).toHaveLength(300);
+      expect(w.truncated.overdue_returns).toBe(false);
+    });
+
+    it("caps the money-owed list on its own", async () => {
+      const owed = Array.from({ length: 320 }, (_, i) => ({ ...ret(2000 + i, 4, null), total_paid: "0", due_date: undefined }));
+      const w = await wa.getWorklist(makeModels(seed({ returnRows: [], paymentRows: owed })), { now: NOW });
+      expect(w.sections.payments_pending).toHaveLength(300);
+      expect(w.truncated.payments_pending).toBe(true);
+    });
   });
 
   it("is empty — not an error — when nothing needs chasing", async () => {

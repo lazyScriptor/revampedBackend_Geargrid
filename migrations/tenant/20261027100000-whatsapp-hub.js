@@ -14,6 +14,10 @@ const tableExists = async (qi, name) => {
   return tables.map((t) => (typeof t === "string" ? t : Object.values(t)[0])).includes(name);
 };
 
+// Message text is Sinhala/English with emoji: pin utf8mb4 explicitly instead of trusting the
+// database default (a latin1 default cannot store Sinhala at all).
+const TABLE_OPTIONS = { charset: "utf8mb4", collate: "utf8mb4_unicode_ci" };
+
 const PERMS = [
   ["whatsapp:send", "Use the WhatsApp hub: send receipts, reminders and follow-ups"],
   ["whatsapp:manage", "Edit WhatsApp message templates and settings"],
@@ -34,7 +38,7 @@ export const up = async ({ context: qi }) => {
       sent_by_user_id: { type: DataTypes.INTEGER, allowNull: true },
       createdAt: { type: DataTypes.DATE, allowNull: false },
       updatedAt: { type: DataTypes.DATE, allowNull: false },
-    });
+    }, TABLE_OPTIONS);
     await qi.addIndex("WHATSAPP_MESSAGE_LOGS", ["customer_id"], { name: "idx_wa_log_customer" });
     await qi.addIndex("WHATSAPP_MESSAGE_LOGS", ["invoice_id"], { name: "idx_wa_log_invoice" });
     await qi.addIndex("WHATSAPP_MESSAGE_LOGS", ["createdAt"], { name: "idx_wa_log_created" });
@@ -49,7 +53,7 @@ export const up = async ({ context: qi }) => {
       updated_by_user_id: { type: DataTypes.INTEGER, allowNull: true },
       createdAt: { type: DataTypes.DATE, allowNull: false },
       updatedAt: { type: DataTypes.DATE, allowNull: false },
-    });
+    }, TABLE_OPTIONS);
     await qi.addIndex("WHATSAPP_TEMPLATES", ["template_key", "language"], { unique: true, name: "uq_wa_template_key_lang" });
   }
 

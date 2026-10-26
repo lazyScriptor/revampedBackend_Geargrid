@@ -14,6 +14,8 @@ export default (sequelize) => {
     {
       tableName: "WHATSAPP_TEMPLATES",
       timestamps: true,
+      charset: "utf8mb4",
+      collate: "utf8mb4_unicode_ci",
       indexes: [{ unique: true, fields: ["template_key", "language"] }],
     },
   );

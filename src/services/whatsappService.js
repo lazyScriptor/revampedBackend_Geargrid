@@ -445,7 +445,9 @@ export const setOptOut = async (models, customerId, optOut) => {
 
 // ─── "Today" worklist ────────────────────────────────────────────────────────
 
-const RETURNS_SQL = `
+// One query per section, each with its own cap. A single shared LIMIT let a pile of old, never-closed
+// invoices fill the result and push out everything due today and tomorrow (found at 40k invoices).
+const returnsSql = (having, order) => `
   SELECT i.invoice_id, i.customer_id, i.total_amount, i.advance_paid, i.issued_date,
          DATE_FORMAT(MIN(l.expected_return_date), '%Y-%m-%d') AS due_date
   FROM INVOICE_LINES l
@@ -453,9 +455,13 @@ const RETURNS_SQL = `
   WHERE i.is_deleted = 0 AND i.status = 'Active' AND l.track_overdue = 1
     AND (l.borrow_quantity - l.good_returned_qty - l.defective_returned_qty) > 0
   GROUP BY i.invoice_id, i.customer_id, i.total_amount, i.advance_paid, i.issued_date
-  HAVING MIN(l.expected_return_date) <= :tomorrow
-  ORDER BY MIN(l.expected_return_date) ASC, i.invoice_id ASC
-  LIMIT ${WORKLIST_LIMIT}`;
+  HAVING ${having}
+  ORDER BY ${order}
+  LIMIT ${WORKLIST_LIMIT + 1}`;
+
+const OVERDUE_SQL = returnsSql("MIN(l.expected_return_date) < :today", "MIN(l.expected_return_date) ASC, i.invoice_id ASC");
+const DUE_TODAY_SQL = returnsSql("MIN(l.expected_return_date) = :today", "i.invoice_id ASC");
+const DUE_TOMORROW_SQL = returnsSql("MIN(l.expected_return_date) = :tomorrow", "i.invoice_id ASC");
 
 const PAYMENTS_SQL = `
   SELECT i.invoice_id, i.customer_id, i.total_amount, i.advance_paid, i.issued_date,
@@ -465,7 +471,7 @@ const PAYMENTS_SQL = `
   WHERE i.is_deleted = 0 AND i.status = 'PendingPayment'
     AND (i.total_amount - COALESCE(p.total_paid, 0)) > 0
   ORDER BY i.issued_date ASC, i.invoice_id ASC
-  LIMIT ${WORKLIST_LIMIT}`;
+  LIMIT ${WORKLIST_LIMIT + 1}`;
 
 /**
  * What staff should chase today, ready to send: returns that are overdue / due today / due
@@ -478,15 +484,32 @@ export const getWorklist = async (models, { language, now = new Date() } = {}) =
   const tomorrow = addDays(today, 1);
   const sequelize = models.sequelize;
 
-  const [returnRows, paymentRows] = await Promise.all([
-    sequelize.query(RETURNS_SQL, { replacements: { tomorrow }, type: QueryTypes.SELECT }),
-    sequelize.query(PAYMENTS_SQL, { type: QueryTypes.SELECT }),
+  const run = (sql, replacements) => sequelize.query(sql, { replacements, type: QueryTypes.SELECT });
+  const [overdueAll, todayAll, tomorrowAll, paymentAll] = await Promise.all([
+    run(OVERDUE_SQL, { today }),
+    run(DUE_TODAY_SQL, { today }),
+    run(DUE_TOMORROW_SQL, { tomorrow }),
+    run(PAYMENTS_SQL),
   ]);
+  // each query asks for one row more than the cap, so we can tell "exactly 300" from "300 and more"
+  const capped = (rows) => ({ rows: rows.slice(0, WORKLIST_LIMIT), truncated: rows.length > WORKLIST_LIMIT });
+  const overdue = capped(overdueAll);
+  const dueToday = capped(todayAll);
+  const dueTomorrow = capped(tomorrowAll);
+  const payments = capped(paymentAll);
+  const truncated = {
+    overdue_returns: overdue.truncated,
+    returns_due_today: dueToday.truncated,
+    returns_due_tomorrow: dueTomorrow.truncated,
+    payments_pending: payments.truncated,
+  };
+  const returnRows = [...overdue.rows, ...dueToday.rows, ...dueTomorrow.rows];
+  const paymentRows = payments.rows;
 
   const invoiceIds = [...new Set([...returnRows, ...paymentRows].map((r) => r.invoice_id))];
   const customerIds = [...new Set([...returnRows, ...paymentRows].map((r) => r.customer_id))];
 
-  const empty = { generated_at: now.toISOString(), today, summary: { overdue_returns: 0, returns_due_today: 0, returns_due_tomorrow: 0, payments_pending: 0, balance_pending: 0 }, sections: { overdue_returns: [], returns_due_today: [], returns_due_tomorrow: [], payments_pending: [] } };
+  const empty = { generated_at: now.toISOString(), today, truncated, summary: { overdue_returns: 0, returns_due_today: 0, returns_due_tomorrow: 0, payments_pending: 0, balance_pending: 0 }, sections: { overdue_returns: [], returns_due_today: [], returns_due_tomorrow: [], payments_pending: [] } };
   if (!invoiceIds.length) return empty;
 
   const [customers, lines, logs, templateMap] = await Promise.all([
@@ -574,6 +597,7 @@ export const getWorklist = async (models, { language, now = new Date() } = {}) =
   return {
     generated_at: now.toISOString(),
     today,
+    truncated,
     summary: {
       overdue_returns: sections.overdue_returns.length,
       returns_due_today: sections.returns_due_today.length,
