@@ -220,12 +220,15 @@ export const getAllInvoices = async (models, queryParams) => {
     ];
   }
 
-  if (queryParams.status) whereClause.status = queryParams.status;
+  // "Active" = still open: machines out, or all back but not yet completed (awaiting refund/discount/close)
+  const OPEN_STATUSES = ["Active", "PendingPayment"];
+  if (queryParams.status === "Active") whereClause.status = { [Op.in]: OPEN_STATUSES };
+  else if (queryParams.status) whereClause.status = queryParams.status;
 
   const [countsResult, findResult] = await Promise.all([
     Promise.all([
       models.Invoice.count(),
-      models.Invoice.count({ where: { status: "Active" } }),
+      models.Invoice.count({ where: { status: { [Op.in]: OPEN_STATUSES } } }),
       models.Invoice.count({ where: { status: "Completed" } }),
     ]),
     models.Invoice.findAndCountAll({
@@ -481,15 +484,16 @@ export const processReturn = async (models, payload, userId) => {
 
     const totalPaid =
       (await models.Payment.sum("payment_amount", {
-        where: { invoice_id },
+        where: { invoice_id, is_voided: false },
         transaction: t,
       })) || 0;
 
     const isPaidOff = Number(totalPaid) >= Number(newGrandTotal);
-    const finalStatus =
-      activeLinesCount === 0
-        ? (isPaidOff ? "Completed" : "PendingPayment")
-        : "Active";
+    // Returning the last machine never closes the invoice by itself: the advance may still need
+    // refunding, a discount may still be given, or a balance collected. Once everything is back the
+    // invoice waits in "PendingPayment" (shown as "Returned · awaiting close") until staff press
+    // Complete invoice (completeInvoice below).
+    const finalStatus = activeLinesCount === 0 ? "PendingPayment" : "Active";
 
     const shouldReleaseId = release_id_card && isPaidOff;
 
@@ -532,6 +536,67 @@ export const processReturn = async (models, payload, userId) => {
   });
 };
 
+const assertNotCompleted = (invoice, action) => {
+  if (invoice.status === "Completed") {
+    throw new AppError(`This invoice is completed — reopen it to ${action} it.`, 409);
+  }
+};
+
+const BALANCE_TOLERANCE = 0.005;
+
+// --- 4b. COMPLETE / REOPEN ---
+// Closing is an explicit staff decision, allowed only when every machine is back and the money is
+// square: nothing owed by the customer and nothing (advance, overpayment) owed back to them.
+export const completeInvoice = async (models, invoiceId, { release_id_card } = {}, userId) =>
+  models.sequelize.transaction(async (t) => {
+    const invoice = await models.Invoice.findByPk(invoiceId, { transaction: t, lock: t.LOCK.UPDATE });
+    if (!invoice) throw new AppError("Invoice not found", 404);
+    if (invoice.status === "Completed") throw new AppError("This invoice is already completed.", 409);
+
+    const lines = await models.InvoiceLine.findAll({ where: { invoice_id: invoiceId }, transaction: t });
+    const outstanding = lines.reduce(
+      (s, l) => s + Math.max(0, Number(l.borrow_quantity || 0) - Number(l.good_returned_qty || 0) - Number(l.defective_returned_qty || 0)),
+      0,
+    );
+    if (outstanding > 0) throw new AppError(`${outstanding} item(s) are still out — return them before completing the invoice.`, 409);
+
+    const paid = Number(await models.Payment.sum("payment_amount", { where: { invoice_id: invoiceId, is_voided: false }, transaction: t })) || 0;
+    const balance = Number(invoice.total_amount) - paid;
+    if (balance > BALANCE_TOLERANCE) {
+      throw new AppError(`The customer still owes Rs.${balance.toLocaleString()} — collect it or give a discount before completing.`, 409);
+    }
+    if (balance < -BALANCE_TOLERANCE) {
+      throw new AppError(`Rs.${(-balance).toLocaleString()} is still due back to the customer — record the refund before completing.`, 409);
+    }
+
+    await invoice.update({ status: "Completed", id_card_status: release_id_card ? 0 : invoice.id_card_status }, { transaction: t });
+    if (release_id_card) {
+      await models.Customer.update({ is_id_retained_currently: false }, { where: { customer_id: invoice.customer_id }, transaction: t });
+    }
+    await models.InvoiceTrace.create(
+      { invoice_id: invoiceId, actor_user_id: userId, event_category: "SETTLEMENT", event_action: "INVOICE_COMPLETED", comments: "Invoice completed and closed by staff." },
+      { transaction: t },
+    );
+    return invoice;
+  });
+
+// For invoices closed too early (e.g. by the old automatic completion) so a refund or discount can
+// still be recorded.
+export const reopenInvoice = async (models, invoiceId, userId) =>
+  models.sequelize.transaction(async (t) => {
+    const invoice = await models.Invoice.findByPk(invoiceId, { transaction: t, lock: t.LOCK.UPDATE });
+    if (!invoice) throw new AppError("Invoice not found", 404);
+    if (invoice.status !== "Completed") throw new AppError("Only a completed invoice can be reopened.", 409);
+    const active = await models.InvoiceLine.count({ where: { invoice_id: invoiceId, line_status: "Active" }, transaction: t });
+    const status = active > 0 ? "Active" : "PendingPayment";
+    await invoice.update({ status }, { transaction: t });
+    await models.InvoiceTrace.create(
+      { invoice_id: invoiceId, actor_user_id: userId, event_category: "SETTLEMENT", event_action: "INVOICE_REOPENED", comments: "Invoice reopened for further settlement." },
+      { transaction: t },
+    );
+    return invoice;
+  });
+
 // --- 5. CONTINUOUS PAYMENTS & REFUNDS ---
 export const addContinuousPayment = async (
   models,
@@ -551,6 +616,7 @@ export const addContinuousPayment = async (
       transaction: t,
     });
     if (!invoice) throw new AppError("Invoice not found", 404);
+    assertNotCompleted(invoice, "record payments or refunds on");
 
     // A refund can never exceed what has actually been paid (net of earlier refunds).
     if (is_refund) {
@@ -642,6 +708,8 @@ export const updateInvoiceFees = async (models, invoiceId, payload, userId) => {
       transaction: t,
     });
     if (!invoice) throw new AppError("Invoice not found", 404);
+    // the discount is usually agreed mid-rental or at handover, so fees stay editable until completion
+    assertNotCompleted(invoice, "change the discount or transport of");
 
     const oldTransport = Number(invoice.transport_fee) || 0;
     const oldDiscount = Number(invoice.discount_amount) || 0;
@@ -654,6 +722,8 @@ export const updateInvoiceFees = async (models, invoiceId, payload, userId) => {
         ? Number(payload.discount_amount) || 0
         : oldDiscount;
 
+    if (newTransport < 0 || newDiscount < 0) throw new AppError("Discount and transport cannot be negative.", 400);
+
     // Recalculate the Grand Total with the new fees
     const newTotal =
       Number(invoice.total_amount) -
@@ -661,6 +731,8 @@ export const updateInvoiceFees = async (models, invoiceId, payload, userId) => {
       oldDiscount +
       newTransport -
       newDiscount;
+
+    if (newTotal < 0) throw new AppError("The discount cannot be larger than the invoice total.", 400);
 
     await invoice.update(
       {

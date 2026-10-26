@@ -47,6 +47,8 @@ router.get("/:id/print-logs", requirePermission("invoice:print_log:view"), print
 // 2. OMS Actions
 router.post("/:id/return", requirePermission("invoice:action:process_return"), invoiceController.processReturnInvoice);
 router.post("/:id/payments", requirePermission("invoice:action:add_payment"), invoiceController.addPayment); // <-- NEW
+router.post("/:id/complete", requirePermission("invoice:action:process_return"), invoiceController.completeInvoice);
+router.post("/:id/reopen", requirePermission("invoice:edit"), invoiceController.reopenInvoice);
 // Governed by @geargrid/contracts: VaultToggleContract.
 // Request/response shape, path, and method all live in shared/geargrid-contracts
 // and are vendored into revampedBackend_Geargrid/vendor/@geargrid/contracts/.

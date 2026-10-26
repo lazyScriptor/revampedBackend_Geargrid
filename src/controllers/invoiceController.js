@@ -134,3 +134,15 @@ export const getDeletedInvoices = catchAsync(async (req, res) => {
   const data = await invoiceDeletion.listDeletedInvoices(getModels(req), req.query);
   res.status(200).json({ status: "success", data });
 });
+
+// POST /invoices/:id/complete
+export const completeInvoice = catchAsync(async (req, res) => {
+  const invoice = await invoiceService.completeInvoice(getModels(req), req.params.id, req.body || {}, req.user.userId);
+  res.status(200).json({ status: "success", message: "Invoice completed.", data: { invoice } });
+});
+
+// POST /invoices/:id/reopen
+export const reopenInvoice = catchAsync(async (req, res) => {
+  const invoice = await invoiceService.reopenInvoice(getModels(req), req.params.id, req.user.userId);
+  res.status(200).json({ status: "success", message: "Invoice reopened.", data: { invoice } });
+});
