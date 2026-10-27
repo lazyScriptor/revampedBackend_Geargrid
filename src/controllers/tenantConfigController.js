@@ -18,3 +18,13 @@ export const updateConfig = catchAsync(async (req, res, next) => {
   );
   res.status(200).json({ status: "success", data: { config } });
 });
+
+export const getBillDetails = catchAsync(async (req, res) => {
+  const bill = await tenantConfigService.getBillDetails(getModels(req));
+  res.status(200).json({ status: "success", data: { bill } });
+});
+
+export const updateBillDetails = catchAsync(async (req, res) => {
+  const bill = await tenantConfigService.updateBillDetails(getModels(req), req.body);
+  res.status(200).json({ status: "success", data: { bill } });
+});
