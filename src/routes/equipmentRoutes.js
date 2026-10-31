@@ -11,6 +11,7 @@ import {
   convertNamesToSinhala,
 } from "../controllers/equipmentController.js";
 import { protect, requirePermission } from "../middlewares/authMiddleware.js";
+import * as photos from "../controllers/equipmentPhotoController.js";
 
 const router = express.Router();
 
@@ -35,6 +36,22 @@ router.patch(
 
 // One-click: translate equipment names to Sinhala (MUST be before /:id)
 router.post("/convert-names-si", requirePermission("equipment:edit"), convertNamesToSinhala);
+
+// Photos — tap the picture in the equipment table (MUST be before /:id)
+// GET    /api/equipment/photo-requests/:token  → status of a phone request
+// DELETE /api/equipment/photo-requests/:token  → cancel it
+router
+  .route("/photo-requests/:token")
+  .get(requirePermission("equipment:edit"), photos.getPhotoRequest)
+  .delete(requirePermission("equipment:edit"), photos.cancelPhotoRequest);
+// POST   /api/equipment/5/image (multipart "image") → upload from this computer
+// DELETE /api/equipment/5/image → back to the standard photo
+router
+  .route("/:id/image")
+  .post(requirePermission("equipment:edit"), photos.receivePhoto, photos.uploadImage)
+  .delete(requirePermission("equipment:edit"), photos.resetImage);
+// POST   /api/equipment/5/photo-requests → paired phone opens its camera
+router.post("/:id/photo-requests", requirePermission("equipment:edit"), photos.createPhotoRequest);
 
 // GET /api/equipment/5
 // PUT /api/equipment/5 (Full/Partial update of details like price, name)

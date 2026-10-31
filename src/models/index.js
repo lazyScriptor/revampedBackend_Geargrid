@@ -25,6 +25,7 @@ import InvoiceSignatureFactory from "./InvoiceSignature.js";
 import OperatorDeviceFactory from "./OperatorDevice.js";
 import WhatsappMessageLogFactory from "./WhatsappMessageLog.js";
 import WhatsappTemplateFactory from "./WhatsappTemplate.js";
+import PhotoRequestFactory from "./PhotoRequest.js";
 
 export const initTenantModels = (tenantConnection) => {
   const User = UserFactory(tenantConnection);
@@ -54,6 +55,7 @@ export const initTenantModels = (tenantConnection) => {
   const OperatorDevice = OperatorDeviceFactory(tenantConnection);
   const WhatsappMessageLog = WhatsappMessageLogFactory(tenantConnection);
   const WhatsappTemplate = WhatsappTemplateFactory(tenantConnection);
+  const PhotoRequest = PhotoRequestFactory(tenantConnection);
 
   // ==========================================
   // AUTH & USERS
@@ -200,6 +202,7 @@ export const initTenantModels = (tenantConnection) => {
   Invoice.hasMany(InvoicePrintLog, { as: "PrintLogs", foreignKey: "invoice_id" });
 
   // ── Signature capture subsystem associations ───────────────────────────
+  PhotoRequest.belongsTo(Equipment, { foreignKey: "equipment_id" });
   SignatureRequest.belongsTo(Invoice, { foreignKey: "invoice_id" });
   Invoice.hasMany(SignatureRequest, { as: "SignatureRequests", foreignKey: "invoice_id" });
   SignatureRequest.belongsTo(User, { as: "RequestedBy", foreignKey: "requested_by_user_id" });
@@ -242,6 +245,7 @@ export const initTenantModels = (tenantConnection) => {
     OperatorDevice,
     WhatsappMessageLog,
     WhatsappTemplate,
+    PhotoRequest,
     sequelize: tenantConnection,
   };
 };

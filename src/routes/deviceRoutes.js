@@ -7,6 +7,7 @@ import {
 import * as deviceService from "../services/deviceService.js";
 import { registerContract } from "../utils/contractAdapter.js";
 import { getMasterModels } from "../models/master/index.js";
+import * as photos from "../controllers/equipmentPhotoController.js";
 
 const router = express.Router();
 
@@ -40,5 +41,10 @@ registerContract(router, GetDevicePendingSignaturesContract, {
   handler: ({ params }) =>
     deviceService.getPendingSignaturesForDevice(getMasterModels(), params.device_id),
 });
+
+// Equipment photo requests for the paired phone (device_id + token authorise).
+router.get("/:device_id/photo-requests", photos.devicePendingPhotos);
+router.get("/:device_id/photo-requests/:token", photos.deviceGetPhotoRequest);
+router.post("/:device_id/photo-requests/:token/photo", photos.receivePhoto, photos.deviceSubmitPhoto);
 
 export default router;

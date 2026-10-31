@@ -45,7 +45,7 @@ jobs:
       - name: 2. Sync files to VM (Safely)
         uses: Burnett01/rsync-deployments@7.0.0
         with:
-          switches: -avzr --delete --exclude=node_modules --exclude=.env --exclude=.git
+          switches: -avzr --delete --exclude=node_modules --exclude=.env --exclude=.git --exclude=/uploads
           path: ./
           remote_path: /home/ubuntu/geargrid-backend
           remote_host: ${{ secrets.REMOTE_HOST }}
