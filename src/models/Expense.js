@@ -31,6 +31,8 @@ export default (sequelize) => {
         type: DataTypes.INTEGER,
         allowNull: true,
       },
+      // Paid with cash from the shop drawer (the cash locker subtracts it).
+      paid_from_locker: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
       warehouse_id: {
         type: DataTypes.INTEGER,
         allowNull: true,

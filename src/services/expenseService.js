@@ -41,6 +41,7 @@ const clean = (payload, { partial = false } = {}) => {
     out.description = payload.description === null ? null : String(payload.description).trim().slice(0, 1000) || null;
   }
   if (payload.warehouse_id !== undefined) out.warehouse_id = payload.warehouse_id || null;
+  if (payload.paid_from_locker !== undefined) out.paid_from_locker = payload.paid_from_locker === true || payload.paid_from_locker === "true";
   return out;
 };
 

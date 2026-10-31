@@ -26,6 +26,7 @@ import OperatorDeviceFactory from "./OperatorDevice.js";
 import WhatsappMessageLogFactory from "./WhatsappMessageLog.js";
 import WhatsappTemplateFactory from "./WhatsappTemplate.js";
 import PhotoRequestFactory from "./PhotoRequest.js";
+import CashLockerCountFactory from "./CashLockerCount.js";
 
 export const initTenantModels = (tenantConnection) => {
   const User = UserFactory(tenantConnection);
@@ -56,6 +57,7 @@ export const initTenantModels = (tenantConnection) => {
   const WhatsappMessageLog = WhatsappMessageLogFactory(tenantConnection);
   const WhatsappTemplate = WhatsappTemplateFactory(tenantConnection);
   const PhotoRequest = PhotoRequestFactory(tenantConnection);
+  const CashLockerCount = CashLockerCountFactory(tenantConnection);
 
   // ==========================================
   // AUTH & USERS
@@ -217,6 +219,10 @@ export const initTenantModels = (tenantConnection) => {
   OperatorDevice.belongsTo(User, { foreignKey: "user_id" });
   User.hasMany(OperatorDevice, { foreignKey: "user_id" });
 
+  // ── Cash locker ──
+  CashLockerCount.belongsTo(User, { as: "CountedBy", foreignKey: "counted_by_user_id" });
+  CashLockerCount.belongsTo(User, { as: "ReviewedBy", foreignKey: "reviewed_by_user_id" });
+
   return {
     User,
     Role,
@@ -246,6 +252,7 @@ export const initTenantModels = (tenantConnection) => {
     WhatsappMessageLog,
     WhatsappTemplate,
     PhotoRequest,
+    CashLockerCount,
     sequelize: tenantConnection,
   };
 };

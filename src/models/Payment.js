@@ -18,6 +18,8 @@ export default (sequelize) => {
       // Set when the parent invoice is deleted: excluded from revenue but kept for reconciliation.
       is_voided: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
       voided_at: { type: DataTypes.DATE, allowNull: true },
+      // The advance taken when the invoice was written (the cash locker holds cash advances until the invoice is completed).
+      is_advance: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
     },
     {
       tableName: "PAYMENTS",

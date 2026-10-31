@@ -221,6 +221,7 @@ export const createDispatchInvoice = async (models, payload, userId) => {
           invoice_id: newInvoice.invoice_id,
           payment_amount: fees.advance,
           method: advMethod,
+          is_advance: true,
           received_by_user_id: userId,
           ...(issuedDate ? { payment_date: issuedDate } : {}),
         },

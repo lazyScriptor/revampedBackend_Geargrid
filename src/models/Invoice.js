@@ -59,6 +59,8 @@ export default (sequelize) => {
       // Soft delete ("void with a reason"). Deleted invoices are hidden everywhere by the
       // default scope; use Invoice.unscoped() for the delete/restore flow and the deleted report.
       is_deleted: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+      // An old cash advance that already went home before the cash locker started: not held in the drawer.
+      advance_at_home: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
       deleted_at: { type: DataTypes.DATE, allowNull: true },
       deleted_by: { type: DataTypes.INTEGER, allowNull: true },
       deleted_by_role: { type: DataTypes.STRING(100), allowNull: true },

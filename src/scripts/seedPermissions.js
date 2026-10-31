@@ -40,6 +40,8 @@ const PERMISSION_CATALOG = [
   { permission_code: "invoice:action:send_reminder", module_name: "Invoices", description: "Send payment reminder emails" },
   { permission_code: "whatsapp:send", module_name: "Messages", description: "Use the WhatsApp hub: send receipts, reminders and follow-ups" },
   { permission_code: "whatsapp:manage", module_name: "Messages", description: "Edit WhatsApp message templates and settings" },
+  { permission_code: "locker:count", module_name: "Cash Locker", description: "Open and close the cash locker, record locker expenses" },
+  { permission_code: "locker:manage", module_name: "Cash Locker", description: "See the cash locker history, accept differences and set the float" },
   { permission_code: "invoice:print_log:view", module_name: "Invoices", description: "View POS bill printing audit logs" },
 
   // Equipment

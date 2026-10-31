@@ -31,6 +31,7 @@ import i18nRoutes from "./routes/i18nRoutes.js";
 import signatureRoutes from "./routes/signatureRoutes.js";
 import deviceRoutes from "./routes/deviceRoutes.js";
 import whatsappRoutes from "./routes/whatsappRoutes.js";
+import cashLockerRoutes from "./routes/cashLockerRoutes.js";
 import { corsOrigins } from "./config/cors-config.js";
 
 const app = express();
@@ -88,6 +89,7 @@ app.use("/api/i18n", i18nRoutes);
 // respective routers (invoiceRoutes, meRoutes, tenantConfigRoutes).
 app.use("/api/signatures", signatureRoutes);
 app.use("/api/whatsapp", whatsappRoutes);
+app.use("/api/locker", cashLockerRoutes);
 
 // Paired-PWA device pairing + pending-request discovery. All endpoints under
 // /api/public/devices/* are UN-AUTHENTICATED — the device_id or short pairing
