@@ -1,9 +1,27 @@
 import { Op } from "sequelize";
 import AppError from "../utils/AppError.js";
 
+// Counter clocks drift a little; anything later than this is a typo, not a bill.
+const ISSUED_DATE_FUTURE_SLACK_MS = 5 * 60 * 1000;
+
+/**
+ * Optional bill date/time for entering a bill after the fact (e.g. a paper
+ * bill written while offline). Missing means "now". Never in the future.
+ */
+export const resolveIssuedDate = (value, now = new Date()) => {
+  if (value === undefined || value === null || value === "") return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) throw new AppError("The bill date is not a valid date.", 400);
+  if (date.getTime() > now.getTime() + ISSUED_DATE_FUTURE_SLACK_MS) {
+    throw new AppError("The bill date cannot be in the future.", 400);
+  }
+  return date;
+};
+
 // --- 1. DISPATCH ENGINE (With Row-Level Locks) ---
 export const createDispatchInvoice = async (models, payload, userId) => {
   const { customer_id, items, fees, borrowed_on_behalf_of_customer_id } = payload;
+  const issuedDate = resolveIssuedDate(payload.issued_date);
 
   return await models.sequelize.transaction(async (t) => {
     let subTotal = 0;
@@ -95,6 +113,7 @@ export const createDispatchInvoice = async (models, payload, userId) => {
         ),
         status: "Active",
         id_card_status: 1,
+        ...(issuedDate ? { issued_date: issuedDate } : {}),
       },
       { transaction: t },
     );
@@ -151,6 +170,7 @@ export const createDispatchInvoice = async (models, payload, userId) => {
           payment_amount: fees.advance,
           method: advMethod,
           received_by_user_id: userId,
+          ...(issuedDate ? { payment_date: issuedDate } : {}),
         },
         { transaction: t },
       );
@@ -177,8 +197,10 @@ export const createDispatchInvoice = async (models, payload, userId) => {
         actor_user_id: userId,
         event_category: "DISPATCH",
         event_action: "INVOICE_CREATED",
-        comments: `Invoice generated for ${items.length} items. Total: Rs. ${grandTotal}.`,
-        state_payload: { items, fees },
+        comments:
+          `Invoice generated for ${items.length} items. Total: Rs. ${grandTotal}.` +
+          (issuedDate ? ` Bill date set to ${issuedDate.toISOString()}.` : ""),
+        state_payload: { items, fees, ...(issuedDate ? { issued_date: issuedDate.toISOString() } : {}) },
       },
       { transaction: t },
     );
