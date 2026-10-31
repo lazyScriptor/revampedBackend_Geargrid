@@ -18,6 +18,36 @@ export const resolveIssuedDate = (value, now = new Date()) => {
   return date;
 };
 
+// --- RENTAL DAY MATH (date-only, timezone-safe; mirrored by the frontend `lineCost.ts`) ---
+const DAY_MS = 24 * 60 * 60 * 1000;
+const ymdParts = (v) => {
+  const m = String(v ?? "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+};
+const utcDay = ([y, m, d]) => Date.UTC(y, m - 1, d);
+export const wholeDaysBetween = (from, to) => {
+  const a = ymdParts(from);
+  const b = ymdParts(to);
+  return a && b ? Math.round((utcDay(b) - utcDay(a)) / DAY_MS) : 0;
+};
+/** Days past the due date (0 when on time). */
+export const lateDays = (expected, actual) => Math.max(0, wholeDaysBetween(expected, actual));
+/**
+ * No return date was given at dispatch: the line was saved with a due date equal to the out date and
+ * return tracking off. (A tracked line whose late fees were waived keeps its real due date, so it is not this.)
+ */
+export const isOpenEndedLine = (line) => {
+  const tracked = !(line.track_overdue === false || line.track_overdue === 0 || line.track_overdue === "0");
+  const due = ymdParts(line.expected_return_date);
+  const out = ymdParts(line.borrow_date);
+  return !tracked && !!due && !!out && due.join("-") === out.join("-");
+};
+/** Days out (borrow date to return date, at least 1) beyond what the locked price already covers. */
+export const openEndedExtraDays = (line, actualReturnDate) => {
+  const daysOut = Math.max(1, wholeDaysBetween(line.borrow_date, actualReturnDate));
+  return Math.max(0, daysOut - Math.max(1, Number(line.locked_minimum_days) || 1));
+};
+
 // --- 1. DISPATCH ENGINE (With Row-Level Locks) ---
 export const createDispatchInvoice = async (models, payload, userId) => {
   const { customer_id, items, fees, borrowed_on_behalf_of_customer_id } = payload;
@@ -411,16 +441,18 @@ export const processReturn = async (models, payload, userId) => {
       const overdueEnabled =
         line.track_overdue !== false && returnData.track_overdue !== false;
 
-      const expectedDate = new Date(line.expected_return_date).getTime();
-      const actualDate = new Date(returnData.actual_return_date).getTime();
-      const daysLate = overdueEnabled
-        ? Math.max(0, Math.ceil((actualDate - expectedDate) / (1000 * 60 * 60 * 24)))
-        : 0;
+      // A line dispatched with no return date was priced for 1 day. Its real rental length is only
+      // known now, so every day out beyond what the price already covers is billed here.
+      const extraDays = isOpenEndedLine(line)
+        ? openEndedExtraDays(line, returnData.actual_return_date)
+        : overdueEnabled
+          ? lateDays(line.expected_return_date, returnData.actual_return_date)
+          : 0;
 
       let lineLateFee = 0;
-      if (daysLate > 0) {
+      if (extraDays > 0) {
         lineLateFee =
-          daysLate * line.locked_extra_daily_rate * totalReturnedNow;
+          extraDays * line.locked_extra_daily_rate * totalReturnedNow;
         totalLateFees += lineLateFee;
       }
 
