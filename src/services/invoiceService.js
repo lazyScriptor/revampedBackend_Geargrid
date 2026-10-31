@@ -42,11 +42,33 @@ export const isOpenEndedLine = (line) => {
   const out = ymdParts(line.borrow_date);
   return !tracked && !!due && !!out && due.join("-") === out.join("-");
 };
-/** Days out (borrow date to return date, at least 1) beyond what the locked price already covers. */
-export const openEndedExtraDays = (line, actualReturnDate) => {
-  const daysOut = Math.max(1, wholeDaysBetween(line.borrow_date, actualReturnDate));
-  return Math.max(0, daysOut - Math.max(1, Number(line.locked_minimum_days) || 1));
+const SHOP_TZ = "Asia/Colombo";
+const dayInShopTz = (d) => new Intl.DateTimeFormat("en-CA", { timeZone: SHOP_TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+const clockInShopTz = (d) =>
+  new Intl.DateTimeFormat("en-GB", { timeZone: SHOP_TZ, hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(d);
+
+/** The moment a line went out: the bill's time, moved to the line's out date when that is a different day. */
+export const lineOutMoment = (line, issuedAt) => {
+  const out = ymdParts(line.borrow_date);
+  if (!out) return issuedAt ? new Date(issuedAt) : null;
+  const day = `${String(out[0]).padStart(4, "0")}-${String(out[1]).padStart(2, "0")}-${String(out[2]).padStart(2, "0")}`;
+  const issued = issuedAt ? new Date(issuedAt) : null;
+  if (!issued || Number.isNaN(issued.getTime())) return new Date(`${day}T00:00:00+05:30`);
+  return dayInShopTz(issued) === day ? issued : new Date(`${day}T${clockInShopTz(issued)}+05:30`);
 };
+
+/**
+ * Rental days are elapsed time, rounded up: anything past 24 hours is the next day (29 hours = 2 days).
+ * Never less than 1.
+ */
+export const elapsedRentalDays = (outAt, returnAt) => {
+  const ms = new Date(returnAt).getTime() - new Date(outAt).getTime();
+  return Number.isFinite(ms) ? Math.max(1, Math.ceil(ms / DAY_MS)) : 1;
+};
+
+/** Days charged beyond what the locked price already covers, for an open-ended line. */
+export const openEndedExtraDays = (line, outAt, returnAt) =>
+  Math.max(0, elapsedRentalDays(outAt, returnAt) - Math.max(1, Number(line.locked_minimum_days) || 1));
 
 // --- 1. DISPATCH ENGINE (With Row-Level Locks) ---
 export const createDispatchInvoice = async (models, payload, userId) => {
@@ -444,7 +466,7 @@ export const processReturn = async (models, payload, userId) => {
       // A line dispatched with no return date was priced for 1 day. Its real rental length is only
       // known now, so every day out beyond what the price already covers is billed here.
       const extraDays = isOpenEndedLine(line)
-        ? openEndedExtraDays(line, returnData.actual_return_date)
+        ? openEndedExtraDays(line, lineOutMoment(line, invoice.issued_date), returnData.actual_return_at || new Date())
         : overdueEnabled
           ? lateDays(line.expected_return_date, returnData.actual_return_date)
           : 0;
