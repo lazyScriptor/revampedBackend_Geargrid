@@ -131,14 +131,54 @@ export const createSignatureRequest = async (
     expires_at,
   });
 
+  const autoSigned = await autoSignOperator(models, row, { tenantDbName: user?.tenantDbName });
+
   return {
     token: row.token,
     sign_path: `/sign/${row.token}`,
     checkpoint: row.checkpoint,
     required_roles: row.required_roles,
     expires_at: row.expires_at,
+    status: autoSigned?.status || row.status,
+    auto_signed_roles: autoSigned ? ["OPERATOR"] : [],
+    pending_roles: autoSigned?.pending_roles || required_roles,
   };
 };
+
+// The operator signs the same way on every bill, so once they have a saved
+// signature it goes on by itself the moment the request is made; the phone
+// only ever asks the customer. Best effort: if the saved file is missing the
+// role simply stays pending and the operator can draw on the phone.
+const autoSignOperator = async (models, request, { tenantDbName }) => {
+  const roles = Array.isArray(request.required_roles)
+    ? request.required_roles
+    : JSON.parse(request.required_roles || "[]");
+  if (!roles.includes("OPERATOR")) return null;
+  const operator = await models.User.findByPk(request.requested_by_user_id, {
+    attributes: ["user_id", "first_name", "last_name", "username", "signature_url"],
+  });
+  if (!operator?.signature_url) return null;
+  const terms = await getRentalTerms(models);
+  try {
+    return await submitSignature(
+      models,
+      request.token,
+      {
+        role: "OPERATOR",
+        signatory_name: operatorDisplayName(operator),
+        agreed_to_terms: true,
+        terms_version: terms.version,
+        use_stored_operator_signature: true,
+      },
+      { tenantDbName, userAgent: "auto: saved operator signature" },
+    );
+  } catch {
+    return null;
+  }
+};
+
+const operatorDisplayName = (u) =>
+  `${u.first_name || ""} ${u.last_name || ""}`.trim() || u.username || "Operator";
 
 export const getPublicSignatureSession = async (models, token) => {
   const request = await models.SignatureRequest.findOne({ where: { token } });
@@ -310,6 +350,17 @@ export const submitSignature = async (
     buffer = decoded.buffer;
     sha256 = decoded.sha256;
     extension = decoded.extension;
+    if (role === "OPERATOR") {
+      // First time the operator draws: keep it as their saved signature so
+      // every later bill is signed for them automatically.
+      const requester = await models.User.findByPk(request.requested_by_user_id, {
+        attributes: ["user_id", "signature_url"],
+      });
+      if (requester && !requester.signature_url) {
+        signatoryUserId = requester.user_id;
+        await setOperatorSignature(models, requester.user_id, { image_data_url }, { tenantDbName }).catch(() => {});
+      }
+    }
   }
 
   // ── Insert row (empty image_url first, then write file using row id) ─
