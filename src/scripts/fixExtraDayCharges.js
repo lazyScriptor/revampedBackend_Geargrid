@@ -94,7 +94,7 @@ const run = async () => {
           perInvoice.set(f.line.invoice_id, (perInvoice.get(f.line.invoice_id) || 0) + f.delta);
         }
         for (const [invoiceId, d] of perInvoice) {
-          await conn.query("UPDATE INVOICES SET total_amount = total_amount + :d WHERE invoice_id = :id", {
+          await conn.query("UPDATE INVOICES SET total_amount = total_amount + :d, sub_total = sub_total + :d WHERE invoice_id = :id", {
             replacements: { d, id: invoiceId },
             transaction: t,
           });

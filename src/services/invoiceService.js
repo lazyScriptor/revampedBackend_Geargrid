@@ -388,6 +388,9 @@ export const processReturn = async (models, payload, userId) => {
       throw new AppError("Invoice not found or already completed.", 400);
 
     let totalLateFees = 0;
+    // Days out on lines with no return date are the rental itself, so they also go into the
+    // subtotal. Only late days past a set due date are a late fee (outside the subtotal).
+    let rentalDaysAdded = 0;
 
     for (const returnData of lines_returned) {
       // 1. Lock the specific invoice line
@@ -424,7 +427,8 @@ export const processReturn = async (models, payload, userId) => {
 
       // A line dispatched with no return date was priced for 1 day. Its real rental length is only
       // known now, so every day out beyond what the price already covers is billed here.
-      const extraDays = isOpenEndedLine(line)
+      const openEnded = isOpenEndedLine(line);
+      const extraDays = openEnded
         ? openEndedExtraDays(line, lineOutMoment(line, invoice.issued_date), returnData.actual_return_at || new Date())
         : overdueEnabled
           ? lateDays(line.expected_return_date, returnData.actual_return_date)
@@ -435,6 +439,7 @@ export const processReturn = async (models, payload, userId) => {
         lineLateFee =
           extraDays * line.locked_extra_daily_rate * totalReturnedNow;
         totalLateFees += lineLateFee;
+        if (openEnded) rentalDaysAdded += lineLateFee;
       }
 
       // 4. Update the Line Item Stats cumulatively
@@ -538,6 +543,7 @@ export const processReturn = async (models, payload, userId) => {
     await invoice.update(
       {
         total_amount: newGrandTotal,
+        sub_total: Number(invoice.sub_total || 0) + rentalDaysAdded,
         status: finalStatus,
         id_card_status: shouldReleaseId ? 0 : invoice.id_card_status,
       },

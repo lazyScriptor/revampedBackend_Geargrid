@@ -64,6 +64,8 @@ export default (sequelize) => {
       // Charges so far for machines still out (extra / late days), not yet billed into total_amount.
       // Kept current by services/accrualService.js; becomes 0 once everything is back.
       accrued_charges: { type: DataTypes.DECIMAL(12, 2), allowNull: false, defaultValue: 0 },
+      // The part of accrued_charges that is rental (days out on lines with no return date); the rest is late fees.
+      accrued_rental: { type: DataTypes.DECIMAL(12, 2), allowNull: false, defaultValue: 0 },
       accrued_at: { type: DataTypes.DATE, allowNull: true },
       deleted_at: { type: DataTypes.DATE, allowNull: true },
       deleted_by: { type: DataTypes.INTEGER, allowNull: true },
@@ -81,15 +83,22 @@ export default (sequelize) => {
     },
   );
   // What the API sends: `total_amount` is what the customer owes for so far (billed + charges so
-  // far), so every screen, balance and report shows the same number. The billed figure stays
-  // available as `billed_total_amount`. Services reading `invoice.total_amount` still get the billed
-  // value from the database; this only shapes the JSON.
+  // far) and `sub_total` the rental for the days so far, so every screen, balance and report shows
+  // the same numbers. The billed figures stay available as `billed_total_amount` / `billed_sub_total`.
+  // Services reading `invoice.total_amount` still get the billed value from the database; this only
+  // shapes the JSON.
+  const round2 = (n) => Math.round(n * 100) / 100;
   Invoice.prototype.toJSON = function toJSON() {
     const plain = this.get({ plain: true });
     if (plain.total_amount !== undefined && plain.accrued_charges !== undefined) {
       const billed = Number(plain.total_amount) || 0;
       plain.billed_total_amount = billed;
-      plain.total_amount = Math.round((billed + (Number(plain.accrued_charges) || 0)) * 100) / 100;
+      plain.total_amount = round2(billed + (Number(plain.accrued_charges) || 0));
+    }
+    if (plain.sub_total !== undefined && plain.accrued_rental !== undefined) {
+      const billedSub = Number(plain.sub_total) || 0;
+      plain.billed_sub_total = billedSub;
+      plain.sub_total = round2(billedSub + (Number(plain.accrued_rental) || 0));
     }
     return plain;
   };

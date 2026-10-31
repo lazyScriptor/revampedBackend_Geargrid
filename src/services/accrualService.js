@@ -28,19 +28,21 @@ export const lineAccrual = (line, issuedAt, now = new Date()) => {
   const qty = Number(line.borrow_quantity) || 0;
   const back = (Number(line.good_returned_qty) || 0) + (Number(line.defective_returned_qty) || 0);
   const pending = Math.max(0, qty - back);
-  if (line.line_status !== "Active" || pending <= 0) return { accrued_charge: 0, accrued_days: 0, days_out: null };
+  if (line.line_status !== "Active" || pending <= 0) return { accrued_charge: 0, accrued_days: 0, days_out: null, rental: false };
 
   const rate = Number(line.locked_extra_daily_rate) || 0;
   if (isOpenEndedLine(line)) {
     // Elapsed time rounded up: past 24 hours is the next day.
     const daysOut = elapsedRentalDays(lineOutMoment(line, issuedAt), now);
     const extra = Math.max(0, daysOut - Math.max(1, Number(line.locked_minimum_days) || 1));
-    return { accrued_charge: money(extra * rate * pending), accrued_days: extra, days_out: daysOut };
+    // Days out are the rental itself (part of the subtotal), not a fee.
+    return { accrued_charge: money(extra * rate * pending), accrued_days: extra, days_out: daysOut, rental: true };
   }
   const today = dayInShopTz(now);
   const daysOut = Math.max(1, wholeDaysBetween(line.borrow_date, today));
   const late = isTracked(line.track_overdue) ? lateDays(line.expected_return_date, today) : 0;
-  return { accrued_charge: money(late * rate * pending), accrued_days: late, days_out: daysOut };
+  // Late days past a set due date: the exception, shown as a late fee.
+  return { accrued_charge: money(late * rate * pending), accrued_days: late, days_out: daysOut, rental: false };
 };
 
 /**
@@ -53,7 +55,7 @@ export const refreshAccruals = async (models, { invoiceIds, now = new Date(), tr
     : { [Op.or]: [{ status: "Active" }, { accrued_charges: { [Op.gt]: 0 } }] };
   const invoices = await models.Invoice.findAll({
     where,
-    attributes: ["invoice_id", "issued_date", "status", "accrued_charges"],
+    attributes: ["invoice_id", "issued_date", "status", "accrued_charges", "accrued_rental"],
     include: [{ model: models.InvoiceLine, required: false }],
     transaction,
   });
@@ -61,16 +63,19 @@ export const refreshAccruals = async (models, { invoiceIds, now = new Date(), tr
   let changed = 0;
   for (const invoice of invoices) {
     let total = 0;
+    let rental = 0;
     for (const line of invoice.InvoiceLines || []) {
-      const a = lineAccrual(line, invoice.issued_date, now);
+      const { rental: isRental, ...a } = lineAccrual(line, invoice.issued_date, now);
       total += a.accrued_charge;
+      if (isRental) rental += a.accrued_charge;
       if (money(line.accrued_charge) !== a.accrued_charge || Number(line.accrued_days || 0) !== a.accrued_days || (line.days_out ?? null) !== a.days_out) {
         await line.update(a, { transaction });
       }
     }
     total = money(total);
-    if (money(invoice.accrued_charges) !== total) {
-      await invoice.update({ accrued_charges: total, accrued_at: now }, { transaction });
+    rental = money(rental);
+    if (money(invoice.accrued_charges) !== total || money(invoice.accrued_rental) !== rental) {
+      await invoice.update({ accrued_charges: total, accrued_rental: rental, accrued_at: now }, { transaction });
       changed++;
     }
   }
