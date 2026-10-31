@@ -5,6 +5,7 @@
 // review service on every review write.
 
 import { parseTenantDayRange } from "../utils/dateRange.js";
+import { liveTotalExpr } from "../utils/invoiceBalance.js";
 
 // All-customers report. One row per customer, with revenue / paid / balance /
 // overdue figures aggregated across all of their invoices in the period.
@@ -34,10 +35,10 @@ export const getAllCustomersReport = async (models, filters = {}) => {
         c.is_id_retained_currently,
         c.deposit_balance,
         COUNT(DISTINCT i.invoice_id) AS invoice_count,
-        COALESCE(SUM(i.total_amount), 0) AS total_revenue,
+        COALESCE(SUM(${liveTotalExpr()}), 0) AS total_revenue,
         COALESCE(p_agg.total_paid, 0) AS total_paid,
         GREATEST(0,
-          COALESCE(SUM(i.total_amount), 0)
+          COALESCE(SUM(${liveTotalExpr()}), 0)
           - COALESCE(p_agg.total_paid, 0)
         ) AS balance_due,
         COALESCE(od.overdue_amount, 0) AS overdue_amount,
@@ -57,19 +58,11 @@ export const getAllCustomersReport = async (models, filters = {}) => {
         GROUP BY i.customer_id
       ) p_agg ON p_agg.customer_id = c.customer_id
       LEFT JOIN (
-        SELECT i.customer_id,
-               SUM(GREATEST(
-                 DATEDIFF(CURDATE(), il.expected_return_date)
-                 * il.locked_extra_daily_rate
-                 * (il.borrow_quantity - il.good_returned_qty - il.defective_returned_qty),
-                 0
-               )) AS overdue_amount
+        -- extra / late days so far on machines still out (same figure as the invoice and the ledger)
+        SELECT i.customer_id, SUM(il.accrued_charge) AS overdue_amount
         FROM INVOICE_LINES il
         JOIN INVOICES i ON i.invoice_id = il.invoice_id AND i.is_deleted = 0
         WHERE il.line_status = 'Active'
-          AND il.actual_return_date IS NULL
-          AND il.expected_return_date < CURDATE()
-          AND (il.track_overdue IS NULL OR il.track_overdue = TRUE)
         GROUP BY i.customer_id
       ) od ON od.customer_id = c.customer_id
       LEFT JOIN (

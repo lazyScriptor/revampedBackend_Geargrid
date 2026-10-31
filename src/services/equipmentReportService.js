@@ -3,6 +3,7 @@
 // category; this one drills down to the individual equipment row.
 
 import { parseTenantDayRange } from "../utils/dateRange.js";
+import { liveLineTotalExpr } from "../utils/invoiceBalance.js";
 
 export const getEquipmentMaintenanceByUnit = async (models, filters = {}) => {
   const { start, end, startYmd, endYmd } = parseTenantDayRange(
@@ -43,7 +44,7 @@ export const getEquipmentMaintenanceByUnit = async (models, filters = {}) => {
         GROUP BY equipment_id
       ) d ON d.equipment_id = e.equipment_id
       LEFT JOIN (
-        SELECT il.equipment_id, SUM(il.line_total_amount) AS total_revenue
+        SELECT il.equipment_id, SUM(${liveLineTotalExpr()}) AS total_revenue
         FROM INVOICE_LINES il
         JOIN INVOICES i ON i.invoice_id = il.invoice_id AND i.is_deleted = 0
         WHERE i.issued_date BETWEEN :rangeStart AND :rangeEnd

@@ -13,6 +13,7 @@ import {
   ListInvoiceSignaturesContract,
 } from "@geargrid/contracts";
 import * as signatureService from "../services/signatureService.js";
+import { freshAccruals } from "../services/accrualService.js";
 
 const router = express.Router();
 
@@ -21,6 +22,8 @@ const resolveTenantModels = (req) =>
 
 // Apply the auth middleware to all invoice routes
 router.use(protect);
+// Totals include the running charges of machines still out; bring them up to date first.
+router.use(freshAccruals);
 
 // 1. Core Invoicing
 router.get("/", requirePermission("invoice:view"), invoiceController.getInvoices);

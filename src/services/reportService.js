@@ -1,5 +1,5 @@
 import { Op, fn, col, literal } from "sequelize";
-import { OPEN_INVOICE_STATUSES_SQL, PAID_PER_INVOICE_SQL, owedExpr } from "../utils/invoiceBalance.js";
+import { OPEN_INVOICE_STATUSES_SQL, PAID_PER_INVOICE_SQL, owedExpr, liveTotalExpr, liveLineTotalExpr } from "../utils/invoiceBalance.js";
 import { parseTenantDayRange, parseTenantDay, tenantNDaysAgoYmd } from "../utils/dateRange.js";
 
 // ============================================================================
@@ -163,7 +163,7 @@ export const getAccountsReceivable = async (models) => {
   const rows = await models.sequelize.query(
     `SELECT
       i.invoice_id,
-      i.total_amount,
+      ${liveTotalExpr()} AS total_amount,
       i.advance_paid,
       i.issued_date,
       i.status,
@@ -258,7 +258,7 @@ export const getEquipmentUtilization = async (models, filters = {}) => {
     LEFT JOIN WAREHOUSES w ON w.warehouse_id = e.warehouse_id
     LEFT JOIN (
       SELECT il.equipment_id,
-             SUM(il.line_total_amount) AS total_revenue
+             SUM(${liveLineTotalExpr()}) AS total_revenue
       FROM INVOICE_LINES il
       JOIN INVOICES i ON i.invoice_id = il.invoice_id AND i.is_deleted = 0
       WHERE i.issued_date BETWEEN :startDate AND :endDate

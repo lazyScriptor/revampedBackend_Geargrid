@@ -1,6 +1,7 @@
 import { Op } from "sequelize";
 import { writeRowsToExcel } from "./_helpers.js";
 import { fileSize } from "../../utils/jobFileStore.js";
+import { liveTotalOf } from "../../utils/invoiceBalance.js";
 
 const HEADERS = [
   { key: "invoice_id", label: "Invoice #", width: 12 },
@@ -58,7 +59,7 @@ export default async function exportInvoicesExcel(ctx) {
           ? c.company_name
           : `${c.first_name || ""} ${c.last_name || ""}`.trim()
         : "";
-      const total = Number(inv.total_amount || 0);
+      const total = liveTotalOf(inv);
       const advance = Number(inv.advance_paid || 0);
       const paid = (inv.Payments || []).reduce((sum, p) => sum + Number(p.payment_amount || 0), 0);
       rows.push({

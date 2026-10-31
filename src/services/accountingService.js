@@ -1,5 +1,6 @@
 import { Op, QueryTypes, fn, col, literal } from "sequelize";
 import { parseTenantDayRange } from "../utils/dateRange.js";
+import { liveTotalExpr } from "../utils/invoiceBalance.js";
 
 // ============================================================================
 // HELPER: Build a Sequelize WHERE clause from common filter params
@@ -67,8 +68,14 @@ export const getFilteredInvoices = async (models, query) => {
 
   const where = {
     ...buildDateFilter("issued_date", query.dateFrom, query.dateTo),
-    ...buildAmountFilter("total_amount", query.minAmount, query.maxAmount),
   };
+  // Amount filter on the live total (billed + charges so far), the figure the list shows.
+  const amountParts = [];
+  const minA = parseFloat(query.minAmount);
+  const maxA = parseFloat(query.maxAmount);
+  if (Number.isFinite(minA)) amountParts.push(literal(`${liveTotalExpr("Invoice")} >= ${minA}`));
+  if (Number.isFinite(maxA)) amountParts.push(literal(`${liveTotalExpr("Invoice")} <= ${maxA}`));
+  if (amountParts.length) where[Op.and] = amountParts;
 
   if (query.status) {
     const statuses = Array.isArray(query.status) ? query.status : query.status.split(",");
@@ -159,7 +166,7 @@ export const getFilteredPayments = async (models, query) => {
   // Build include with optional customer filter
   const invoiceInclude = {
     model: models.Invoice,
-    attributes: ["invoice_id", "customer_id", "total_amount", "status", "issued_date"],
+    attributes: ["invoice_id", "customer_id", "total_amount", "accrued_charges", "status", "issued_date"],
     include: [
       {
         model: models.Customer,
@@ -396,12 +403,12 @@ export const getChartData = async (models, query) => {
   }
 
   if (query.minAmount) {
-    amountClauseI += " AND i.total_amount >= :minAmount";
+    amountClauseI += ` AND ${liveTotalExpr()} >= :minAmount`;
     amountClauseP += " AND p.payment_amount >= :minAmount";
     amountClauseE += " AND e.amount >= :minAmount";
   }
   if (query.maxAmount) {
-    amountClauseI += " AND i.total_amount <= :maxAmount";
+    amountClauseI += ` AND ${liveTotalExpr()} <= :maxAmount`;
     amountClauseP += " AND p.payment_amount <= :maxAmount";
     amountClauseE += " AND e.amount <= :maxAmount";
   }
@@ -444,7 +451,7 @@ export const getChartData = async (models, query) => {
 
   // 3. Invoices by Status
   const invoicesByStatusSql = `
-    SELECT i.status as name, SUM(i.total_amount) as value, COUNT(*) as count
+    SELECT i.status as name, SUM(${liveTotalExpr()}) as value, COUNT(*) as count
     FROM INVOICES i WHERE i.is_deleted = 0 ${dateClauseI} ${searchClauseI} ${amountClauseI} ${statusClauseI}
     GROUP BY i.status
   `;

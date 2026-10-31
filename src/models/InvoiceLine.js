@@ -15,6 +15,10 @@ export default (sequelize) => {
       borrow_date: { type: DataTypes.DATEONLY, allowNull: false },
       expected_return_date: { type: DataTypes.DATEONLY, allowNull: false },
       actual_return_date: { type: DataTypes.DATEONLY, allowNull: true },
+      // Live charges so far while units are still out (see services/accrualService.js).
+      accrued_charge: { type: DataTypes.DECIMAL(12, 2), allowNull: false, defaultValue: 0 },
+      accrued_days: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+      days_out: { type: DataTypes.INTEGER, allowNull: true },
       locked_base_price: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
       locked_minimum_days: { type: DataTypes.INTEGER, allowNull: false },
       locked_extra_daily_rate: {

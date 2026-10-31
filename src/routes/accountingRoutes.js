@@ -1,11 +1,14 @@
 import express from "express";
 import * as accountingController from "../controllers/accountingController.js";
 import { protect, requirePermission } from "../middlewares/authMiddleware.js";
+import { freshAccruals } from "../services/accrualService.js";
 
 const router = express.Router();
 
 // All accounting routes require authentication
 router.use(protect);
+// Totals include the running charges of machines still out; bring them up to date first.
+router.use(freshAccruals);
 
 // Filtered data endpoints
 router.get("/invoices", requirePermission("accounting:view"), accountingController.getInvoices);

@@ -1,10 +1,13 @@
 import express from "express";
 import * as whatsapp from "../controllers/whatsappController.js";
 import { protect, requirePermission } from "../middlewares/authMiddleware.js";
+import { freshAccruals } from "../services/accrualService.js";
 
 const router = express.Router();
 
 router.use(protect);
+// Totals include the running charges of machines still out; bring them up to date first.
+router.use(freshAccruals);
 
 // Using the hub (compose, open a chat, history, opt-out)
 router.get("/worklist", requirePermission("whatsapp:send"), whatsapp.getWorklist);

@@ -1,11 +1,14 @@
 import express from "express";
 import * as reportController from "../controllers/reportController.js";
 import { protect, requirePermission } from "../middlewares/authMiddleware.js";
+import { freshAccruals } from "../services/accrualService.js";
 
 const router = express.Router();
 
 // All report routes require authentication
 router.use(protect);
+// Totals include the running charges of machines still out; bring them up to date first.
+router.use(freshAccruals);
 
 // Dashboard KPIs
 router.get("/dashboard", requirePermission("dashboard:view"), reportController.getDashboard);

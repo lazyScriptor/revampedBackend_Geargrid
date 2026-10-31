@@ -61,6 +61,10 @@ export default (sequelize) => {
       is_deleted: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
       // An old cash advance that already went home before the cash locker started: not held in the drawer.
       advance_at_home: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+      // Charges so far for machines still out (extra / late days), not yet billed into total_amount.
+      // Kept current by services/accrualService.js; becomes 0 once everything is back.
+      accrued_charges: { type: DataTypes.DECIMAL(12, 2), allowNull: false, defaultValue: 0 },
+      accrued_at: { type: DataTypes.DATE, allowNull: true },
       deleted_at: { type: DataTypes.DATE, allowNull: true },
       deleted_by: { type: DataTypes.INTEGER, allowNull: true },
       deleted_by_role: { type: DataTypes.STRING(100), allowNull: true },
@@ -76,5 +80,19 @@ export default (sequelize) => {
       defaultScope: { where: { is_deleted: false } },
     },
   );
+  // What the API sends: `total_amount` is what the customer owes for so far (billed + charges so
+  // far), so every screen, balance and report shows the same number. The billed figure stays
+  // available as `billed_total_amount`. Services reading `invoice.total_amount` still get the billed
+  // value from the database; this only shapes the JSON.
+  Invoice.prototype.toJSON = function toJSON() {
+    const plain = this.get({ plain: true });
+    if (plain.total_amount !== undefined && plain.accrued_charges !== undefined) {
+      const billed = Number(plain.total_amount) || 0;
+      plain.billed_total_amount = billed;
+      plain.total_amount = Math.round((billed + (Number(plain.accrued_charges) || 0)) * 100) / 100;
+    }
+    return plain;
+  };
+
   return Invoice;
 };

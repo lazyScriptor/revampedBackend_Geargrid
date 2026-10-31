@@ -1,7 +1,7 @@
 // invoiceReportService.js — invoice-centric reports for the Reports surface.
 
 import { Op, QueryTypes } from "sequelize";
-import { OPEN_INVOICE_STATUSES_SQL, PAID_PER_INVOICE_SQL, owedExpr } from "../utils/invoiceBalance.js";
+import { OPEN_INVOICE_STATUSES_SQL, PAID_PER_INVOICE_SQL, owedExpr, liveTotalExpr } from "../utils/invoiceBalance.js";
 import { parseTenantDayRange } from "../utils/dateRange.js";
 
 // Aging report — every active invoice with a positive balance, bucketed by
@@ -14,7 +14,7 @@ export const getInvoiceAging = async (models, filters = {}) => {
     `SELECT
         i.invoice_id,
         i.issued_date,
-        i.total_amount,
+        ${liveTotalExpr()} AS total_amount,
         i.advance_paid,
         c.customer_id,
         c.first_name,

@@ -8,7 +8,7 @@
 
 import { Op, QueryTypes } from "sequelize";
 import AppError from "../utils/AppError.js";
-import { PAID_PER_INVOICE_SQL } from "../utils/invoiceBalance.js";
+import { PAID_PER_INVOICE_SQL, liveTotalExpr, liveTotalOf, owedExpr } from "../utils/invoiceBalance.js";
 import { pickWhatsAppNumber, buildWaLink } from "../utils/whatsappPhone.js";
 import {
   DEFAULT_TEMPLATES,
@@ -234,7 +234,7 @@ export const updateSettings = async (models, { shop_phone, default_language }) =
  * @param {'receipt'|'pending'} p.mode  receipt = whole order; pending = only what is still out
  */
 export const buildVars = ({ shop, customer, invoice, lines, paid, language, dueDate, today }) => {
-  const total = Number(invoice?.total_amount || 0);
+  const total = liveTotalOf(invoice);
   const paidAmt = Number(paid || 0);
   const advance = Number(invoice?.advance_paid || 0);
   const pendingOnly = !!dueDate;
@@ -339,7 +339,7 @@ export const composeMessage = async (models, { template_key, invoice_id, custome
     where: invoice ? { invoice_id: invoice.invoice_id } : { customer_id: customerId },
     order: [["createdAt", "DESC"], ["log_id", "DESC"]],
   });
-  const total = Number(invoice?.total_amount || 0);
+  const total = liveTotalOf(invoice);
 
   return {
     template_key,
@@ -448,13 +448,13 @@ export const setOptOut = async (models, customerId, optOut) => {
 // One query per section, each with its own cap. A single shared LIMIT let a pile of old, never-closed
 // invoices fill the result and push out everything due today and tomorrow (found at 40k invoices).
 const returnsSql = (having, order) => `
-  SELECT i.invoice_id, i.customer_id, i.total_amount, i.advance_paid, i.issued_date,
+  SELECT i.invoice_id, i.customer_id, ${liveTotalExpr("i")} AS total_amount, i.advance_paid, i.issued_date,
          DATE_FORMAT(MIN(l.expected_return_date), '%Y-%m-%d') AS due_date
   FROM INVOICE_LINES l
   JOIN INVOICES i ON i.invoice_id = l.invoice_id
   WHERE i.is_deleted = 0 AND i.status = 'Active' AND l.track_overdue = 1
     AND (l.borrow_quantity - l.good_returned_qty - l.defective_returned_qty) > 0
-  GROUP BY i.invoice_id, i.customer_id, i.total_amount, i.advance_paid, i.issued_date
+  GROUP BY i.invoice_id, i.customer_id, i.total_amount, i.accrued_charges, i.advance_paid, i.issued_date
   HAVING ${having}
   ORDER BY ${order}
   LIMIT ${WORKLIST_LIMIT + 1}`;
@@ -464,12 +464,12 @@ const DUE_TODAY_SQL = returnsSql("MIN(l.expected_return_date) = :today", "i.invo
 const DUE_TOMORROW_SQL = returnsSql("MIN(l.expected_return_date) = :tomorrow", "i.invoice_id ASC");
 
 const PAYMENTS_SQL = `
-  SELECT i.invoice_id, i.customer_id, i.total_amount, i.advance_paid, i.issued_date,
+  SELECT i.invoice_id, i.customer_id, ${liveTotalExpr("i")} AS total_amount, i.advance_paid, i.issued_date,
          COALESCE(p.total_paid, 0) AS total_paid
   FROM INVOICES i
   LEFT JOIN ${PAID_PER_INVOICE_SQL} p ON p.invoice_id = i.invoice_id
   WHERE i.is_deleted = 0 AND i.status = 'PendingPayment'
-    AND (i.total_amount - COALESCE(p.total_paid, 0)) > 0
+    AND ${owedExpr("i")} > 0
   ORDER BY i.issued_date ASC, i.invoice_id ASC
   LIMIT ${WORKLIST_LIMIT + 1}`;
 
@@ -548,7 +548,7 @@ export const getWorklist = async (models, { language, now = new Date() } = {}) =
     const customer = customerById.get(row.customer_id);
     const invLines = linesByInvoice.get(row.invoice_id) || [];
     const lang = language || languageByCustomer.get(row.customer_id) || shop.default_language;
-    const total = Number(row.total_amount || 0);
+    const total = liveTotalOf(row);
     const paidAmt = paid === null ? 0 : Number(paid);
     const vars = buildVars({ shop, customer, invoice: row, lines: invLines, paid: paidAmt, language: lang, dueDate, today });
     const body = renderTemplate(templateBody(templateMap, key, lang), vars);

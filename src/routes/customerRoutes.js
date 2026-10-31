@@ -11,11 +11,14 @@ import {
   getCustomerStats,
 } from '../controllers/customerController.js';
 import { protect, requirePermission } from '../middlewares/authMiddleware.js';
+import { freshAccruals } from "../services/accrualService.js";
 
 const router = express.Router();
 
 // Secure all customer routes
 router.use(protect);
+// Totals include the running charges of machines still out; bring them up to date first.
+router.use(freshAccruals);
 
 // GET /api/customers?search=John&page=1
 // POST /api/customers

@@ -4,6 +4,7 @@ import path from "node:path";
 import { Op } from "sequelize";
 import AppError from "../utils/AppError.js";
 import { emitToUser } from "../sockets/emitters.js";
+import { liveTotalOf } from "../utils/invoiceBalance.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Signature capture subsystem
@@ -242,7 +243,7 @@ export const getPublicSignatureSession = async (models, token) => {
     invoice: {
       invoice_id: invoice.invoice_id,
       invoice_number: invoice.invoice_number || `INV-${invoice.invoice_id}`,
-      total_amount: Number(invoice.total_amount || 0),
+      total_amount: liveTotalOf(invoice),
       amount_paid: Number(invoice.amount_paid || invoice.advance_paid || 0),
       deposit_held: Number(invoice.deposit_held || 0),
       customer_name: customerName,

@@ -10,7 +10,11 @@ const makeModels = ({ invoice, lines = [], payments = [] }) => {
     _inv: inv,
     _traces: traces,
     sequelize: { transaction: async (fn) => fn({ LOCK: { UPDATE: "UPDATE" } }) },
-    Invoice: { findByPk: async () => (inv.invoice_id ? inv : null) },
+    Invoice: {
+      findByPk: async () => (inv.invoice_id ? inv : null),
+      // running-charge refresh after a return: the invoice with its lines
+      findAll: async () => (inv.invoice_id ? [{ ...inv, accrued_charges: 0, InvoiceLines: lines, update: vi.fn() }] : []),
+    },
     InvoiceLine: {
       findAll: async () => lines,
       count: async ({ where }) => lines.filter((l) => !where.line_status || l.line_status === where.line_status).length,

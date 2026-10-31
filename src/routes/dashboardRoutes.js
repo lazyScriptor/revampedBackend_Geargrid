@@ -1,10 +1,13 @@
 import { Router } from "express";
 import { protect, requirePermission } from "../middlewares/authMiddleware.js";
 import * as dashboardController from "../controllers/dashboardController.js";
+import { freshAccruals } from "../services/accrualService.js";
 
 const router = Router();
 
 router.use(protect);
+// Totals include the running charges of machines still out; bring them up to date first.
+router.use(freshAccruals);
 
 // User-facing dashboard endpoints
 router.get("/config",               dashboardController.getConfig);
