@@ -5,6 +5,7 @@
 //    every machine with exactly the same text, archived ones included.
 import { Op } from "sequelize";
 import AppError from "../utils/AppError.js";
+import { deleteEquipment } from "./equipmentService.js";
 
 const PREFIX = "EQ-";
 const MAX_ROWS = 500;
@@ -126,7 +127,10 @@ export const bulkSaveEquipment = async (models, rows) => {
   if (!Array.isArray(rows) || rows.length === 0) throw new AppError("Add at least one row.", 400);
   if (rows.length > MAX_ROWS) throw new AppError(`Save at most ${MAX_ROWS} rows at a time.`, 400);
 
-  return models.sequelize.transaction(async (t) => {
+  return models.sequelize.transaction((t) => saveRows(models, rows, t));
+};
+
+const saveRows = async (models, rows, t) => {
     const [categories, warehouses, everyone] = await Promise.all([
       models.EquipmentCategory.findAll({ attributes: ["category_id", "category_name"], raw: true, transaction: t }),
       models.Warehouse.findAll({ attributes: ["warehouse_id"], raw: true, transaction: t }),
@@ -227,5 +231,64 @@ export const bulkSaveEquipment = async (models, rows) => {
       }
     }
     return { saved: true, rows: saved };
+};
+
+const SHEET_FIELDS = [
+  "equipment_name", "equipment_name_si", "serial_number", "category_id", "warehouse_id", "base_rental_price", "extra_daily_rate",
+  "minimum_rental_days", "is_bulk_item", "total_owned_qty", "purchase_cost", "warranty_period_months", "end_of_warranty_date",
+];
+const sheetValues = (raw) => Object.fromEntries(SHEET_FIELDS.filter((f) => raw?.[f] !== undefined).map((f) => [f, raw[f]]));
+
+/**
+ * Save the equipment sheet in one go: `updates` carry only the changed cells, so a value someone
+ * else changed meanwhile is kept. Any problem saves nothing and is returned against the row's `key`.
+ */
+export const saveEquipmentSheet = async (models, { updates = [], creates = [], deletes = [] } = {}) => {
+  if (![updates, creates, deletes].every(Array.isArray)) throw new AppError("Invalid sheet changes.", 400);
+  if (updates.length + creates.length + deletes.length === 0) throw new AppError("Nothing to save.", 400);
+  if (updates.length + creates.length > MAX_ROWS * 4) throw new AppError(`Save at most ${MAX_ROWS * 4} rows at a time.`, 400);
+
+  return models.sequelize.transaction(async (t) => {
+    const ids = [...updates.map((u) => Number(u.equipment_id)), ...deletes.map((d) => Number(d.equipment_id))];
+    const current = ids.length ? await models.Equipment.findAll({ where: { equipment_id: { [Op.in]: ids } }, transaction: t, lock: t.LOCK?.UPDATE }) : [];
+    const byId = new Map(current.map((m) => [Number(m.equipment_id), m]));
+
+    const errors = [];
+    const keys = [];
+    const rows = [];
+    for (const u of updates) {
+      const machine = byId.get(Number(u.equipment_id));
+      if (!machine) {
+        errors.push({ key: u.key, field: "equipment_name", code: "machine_missing" });
+        continue;
+      }
+      keys.push(u.key);
+      rows.push({ ...machine.toJSON(), ...sheetValues(u.changes), equipment_id: Number(u.equipment_id) });
+    }
+    for (const c of creates) {
+      keys.push(c.key);
+      rows.push(sheetValues(c.values));
+    }
+    for (const d of deletes) {
+      const machine = byId.get(Number(d.equipment_id));
+      if (!machine) errors.push({ key: d.key, field: "row", code: "machine_missing" });
+      else if (Number(machine.rented_qty) > 0) errors.push({ key: d.key, field: "row", code: "still_rented" });
+    }
+
+    const result = rows.length ? await saveRows(models, rows, t) : { saved: true, rows: [] };
+    if (!result.saved) errors.push(...result.errors.map(({ row, field, code }) => ({ key: keys[row], field, code })));
+    if (errors.length) return { saved: false, errors };
+
+    let archived = 0;
+    for (const d of deletes) {
+      if ((await deleteEquipment(models, Number(d.equipment_id), { transaction: t })).archived) archived++;
+    }
+    return {
+      saved: true,
+      created: result.rows.filter((r) => !updates.some((u) => u.key === keys[r.row])).map((r) => ({ key: keys[r.row], equipment_id: r.equipment_id })),
+      updated: updates.length,
+      deleted: deletes.length,
+      archived,
+    };
   });
 };

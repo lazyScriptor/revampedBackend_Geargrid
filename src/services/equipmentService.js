@@ -141,8 +141,8 @@ export const updateEquipmentStatus = async (models, equipmentId, newStatus) => {
   return equipment;
 };
 
-export const deleteEquipment = async (models, id) => {
-  const equipment = await models.Equipment.findByPk(id);
+export const deleteEquipment = async (models, id, { transaction } = {}) => {
+  const equipment = await models.Equipment.findByPk(id, { transaction });
 
   if (!equipment) {
     throw new AppError("Equipment not found.", 404);
@@ -157,15 +157,15 @@ export const deleteEquipment = async (models, id) => {
 
   // Anything with history stays in the database so old invoices keep their machine's name.
   const [lines, defects] = await Promise.all([
-    models.InvoiceLine.count({ where: { equipment_id: id } }),
-    models.DefectLog.count({ where: { equipment_id: id } }),
+    models.InvoiceLine.count({ where: { equipment_id: id }, transaction }),
+    models.DefectLog.count({ where: { equipment_id: id }, transaction }),
   ]);
   if (lines + defects > 0) {
-    await equipment.update({ is_archived: true, archived_at: new Date() });
+    await equipment.update({ is_archived: true, archived_at: new Date() }, { transaction });
     return { archived: true };
   }
-  await models.PhotoRequest.destroy({ where: { equipment_id: id } });
-  await equipment.destroy();
+  await models.PhotoRequest.destroy({ where: { equipment_id: id }, transaction });
+  await equipment.destroy({ transaction });
   return { archived: false };
 };
 

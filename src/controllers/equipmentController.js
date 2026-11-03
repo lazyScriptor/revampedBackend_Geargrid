@@ -29,6 +29,11 @@ export const bulkSaveEquipment = catchAsync(async (req, res) => {
   res.status(200).json({ status: "success", data });
 });
 
+export const saveEquipmentSheet = catchAsync(async (req, res) => {
+  const data = await equipmentNumbers.saveEquipmentSheet(getModels(req), req.body);
+  res.status(200).json({ status: "success", data });
+});
+
 export const getEquipment = catchAsync(async (req, res, next) => {
   // Pass req.query directly to the service to handle search/filters/pagination
   const result = await equipmentService.getAllEquipment(

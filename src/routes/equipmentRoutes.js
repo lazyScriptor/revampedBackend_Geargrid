@@ -11,6 +11,7 @@ import {
   convertNamesToSinhala,
   getNextEquipment,
   bulkSaveEquipment,
+  saveEquipmentSheet,
 } from "../controllers/equipmentController.js";
 import { protect, requirePermission } from "../middlewares/authMiddleware.js";
 import * as photos from "../controllers/equipmentPhotoController.js";
@@ -34,6 +35,16 @@ router.get("/next", requirePermission("equipment:create"), getNextEquipment);
 
 // Add and edit many machines from the grid, all or nothing (MUST be before /:id)
 router.post("/bulk-save", requirePermission("equipment:create"), requirePermission("equipment:edit"), bulkSaveEquipment);
+
+// The equipment sheet: edits, additions and deletions together, all or nothing (MUST be before /:id)
+const whenSheetHas = (list, permission) => (req, res, next) => (req.body?.[list]?.length ? requirePermission(permission)(req, res, next) : next());
+router.post(
+  "/sheet-save",
+  whenSheetHas("updates", "equipment:edit"),
+  whenSheetHas("creates", "equipment:create"),
+  whenSheetHas("deletes", "equipment:delete"),
+  saveEquipmentSheet,
+);
 
 // Bulk update equipment (MUST be before /:id)
 router.patch(

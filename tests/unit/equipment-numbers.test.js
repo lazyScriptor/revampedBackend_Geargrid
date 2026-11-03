@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { nextSerialValue, formatSerial, parseName, renumberName, getNextEquipment, bulkSaveEquipment } from "../../src/services/equipmentNumberService.js";
+import { nextSerialValue, formatSerial, parseName, renumberName, getNextEquipment, bulkSaveEquipment, saveEquipmentSheet } from "../../src/services/equipmentNumberService.js";
 
 const build = (machines = []) => {
   const list = machines.map((m, i) => ({ equipment_id: i + 1, rented_qty: 0, defective_qty: 0, ...m }));
@@ -171,5 +171,81 @@ describe("bulk save", () => {
     expect(low.errors[0].code).toBe("qty_below_out");
     const ok = await bulkSaveEquipment(models, [row({ equipment_id: 1, serial_number: "EQ-1", equipment_name: "Pipe", total_owned_qty: 8, base_rental_price: 700 })]);
     expect(ok.saved).toBe(true);
+  });
+});
+
+describe("equipment sheet save", () => {
+  const sheetModels = (machines) => {
+    const list = machines.map((m, i) => {
+      const row = { equipment_id: i + 1, category_id: 1, warehouse_id: 9, rented_qty: 0, defective_qty: 0, total_owned_qty: 1, base_rental_price: "500.00", extra_daily_rate: "400.00", minimum_rental_days: 1, is_bulk_item: false, ...m };
+      return { ...row, toJSON: () => ({ ...row }), update: vi.fn(async function (p) { Object.assign(this, p); return this; }), destroy: vi.fn(async () => {}) };
+    });
+    const created = [];
+    return {
+      list,
+      created,
+      models: {
+        sequelize: { transaction: async (fn) => fn({ LOCK: { UPDATE: "UPDATE" } }) },
+        EquipmentCategory: { findAll: async () => [{ category_id: 1, category_name: "Power Tools" }] },
+        Warehouse: { findAll: async () => [{ warehouse_id: 9 }] },
+        Equipment: {
+          findAll: vi.fn(async () => list),
+          findByPk: vi.fn(async (id) => list.find((m) => m.equipment_id === Number(id)) ?? null),
+          create: vi.fn(async (v) => {
+            const r = { equipment_id: 100 + created.length, ...v };
+            created.push(r);
+            return r;
+          }),
+        },
+        InvoiceLine: { count: vi.fn(async ({ where }) => (where.equipment_id === 2 ? 3 : 0)) },
+        DefectLog: { count: vi.fn(async () => 0) },
+        PhotoRequest: { destroy: vi.fn(async () => {}) },
+      },
+    };
+  };
+
+  it("changes only the sent cells, adds and deletes together", async () => {
+    const { models, list, created } = sheetModels([
+      { serial_number: "EQ-1", equipment_name: "Drill - 1", base_rental_price: "500.00" },
+      { serial_number: "EQ-2", equipment_name: "Drill - 2" },
+      { serial_number: "EQ-3", equipment_name: "Drill - 3" },
+    ]);
+    const res = await saveEquipmentSheet(models, {
+      updates: [{ key: "m1", equipment_id: 1, changes: { base_rental_price: "650", image_url: "/evil.png", rented_qty: 99 } }],
+      creates: [{ key: "n1", values: { equipment_name: "Drill - 4", category_id: 1, warehouse_id: 9, base_rental_price: "500", image_url: "/evil.png" } }],
+      deletes: [{ key: "m2", equipment_id: 2 }, { key: "m3", equipment_id: 3 }],
+    });
+    expect(res).toMatchObject({ saved: true, updated: 1, deleted: 2, archived: 1, created: [{ key: "n1", equipment_id: 100 }] });
+    const sent = list[0].update.mock.calls[0][0];
+    expect(sent).toMatchObject({ base_rental_price: 650, extra_daily_rate: 400, equipment_name: "Drill - 1", available_qty: 1 });
+    expect(sent.image_url).toBeUndefined();
+    expect(sent.rented_qty).toBeUndefined();
+    expect(created[0].image_url).toBeUndefined();
+    expect(list[1].update).toHaveBeenCalledWith(expect.objectContaining({ is_archived: true }), expect.anything()); // has invoices: kept
+    expect(list[2].destroy).toHaveBeenCalled();
+  });
+
+  it("any problem saves nothing and names the row", async () => {
+    const { models, list, created } = sheetModels([
+      { serial_number: "EQ-1", equipment_name: "Drill - 1" },
+      { serial_number: "EQ-2", equipment_name: "Drill - 2", rented_qty: 1 },
+    ]);
+    const res = await saveEquipmentSheet(models, {
+      updates: [{ key: "m1", equipment_id: 1, changes: { serial_number: "EQ-2" } }],
+      creates: [{ key: "n1", values: { equipment_name: "", category_id: 1, warehouse_id: 9, base_rental_price: "500" } }],
+      deletes: [{ key: "m2", equipment_id: 2 }],
+    });
+    expect(res.saved).toBe(false);
+    expect(res.errors).toEqual(expect.arrayContaining([
+      { key: "m2", field: "row", code: "still_rented" },
+      { key: "n1", field: "equipment_name", code: "name_required" },
+    ]));
+    expect(list[0].update).not.toHaveBeenCalled();
+    expect(list[1].destroy).not.toHaveBeenCalled();
+    expect(created).toHaveLength(0);
+  });
+
+  it("nothing to save is refused", async () => {
+    await expect(saveEquipmentSheet(sheetModels([]).models, {})).rejects.toThrow(/Nothing to save/);
   });
 });
