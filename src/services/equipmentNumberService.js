@@ -1,7 +1,8 @@
 // Automatic machine numbers and names, plus the bulk add/edit grid.
 //  • Number (serial_number): EQ-110, the next after the highest in use, archived machines included.
-//  • Name: "Drill with Hammer - 6", the next within the machine's type (category).
-// Quantity (bulk) machines have one row and no number in the name.
+//  • Name: pick an existing machine; the new name is its text with the next number, written in that
+//    machine's own format ("Drill - 6", "Drill-06", "6 - Drill"...). The highest number comes from
+//    every machine with exactly the same text, archived ones included.
 import { Op } from "sequelize";
 import AppError from "../utils/AppError.js";
 
@@ -18,48 +19,95 @@ export const formatSerial = (n) => `${PREFIX}${String(n).padStart(3, "0")}`;
 /** The number after the highest EQ-… in use. Other formats are ignored. */
 export const nextSerialValue = (serials) => serials.reduce((max, s) => Math.max(max, serialValue(s) ?? 0), 0) + 1;
 
-/** "Drill with Hammer - 5" → "Drill with Hammer". */
-export const stripNameNumber = (name) => String(name ?? "").replace(/\s*[-–]\s*\d+\s*$/, "").trim();
-const nameNumber = (name) => {
-  const m = String(name ?? "").match(/[-–]\s*(\d+)\s*$/);
-  return m ? Number(m[1]) : 0;
-};
-
-/** The next number within a type: never below the count, never a number already used in a name. */
-export const nextNameNumber = (names) => names.reduce((max, n) => Math.max(max, nameNumber(n)), names.length) + 1;
-
-const allSerials = async (models, transaction) =>
-  (await models.Equipment.findAll({ attributes: ["serial_number"], raw: true, transaction })).map((r) => r.serial_number);
+// Keep these name rules the same as revampedFrontend/src/features/equipment/lib/equipmentNumbering.ts.
+const SEPARATORS = "\\s\\-–—_.:#/,";
+const EDGES = new RegExp(`^[${SEPARATORS}]+|[${SEPARATORS}]+$`, "g");
+const clean = (s) => s.replace(EDGES, "");
+const cleanBefore = (s) => clean(clean(s.replace(/\s*\(\s*$/, "")).replace(/(^|[\s\-–—_])(?:no|num|number)\.?$/i, "$1"));
 
 /**
- * What a new machine should be called. With a type, also its usual prices and Sinhala name, taken
- * from the newest machine of that type. Sinhala is only reused when that machine has the same base
- * name, so a broad category never puts the wrong Sinhala on a bill.
+ * Find a name's number and the text around it. A size is not a number: "Grinder 4 inch", "Bit 1/2"
+ * and "Bolt M10" have none.
  */
-export const getNextEquipment = async (models, { categoryId } = {}) => {
-  const out = { serial_number: formatSerial(nextSerialValue(await allSerials(models))) };
-  if (!categoryId) return out;
+export const parseName = (name) => {
+  const s = String(name ?? "").trim();
+  const m =
+    s.match(/^(.*\(\s*)(\d+)(\s*\))$/su) ||
+    s.match(/^(.*[^\p{L}\p{M}\d])(\d+)()$/su) ||
+    s.match(/^((?:no\.?\s*|#\s*)?)(\d+)(\s*[-–—.:)_/]\s*)(?=[^\s\d])(.*)$/isu) ||
+    s.match(/^((?:no\.?\s*|#\s*))(\d+)(\s+)(.+)$/isu) ||
+    s.match(/^(.+?\s[-–—]\s*)(\d+)(\s*[-–—(].*)$/su);
+  const sized = m && /\d[.,/:]$/.test(m[1]);
+  const before = m && !sized ? m[1] : null;
+  const after = before === null ? "" : `${m[3]}${m[4] ?? ""}`;
+  const leftText = before === null ? clean(s) : cleanBefore(before);
+  const rightText = clean(after.replace(/^\s*\)/, ""));
+  const text = [leftText, rightText].filter(Boolean).join(" ");
+  if (before !== null && !text) return { before: null, digits: "", after: "", number: null, text: s, key: s.toLowerCase() };
+  return {
+    before,
+    digits: before === null ? "" : m[2],
+    after,
+    number: before === null ? null : Number(m[2]),
+    leftText,
+    text,
+    key: (leftText ? `${leftText}|${rightText}` : `${rightText}|`).toLowerCase().replace(/\s+/g, " "),
+  };
+};
 
-  const category = await models.EquipmentCategory.findByPk(categoryId);
-  if (!category) throw new AppError("Category not found.", 404);
-  const siblings = await models.Equipment.findAll({
-    where: { category_id: categoryId },
-    order: [["equipment_id", "DESC"]],
-    attributes: ["equipment_name", "equipment_name_si", "base_rental_price", "extra_daily_rate", "minimum_rental_days", "warehouse_id"],
+const padded = (digits, n) => (digits.length > 1 && digits.startsWith("0") ? String(n).padStart(digits.length, "0") : String(n));
+
+/** Same format, new number. A name without a number gets " - n". */
+export const renumberName = (parsed, n) =>
+  parsed.before === null ? `${parsed.text} - ${n}` : `${parsed.before}${padded(parsed.digits, n)}${parsed.after}`;
+
+/** Other text in the format of `like`: a Sinhala name that has no number of its own. */
+export const nameInFormat = (like, text, n) => {
+  if (like.before === null) return `${text} - ${n}`;
+  const num = padded(like.digits, n);
+  if (!like.leftText) return `${like.before}${num}${like.after.match(/^[^\p{L}\p{M}\d]*/u)[0]}${text}`;
+  const sep = like.before.slice(like.before.lastIndexOf(like.leftText) + like.leftText.length);
+  return `${text}${sep}${num}${/[\p{L}\d]/u.test(like.after) ? "" : like.after}`;
+};
+
+/**
+ * What a new machine should be called. With `likeId`, also the next name, Sinhala name, prices and
+ * category, taken from that machine.
+ */
+export const getNextEquipment = async (models, { likeId } = {}) => {
+  const all = await models.Equipment.findAll({
+    attributes: ["equipment_id", "serial_number", "equipment_name", "equipment_name_si", "category_id", "warehouse_id", "base_rental_price", "extra_daily_rate", "minimum_rental_days"],
     raw: true,
   });
-  const latest = siblings[0];
-  const base = category.category_name;
-  const baseSi = siblings.find((s) => stripNameNumber(s.equipment_name) === base && s.equipment_name_si)?.equipment_name_si;
+  const out = { serial_number: formatSerial(nextSerialValue(all.map((m) => m.serial_number))) };
+  if (!likeId) return out;
+
+  const picked = all.find((m) => Number(m.equipment_id) === Number(likeId));
+  if (!picked) throw new AppError("Equipment not found.", 404);
+  const name = parseName(picked.equipment_name);
+  const same = all
+    .map((m) => ({ machine: m, parsed: parseName(m.equipment_name) }))
+    .filter((m) => m.parsed.key === name.key)
+    .sort((a, b) => Number(b.machine.equipment_id) - Number(a.machine.equipment_id));
+
+  const highest = same.reduce((best, m) => ((m.parsed.number ?? 1) > (best.parsed.number ?? 1) ? m : best), same[0]);
+  const n = (highest.parsed.number ?? 1) + 1;
+  const format = name.before !== null ? name : highest.parsed;
+
+  const si = picked.equipment_name_si || same.find((m) => m.machine.equipment_name_si)?.machine.equipment_name_si || "";
+  const parsedSi = parseName(si);
   return {
     ...out,
-    name_number: nextNameNumber(siblings.map((s) => s.equipment_name)),
-    base_name: base,
-    base_name_si: baseSi ? stripNameNumber(baseSi) : "",
-    base_rental_price: latest ? money(latest.base_rental_price) : null,
-    extra_daily_rate: latest ? money(latest.extra_daily_rate) : null,
-    minimum_rental_days: latest?.minimum_rental_days ?? 1,
-    warehouse_id: latest?.warehouse_id ?? null,
+    name_number: n,
+    equipment_name: renumberName(format, n),
+    equipment_name_si: !si ? "" : parsedSi.before !== null ? renumberName(parsedSi, n) : nameInFormat(format, si, n),
+    base_name: name.text,
+    base_name_si: si ? parsedSi.text : "",
+    category_id: picked.category_id,
+    warehouse_id: picked.warehouse_id,
+    base_rental_price: money(picked.base_rental_price),
+    extra_daily_rate: money(picked.extra_daily_rate),
+    minimum_rental_days: picked.minimum_rental_days ?? 1,
   };
 };
 
@@ -79,7 +127,7 @@ export const bulkSaveEquipment = async (models, rows) => {
       models.EquipmentCategory.findAll({ attributes: ["category_id", "category_name"], raw: true, transaction: t }),
       models.Warehouse.findAll({ attributes: ["warehouse_id"], raw: true, transaction: t }),
       models.Equipment.findAll({
-        attributes: ["equipment_id", "serial_number", "equipment_name", "category_id"],
+        attributes: ["equipment_id", "serial_number"],
         raw: true,
         transaction: t,
         lock: t.LOCK?.UPDATE,
@@ -93,12 +141,6 @@ export const bulkSaveEquipment = async (models, rows) => {
     const editedIds = new Set(rows.filter((r) => r.equipment_id).map((r) => Number(r.equipment_id)));
     const taken = new Set(everyone.filter((e) => !editedIds.has(Number(e.equipment_id))).map((e) => String(e.serial_number).toLowerCase()));
     let nextSerial = nextSerialValue([...everyone.map((e) => e.serial_number), ...rows.map((r) => r.serial_number)]);
-    const namesByCategory = new Map();
-    for (const e of everyone) {
-      const list = namesByCategory.get(Number(e.category_id)) || [];
-      list.push(e.equipment_name);
-      namesByCategory.set(Number(e.category_id), list);
-    }
 
     const errors = [];
     const prepared = rows.map((raw, row) => {
@@ -116,13 +158,7 @@ export const bulkSaveEquipment = async (models, rows) => {
       if (!Number.isInteger(qty) || qty < 1) fail("total_owned_qty", "qty_invalid");
       const bulk = qty > 1 || raw.is_bulk_item === true;
 
-      let name = String(raw.equipment_name ?? "").trim();
-      if (!name && category && !raw.equipment_id) {
-        const names = namesByCategory.get(categoryId) || [];
-        name = bulk ? category.category_name : `${category.category_name} - ${nextNameNumber(names)}`;
-        names.push(name);
-        namesByCategory.set(categoryId, names);
-      }
+      const name = String(raw.equipment_name ?? "").trim();
       if (name.length < 2) fail("equipment_name", "name_required");
 
       let serial = String(raw.serial_number ?? "").trim();

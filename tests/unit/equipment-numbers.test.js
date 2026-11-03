@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { nextSerialValue, formatSerial, stripNameNumber, nextNameNumber, getNextEquipment, bulkSaveEquipment } from "../../src/services/equipmentNumberService.js";
+import { nextSerialValue, formatSerial, parseName, renumberName, getNextEquipment, bulkSaveEquipment } from "../../src/services/equipmentNumberService.js";
 
 const build = (machines = []) => {
   const list = machines.map((m, i) => ({ equipment_id: i + 1, rented_qty: 0, defective_qty: 0, ...m }));
@@ -34,45 +34,110 @@ describe("numbers", () => {
     expect(nextSerialValue(["EQ-110", "EQ-059", "ABC-999", null])).toBe(111);
     expect(formatSerial(7)).toBe("EQ-007");
   });
-  it("name helpers", () => {
-    expect(stripNameNumber("Drill with Hammer - 5")).toBe("Drill with Hammer");
-    expect(stripNameNumber("Grinder ( 4 inch ) -9")).toBe("Grinder ( 4 inch )");
-    expect(nextNameNumber(["A - 1", "A - 2"])).toBe(3);
-    expect(nextNameNumber(["A - 9"])).toBe(10); // a gap is never refilled
-    expect(nextNameNumber(["Drill", "Other"])).toBe(3);
+});
+
+describe("machine names", () => {
+  const next = (name, n) => renumberName(parseName(name), n);
+  it.each([
+    ["Battery Drill - 6", 7, "Battery Drill - 7"],
+    ["Battery Drill-6", 7, "Battery Drill-7"],
+    ["Battery Drill 6", 7, "Battery Drill 7"],
+    ["Battery Drill #6", 7, "Battery Drill #7"],
+    ["Battery Drill No. 6", 7, "Battery Drill No. 7"],
+    ["Battery Drill (6)", 7, "Battery Drill (7)"],
+    ["6 - Battery Drill", 7, "7 - Battery Drill"],
+    ["6-Battery Drill", 7, "7-Battery Drill"],
+    ["No 6 Battery Drill", 7, "No 7 Battery Drill"],
+    ["Battery Drill - 06", 7, "Battery Drill - 07"],
+    ["Battery Drill - 09", 10, "Battery Drill - 10"],
+    ["Drill - 6 (Bosch)", 7, "Drill - 7 (Bosch)"],
+    ["Grinder ( 4 inch ) - 9", 10, "Grinder ( 4 inch ) - 10"],
+    ["10-Inch Grinder - 3", 4, "10-Inch Grinder - 4"],
+    ["බැටරි ඩ්‍රිල් - 6", 7, "බැටරි ඩ්‍රිල් - 7"],
+  ])("%s becomes the next in the same format", (name, n, want) => {
+    expect(next(name, n)).toBe(want);
   });
-  it("suggests name, Sinhala and usual price from the same type", async () => {
-    const { models } = build([{ category_id: 1, serial_number: "EQ-110", equipment_name: "Drill with Hammer - 5", equipment_name_si: "හැමර් - 5", base_rental_price: "500.00", extra_daily_rate: "500.00", minimum_rental_days: 1, warehouse_id: 9 }]);
-    const next = await getNextEquipment(models, { categoryId: 1 });
-    expect(next).toMatchObject({ serial_number: "EQ-111", name_number: 6, base_name: "Drill with Hammer", base_name_si: "හැමර්", base_rental_price: 500, warehouse_id: 9 });
+  it.each(["Grinder 4 inch", "Grinder ( 4 inch )", "Bit 1/2", "Cable 2.5", "Bolt M10", "12V Drill", "2 Ton Jack", "Scaffold 3x3"])("%s has no number", (name) => {
+    expect(parseName(name).number).toBeNull();
   });
-  it("never reuses Sinhala from a differently named machine", async () => {
-    const { models } = build([{ category_id: 1, serial_number: "EQ-1", equipment_name: "Other Tool - 1", equipment_name_si: "වෙනත්" }]);
-    expect((await getNextEquipment(models, { categoryId: 1 })).base_name_si).toBe("");
+  it("every way of writing the number has the same text", () => {
+    const key = parseName("Battery Drill - 6").key;
+    for (const n of ["battery drill-9", "BATTERY DRILL 2", "Battery  Drill #3", "Battery Drill No. 4", "Battery Drill (5)", "7 - Battery Drill", "Battery Drill"]) {
+      expect(parseName(n).key).toBe(key);
+    }
+    expect(parseName("Battery Drill 18V - 2").key).not.toBe(key);
+    expect(parseName("Drill - 1").key).not.toBe(key);
+  });
+});
+
+describe("next machine like a picked one", () => {
+  const m = (equipment_name, equipment_name_si, over = {}) => ({ category_id: 3, warehouse_id: 9, base_rental_price: "500.00", extra_daily_rate: "400.00", minimum_rental_days: 2, serial_number: "EQ-1", equipment_name, equipment_name_si, ...over });
+
+  it("uses the highest number of the exact text, not the picked one or the category", async () => {
+    const { models } = build([
+      m("Battery Drill - 6", "බැටරි - 6", { serial_number: "EQ-110" }),
+      m("Battery Drill - 12", null),
+      m("Battery Drill 18V - 40", null),
+      m("Hammer - 90", null),
+    ]);
+    const next = await getNextEquipment(models, { likeId: 1 });
+    expect(next).toMatchObject({ serial_number: "EQ-111", name_number: 13, equipment_name: "Battery Drill - 13", equipment_name_si: "බැටරි - 13", category_id: 3, warehouse_id: 9, base_rental_price: 500, extra_daily_rate: 400, minimum_rental_days: 2 });
+  });
+  it("keeps the picked machine's format", async () => {
+    const { models } = build([m("Pump - 3", null), m("07-Pump", null)]);
+    expect((await getNextEquipment(models, { likeId: 2 })).equipment_name).toBe("08-Pump");
+    expect((await getNextEquipment(models, { likeId: 1 })).equipment_name).toBe("Pump - 8");
+  });
+  it("a machine with no number is number 1, and takes the format of numbered ones", async () => {
+    const { models } = build([m("Mixer", null)]);
+    expect((await getNextEquipment(models, { likeId: 1 })).equipment_name).toBe("Mixer - 2");
+    const two = build([m("Mixer", null), m("Mixer-5", null)]);
+    expect((await getNextEquipment(two.models, { likeId: 1 })).equipment_name).toBe("Mixer-6");
+  });
+  it("Sinhala: blank when no machine has it, numbered when it has no number", async () => {
+    const none = build([m("Saw - 1", null)]);
+    expect((await getNextEquipment(none.models, { likeId: 1 })).equipment_name_si).toBe("");
+    const plain = build([m("Saw - 1", "කියත")]);
+    expect((await getNextEquipment(plain.models, { likeId: 1 })).equipment_name_si).toBe("කියත - 2");
+    const other = build([m("Saw - 1", null), m("Saw - 2", "කියත - 2")]);
+    expect((await getNextEquipment(other.models, { likeId: 1 })).equipment_name_si).toBe("කියත - 3");
+    const wrong = build([m("Saw - 1", null), m("Hammer - 2", "මිටිය - 2")]);
+    expect((await getNextEquipment(wrong.models, { likeId: 1 })).equipment_name_si).toBe("");
+  });
+  it("without a machine, only the EQ number", async () => {
+    const { models } = build([m("Saw - 1", null, { serial_number: "EQ-050" })]);
+    expect(await getNextEquipment(models)).toEqual({ serial_number: "EQ-051" });
+    await expect(getNextEquipment(models, { likeId: 99 })).rejects.toThrow(/not found/i);
   });
 });
 
 describe("bulk save", () => {
   const row = (over = {}) => ({ category_id: 1, base_rental_price: 500, ...over });
 
-  it("fills blank numbers and names in order", async () => {
-    const { models, created } = build([{ category_id: 1, serial_number: "EQ-110", equipment_name: "Drill with Hammer - 5" }]);
-    const res = await bulkSaveEquipment(models, [row(), row()]);
+  it("fills blank EQ numbers in order and keeps the names given", async () => {
+    const { models, created } = build([{ category_id: 1, serial_number: "EQ-110", equipment_name: "Drill - 5" }]);
+    const res = await bulkSaveEquipment(models, [row({ equipment_name: "Drill - 6" }), row({ equipment_name: "Drill - 7" })]);
     expect(res.saved).toBe(true);
     expect(created.map((c) => [c.serial_number, c.equipment_name])).toEqual([
-      ["EQ-111", "Drill with Hammer - 6"],
-      ["EQ-112", "Drill with Hammer - 7"],
+      ["EQ-111", "Drill - 6"],
+      ["EQ-112", "Drill - 7"],
     ]);
     expect(created[0]).toMatchObject({ warehouse_id: 9, extra_daily_rate: 500, available_qty: 1 });
   });
-  it("a quantity row has no number in its name", async () => {
+  it("never makes a name up from the category", async () => {
     const { models, created } = build();
-    await bulkSaveEquipment(models, [row({ total_owned_qty: 20 })]);
-    expect(created[0]).toMatchObject({ equipment_name: "Drill with Hammer", is_bulk_item: true, total_owned_qty: 20, available_qty: 20 });
+    const res = await bulkSaveEquipment(models, [row()]);
+    expect(res.errors).toEqual([{ row: 0, field: "equipment_name", code: "name_required" }]);
+    expect(created).toHaveLength(0);
+  });
+  it("a quantity row is one record", async () => {
+    const { models, created } = build();
+    await bulkSaveEquipment(models, [row({ equipment_name: "Pipe", total_owned_qty: 20 })]);
+    expect(created[0]).toMatchObject({ equipment_name: "Pipe", is_bulk_item: true, total_owned_qty: 20, available_qty: 20 });
   });
   it("saves nothing and reports each problem", async () => {
     const { models, created } = build([{ category_id: 1, serial_number: "EQ-110", equipment_name: "X - 1" }]);
-    const res = await bulkSaveEquipment(models, [row(), row({ serial_number: "eq-110" }), row({ base_rental_price: "", category_id: 2 })]);
+    const res = await bulkSaveEquipment(models, [row({ equipment_name: "A - 1" }), row({ equipment_name: "A - 2", serial_number: "eq-110" }), row({ equipment_name: "A - 3", base_rental_price: "", category_id: 2 })]);
     expect(res.saved).toBe(false);
     expect(res.errors).toEqual(
       expect.arrayContaining([
@@ -85,7 +150,7 @@ describe("bulk save", () => {
   });
   it("two rows cannot share a number", async () => {
     const { models } = build();
-    const res = await bulkSaveEquipment(models, [row({ serial_number: "EQ-5" }), row({ serial_number: "EQ-5" })]);
+    const res = await bulkSaveEquipment(models, [row({ equipment_name: "A - 1", serial_number: "EQ-5" }), row({ equipment_name: "A - 2", serial_number: "EQ-5" })]);
     expect(res.errors).toEqual([{ row: 1, field: "serial_number", code: "number_taken" }]);
   });
   it("edits existing machines; quantity can't go below what is out", async () => {

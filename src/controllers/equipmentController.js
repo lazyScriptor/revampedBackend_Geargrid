@@ -20,7 +20,7 @@ export const createEquipment = catchAsync(async (req, res, next) => {
 });
 
 export const getNextEquipment = catchAsync(async (req, res) => {
-  const data = await equipmentNumbers.getNextEquipment(getModels(req), { categoryId: req.query.category_id });
+  const data = await equipmentNumbers.getNextEquipment(getModels(req), { likeId: req.query.like_id });
   res.status(200).json({ status: "success", data });
 });
 
