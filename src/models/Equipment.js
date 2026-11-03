@@ -52,6 +52,11 @@ export default (sequelize) => {
       warranty_period_months: { type: DataTypes.INTEGER },
       end_of_warranty_date: { type: DataTypes.DATEONLY },
       image_url: { type: DataTypes.TEXT },
+      // Deleted, but linked to old invoices or repairs: hidden everywhere except that history.
+      // Not a defaultScope on purpose: a scope `where` would turn every `include: Equipment` into an
+      // INNER JOIN and drop the lines of old invoices.
+      is_archived: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+      archived_at: { type: DataTypes.DATE, allowNull: true },
     },
     {
       tableName: "EQUIPMENT",

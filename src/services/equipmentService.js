@@ -56,7 +56,7 @@ export const getAllEquipment = async (models, queryParams) => {
   const offset = (page - 1) * limit;
 
   // 2. Setup Dynamic Filtering
-  const whereClause = {};
+  const whereClause = { is_archived: false };
 
   if (queryParams.status) whereClause.status = queryParams.status;
   if (queryParams.category_id)
@@ -155,8 +155,18 @@ export const deleteEquipment = async (models, id) => {
     );
   }
 
+  // Anything with history stays in the database so old invoices keep their machine's name.
+  const [lines, defects] = await Promise.all([
+    models.InvoiceLine.count({ where: { equipment_id: id } }),
+    models.DefectLog.count({ where: { equipment_id: id } }),
+  ]);
+  if (lines + defects > 0) {
+    await equipment.update({ is_archived: true, archived_at: new Date() });
+    return { archived: true };
+  }
+  await models.PhotoRequest.destroy({ where: { equipment_id: id } });
   await equipment.destroy();
-  return true;
+  return { archived: false };
 };
 
 export const bulkUpdateEquipment = async (models, payload) => {
@@ -262,6 +272,7 @@ export const bulkUpdateEquipment = async (models, payload) => {
 
 export const getEquipmentStats = async (models) => {
   const [stats] = await models.Equipment.findAll({
+    where: { is_archived: false },
     attributes: [
       [models.sequelize.fn("COUNT", models.sequelize.col("equipment_id")), "totalModels"],
       [models.sequelize.literal(`COALESCE(SUM(total_owned_qty), 0)`), "totalUnitsOwned"],
@@ -288,7 +299,7 @@ export const getEquipmentStats = async (models) => {
  * Existing Sinhala names are kept unless `overwrite` is true.
  */
 export const convertEquipmentNamesToSinhala = async (models, { ids, overwrite = false } = {}) => {
-  const where = {};
+  const where = { is_archived: false };
   if (Array.isArray(ids) && ids.length > 0) where.equipment_id = { [Op.in]: ids.map(Number) };
   if (!overwrite) {
     where[Op.and] = [

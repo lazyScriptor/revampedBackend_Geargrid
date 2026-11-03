@@ -29,7 +29,7 @@ export const getEquipmentMaintenanceByUnit = async (models, filters = {}) => {
         COALESCE(d.repaired_units, 0) AS repaired_units,
         COALESCE(d.avg_turnaround_days, 0) AS avg_turnaround_days,
         COALESCE(rev.total_revenue, 0) AS period_revenue
-      FROM EQUIPMENT e
+      FROM (SELECT * FROM EQUIPMENT WHERE is_archived = 0) e
       LEFT JOIN EQUIPMENT_CATEGORIES ec ON ec.category_id = e.category_id
       LEFT JOIN WAREHOUSES w ON w.warehouse_id = e.warehouse_id
       LEFT JOIN (

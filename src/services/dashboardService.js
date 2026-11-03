@@ -179,7 +179,7 @@ export const getKPIs = async (models, filters = {}) => {
 // ============================================================================
 export const getUtilizationSparkline = async (models, { warehouseId } = {}) => {
   const totalOwnedResult = await models.Equipment.sum("total_owned_qty", {
-    where: warehouseId ? { warehouse_id: warehouseId } : {},
+    where: { is_archived: false, ...(warehouseId ? { warehouse_id: warehouseId } : {}) },
   });
   const totalOwned = parseInt(totalOwnedResult) || 1;
 

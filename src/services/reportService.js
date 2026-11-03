@@ -253,7 +253,7 @@ export const getEquipmentUtilization = async (models, filters = {}) => {
       w.location_name AS warehouse,
       COALESCE(rev.total_revenue, 0) AS total_revenue,
       COALESCE(rent.total_days_rented, 0) AS total_days_rented
-    FROM EQUIPMENT e
+    FROM (SELECT * FROM EQUIPMENT WHERE is_archived = 0) e
     LEFT JOIN EQUIPMENT_CATEGORIES ec ON ec.category_id = e.category_id
     LEFT JOIN WAREHOUSES w ON w.warehouse_id = e.warehouse_id
     LEFT JOIN (

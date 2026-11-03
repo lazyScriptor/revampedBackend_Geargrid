@@ -18,7 +18,7 @@ export default async function exportEquipmentCsv(ctx) {
   const { tenantDbName, models, job, reportProgress } = ctx;
   const params = job.params || {};
 
-  const where = {};
+  const where = { is_archived: false };
   if (params.warehouse_id) where.warehouse_id = params.warehouse_id;
   if (params.category_id) where.category_id = params.category_id;
 

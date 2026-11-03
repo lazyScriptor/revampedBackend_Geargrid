@@ -25,6 +25,7 @@ export const generateTemplate = () => {
 
 export const exportEquipment = async (models) => {
   const equipment = await models.Equipment.findAll({
+    where: { is_archived: false },
     raw: true,
     attributes: CSV_FIELDS,
   });
