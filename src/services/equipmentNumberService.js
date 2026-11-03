@@ -11,7 +11,7 @@ const MAX_ROWS = 500;
 const money = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
 const serialValue = (s) => {
-  const m = String(s ?? "").trim().match(/^EQ-(\d+)$/i);
+  const m = String(s ?? "").trim().match(/^EQ\s*-\s*(\d+)$/i);
   return m ? Number(m[1]) : null;
 };
 export const formatSerial = (n) => `${PREFIX}${String(n).padStart(3, "0")}`;
@@ -38,7 +38,9 @@ export const parseName = (name) => {
     s.match(/^((?:no\.?\s*|#\s*))(\d+)(\s+)(.+)$/isu) ||
     s.match(/^(.+?\s[-–—]\s*)(\d+)(\s*[-–—(].*)$/su);
   const sized = m && /\d[.,/:]$/.test(m[1]);
-  const before = m && !sized ? m[1] : null;
+  // "Chainsaw 445" is a model; a machine number that large would have a separator.
+  const model = m && m[2].length >= 3 && !m[2].startsWith("0") && /[\p{L}\p{M}\d)]\s+$/u.test(m[1]) && !/(?:^|\s)(?:no|num|number)\.?\s+$/i.test(m[1]);
+  const before = m && !sized && !model ? m[1] : null;
   const after = before === null ? "" : `${m[3]}${m[4] ?? ""}`;
   const leftText = before === null ? clean(s) : cleanBefore(before);
   const rightText = clean(after.replace(/^\s*\)/, ""));
@@ -76,7 +78,7 @@ export const nameInFormat = (like, text, n) => {
  */
 export const getNextEquipment = async (models, { likeId } = {}) => {
   const all = await models.Equipment.findAll({
-    attributes: ["equipment_id", "serial_number", "equipment_name", "equipment_name_si", "category_id", "warehouse_id", "base_rental_price", "extra_daily_rate", "minimum_rental_days"],
+    attributes: ["equipment_id", "serial_number", "equipment_name", "equipment_name_si", "category_id", "warehouse_id", "base_rental_price", "extra_daily_rate", "minimum_rental_days", "is_bulk_item", "total_owned_qty"],
     raw: true,
   });
   const out = { serial_number: formatSerial(nextSerialValue(all.map((m) => m.serial_number))) };
@@ -108,6 +110,8 @@ export const getNextEquipment = async (models, { likeId } = {}) => {
     base_rental_price: money(picked.base_rental_price),
     extra_daily_rate: money(picked.extra_daily_rate),
     minimum_rental_days: picked.minimum_rental_days ?? 1,
+    is_bulk_item: !!picked.is_bulk_item,
+    total_owned_qty: picked.total_owned_qty ?? 1,
   };
 };
 

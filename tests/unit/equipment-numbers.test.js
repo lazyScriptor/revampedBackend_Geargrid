@@ -32,6 +32,7 @@ const build = (machines = []) => {
 describe("numbers", () => {
   it("next EQ number follows the highest, ignoring other formats", () => {
     expect(nextSerialValue(["EQ-110", "EQ-059", "ABC-999", null])).toBe(111);
+    expect(nextSerialValue(["EQ-110", "EQ -120", "Eq-115"])).toBe(121);
     expect(formatSerial(7)).toBe("EQ-007");
   });
 });
@@ -54,10 +55,17 @@ describe("machine names", () => {
     ["Grinder ( 4 inch ) - 9", 10, "Grinder ( 4 inch ) - 10"],
     ["10-Inch Grinder - 3", 4, "10-Inch Grinder - 4"],
     ["බැටරි ඩ්‍රිල් - 6", 7, "බැටරි ඩ්‍රිල් - 7"],
+    ["Sander -1", 7, "Sander -7"],
+    ["Hilti bit 15", 16, "Hilti bit 16"],
+    ["Electrik breaker - big 4", 5, "Electrik breaker - big 5"],
+    ["Poker - 2  ( Comcrete vibrator )", 3, "Poker - 3  ( Comcrete vibrator )"],
+    ["Spray gun -6  ( with compressor )", 7, "Spray gun -7  ( with compressor )"],
+    ["Grinder ( 4 1/2 inch ) -9", 10, "Grinder ( 4 1/2 inch ) -10"],
+    ["Step Ladder ( 10 feet ) - 2", 3, "Step Ladder ( 10 feet ) - 3"],
   ])("%s becomes the next in the same format", (name, n, want) => {
     expect(next(name, n)).toBe(want);
   });
-  it.each(["Grinder 4 inch", "Grinder ( 4 inch )", "Bit 1/2", "Cable 2.5", "Bolt M10", "12V Drill", "2 Ton Jack", "Scaffold 3x3"])("%s has no number", (name) => {
+  it.each(["Grinder 4 inch", "Grinder ( 4 inch )", "Bit 1/2", "Cable 2.5", "Bolt M10", "12V Drill", "2 Ton Jack", "Scaffold 3x3", "Husqvarna Chainsaw 445", "Caterpillar Mini Excavator 301.5", "Honda Lawnmower HRG466", "Concrete Cutter 14\"", "Traffic Cones (Set of 10)", "Scaffolding ( 3 * 5 )", "Concrete Columns ( 4 feet )  ( 9 in * 9 in )"])("%s has no number", (name) => {
     expect(parseName(name).number).toBeNull();
   });
   it("every way of writing the number has the same text", () => {
@@ -103,6 +111,10 @@ describe("next machine like a picked one", () => {
     expect((await getNextEquipment(other.models, { likeId: 1 })).equipment_name_si).toBe("කියත - 3");
     const wrong = build([m("Saw - 1", null), m("Hammer - 2", "මිටිය - 2")]);
     expect((await getNextEquipment(wrong.models, { likeId: 1 })).equipment_name_si).toBe("");
+  });
+  it("says when the picked machine is a quantity machine", async () => {
+    const { models } = build([m("Scaffolding", null, { is_bulk_item: 1, total_owned_qty: 100 })]);
+    expect(await getNextEquipment(models, { likeId: 1 })).toMatchObject({ is_bulk_item: true, total_owned_qty: 100, base_name: "Scaffolding" });
   });
   it("without a machine, only the EQ number", async () => {
     const { models } = build([m("Saw - 1", null, { serial_number: "EQ-050" })]);
