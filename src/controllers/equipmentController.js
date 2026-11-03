@@ -1,4 +1,5 @@
 import * as equipmentService from "../services/equipmentService.js";
+import * as equipmentNumbers from "../services/equipmentNumberService.js";
 import { getCachedTenantConnection } from "../config/database.js";
 import { initTenantModels } from "../models/index.js";
 import catchAsync from "../utils/catchAsync.js";
@@ -16,6 +17,16 @@ export const createEquipment = catchAsync(async (req, res, next) => {
   res
     .status(201)
     .json({ status: "success", data: { equipment: newEquipment } });
+});
+
+export const getNextEquipment = catchAsync(async (req, res) => {
+  const data = await equipmentNumbers.getNextEquipment(getModels(req), { categoryId: req.query.category_id });
+  res.status(200).json({ status: "success", data });
+});
+
+export const bulkSaveEquipment = catchAsync(async (req, res) => {
+  const data = await equipmentNumbers.bulkSaveEquipment(getModels(req), req.body?.rows);
+  res.status(200).json({ status: "success", data });
 });
 
 export const getEquipment = catchAsync(async (req, res, next) => {

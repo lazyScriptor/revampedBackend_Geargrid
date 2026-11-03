@@ -9,6 +9,8 @@ import {
   bulkUpdateEquipment,
   getEquipmentStats,
   convertNamesToSinhala,
+  getNextEquipment,
+  bulkSaveEquipment,
 } from "../controllers/equipmentController.js";
 import { protect, requirePermission } from "../middlewares/authMiddleware.js";
 import * as photos from "../controllers/equipmentPhotoController.js";
@@ -26,6 +28,12 @@ router.route("/")
 
 // Aggregated live stats for equipment dashboard
 router.get("/stats", requirePermission("equipment:view"), getEquipmentStats);
+
+// Next automatic number and name for a new machine (MUST be before /:id)
+router.get("/next", requirePermission("equipment:create"), getNextEquipment);
+
+// Add and edit many machines from the grid, all or nothing (MUST be before /:id)
+router.post("/bulk-save", requirePermission("equipment:create"), requirePermission("equipment:edit"), bulkSaveEquipment);
 
 // Bulk update equipment (MUST be before /:id)
 router.patch(
