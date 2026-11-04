@@ -8,6 +8,8 @@ import { getMasterModels } from "../models/master/index.js";
 import { masterSequelize, getTenantConnection } from "../config/database.js";
 import { initTenantModels } from "../models/index.js";
 import AppError from "../utils/AppError.js";
+import { normalizeOverrides } from "../config/planCatalog.js";
+import { clearPlanCache, countUsage, getTenantPlan } from "./planService.js";
 import { updateCorsOrigins } from "../config/cors-config.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -441,8 +443,15 @@ export const updateTenantConfig = async (tenantId, updates) => {
     if (updates[key] !== undefined) filtered[key] = updates[key];
   }
 
+  if (filtered.feature_flags !== undefined) {
+    const flags = parseJsonField(filtered.feature_flags);
+    filtered.feature_flags = { ...flags, plan_overrides: normalizeOverrides(flags.plan_overrides) };
+  }
+
   await tenant.update(filtered);
   await tenant.reload();
+  // A tier or exception change applies to the shop's very next request.
+  clearPlanCache();
 
   // Sync display_name + branding into the tenant's own TENANT_CONFIG
   if (filtered.display_name !== undefined || filtered.branding !== undefined) {
@@ -488,6 +497,22 @@ export const saveTenantLogo = async (tenantId, fileUrl) => {
 };
 
 export const updateTenantSubscription = updateTenantConfig;
+
+/** A shop's plan as it applies today, with what it is using, for the console's shop panel. */
+export const getTenantPlanDetails = async (tenantId) => {
+  const { Tenant } = getMasterModels();
+  const tenant = await Tenant.findByPk(tenantId);
+  if (!tenant) throw new AppError("Tenant not found.", 404);
+  const plan = await getTenantPlan(tenant.db_name);
+  let usage = null;
+  try {
+    const conn = await getTenantConnection(tenant.db_name, tenant.db_user, tenant.encrypted_db_pass, tenant.db_host);
+    usage = await countUsage(initTenantModels(conn));
+  } catch (err) {
+    console.warn("plans: could not count usage", err?.message);
+  }
+  return { plan, usage };
+};
 
 // ============================================================================
 // STATUS CONTROLS

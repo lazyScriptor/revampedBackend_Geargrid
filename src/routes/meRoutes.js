@@ -30,6 +30,7 @@ const upload = multer({
 router.use(protect);
 
 router.get("/", meController.getProfile);
+router.get("/plan", meController.getPlan);
 router.patch("/", meController.updateProfile);
 router.patch("/preferences", meController.updatePreferences);
 router.post("/change-password", meController.changePassword);

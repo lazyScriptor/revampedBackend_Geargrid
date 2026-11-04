@@ -1,9 +1,11 @@
 import express from "express";
 import * as defectController from "../controllers/defectLogController.js";
 import { protect, requirePermission } from "../middlewares/authMiddleware.js";
+import { requireFeature } from "../middlewares/planMiddleware.js";
 
 const router = express.Router();
 router.use(protect);
+router.use(requireFeature("maintenance"));
 
 // Must be before /:id to avoid param capture
 router.get("/my-tickets", defectController.getMyLogs);

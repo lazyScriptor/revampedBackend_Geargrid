@@ -2,6 +2,7 @@ import express from "express";
 import multer from "multer";
 import * as bulkCustomerController from "../controllers/bulkCustomerController.js";
 import { protect, requirePermission } from "../middlewares/authMiddleware.js";
+import { requireFeature } from "../middlewares/planMiddleware.js";
 
 const router = express.Router();
 const upload = multer({
@@ -10,10 +11,11 @@ const upload = multer({
 });
 
 router.use(protect);
-router.get("/template", requirePermission("customer:action:bulk_import"), bulkCustomerController.downloadTemplate);
-router.get("/export", requirePermission("data_arena:export"), bulkCustomerController.exportCustomers);
+router.get("/template", requireFeature("data.imports"), requirePermission("customer:action:bulk_import"), bulkCustomerController.downloadTemplate);
+router.get("/export", requireFeature("data.exports"), requirePermission("data_arena:export"), bulkCustomerController.exportCustomers);
 router.post(
   "/import",
+  requireFeature("data.imports"),
   requirePermission("customer:action:bulk_import"),
   upload.single("csv_file"),
   bulkCustomerController.importCustomers,

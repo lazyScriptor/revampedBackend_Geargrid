@@ -4,6 +4,7 @@ import * as reviewController from "../controllers/invoiceReviewController.js";
 import * as printLogController from "../controllers/invoicePrintLogController.js";
 import * as invoiceService from "../services/invoiceService.js";
 import { protect, requirePermission } from "../middlewares/authMiddleware.js";
+import { refuseDamagedWithoutMaintenance, requireFeature } from "../middlewares/planMiddleware.js";
 import { registerContract } from "../utils/contractAdapter.js";
 import { getCachedTenantConnection } from "../config/database.js";
 import { initTenantModels } from "../models/index.js";
@@ -31,7 +32,7 @@ router.post("/", requirePermission("invoice:create"), invoiceController.createIn
 
 // 2. Bill Printing Audit Logs — declared before /:id so /print-logs doesn't collide with /:id
 router.post("/print-logs", printLogController.createPrintLog);
-router.get("/print-logs", requirePermission("invoice:print_log:view"), printLogController.getPrintLogs);
+router.get("/print-logs", requireFeature("reports.audit"), requirePermission("invoice:print_log:view"), printLogController.getPrintLogs);
 router.get("/print-logs/:logId", requirePermission("invoice:print_log:view"), printLogController.getPrintLogDetails);
 
 // 3. Reviews (per-invoice ratings + comments) — declared before /:id so the
@@ -40,7 +41,7 @@ router.patch("/reviews/:reviewId", requirePermission("invoice:edit"), reviewCont
 router.delete("/reviews/:reviewId", requirePermission("invoice:edit"), reviewController.deleteReview);
 
 // Deleted-invoices report + delete/restore (MUST be before /:id)
-router.get("/deleted", requirePermission("invoice:restore", "invoice:delete:any"), invoiceController.getDeletedInvoices);
+router.get("/deleted", requireFeature("reports.invoices"), requirePermission("invoice:restore", "invoice:delete:any"), invoiceController.getDeletedInvoices);
 router.delete("/:id", requirePermission("invoice:delete", "invoice:delete:any"), invoiceController.deleteInvoice);
 router.post("/:id/restore", requirePermission("invoice:restore"), invoiceController.restoreInvoice);
 
@@ -48,7 +49,7 @@ router.get("/:id", requirePermission("invoice:view"), invoiceController.getInvoi
 router.get("/:id/print-logs", requirePermission("invoice:print_log:view"), printLogController.getInvoicePrintLogs);
 
 // 2. OMS Actions
-router.post("/:id/return", requirePermission("invoice:action:process_return"), invoiceController.processReturnInvoice);
+router.post("/:id/return", requirePermission("invoice:action:process_return"), refuseDamagedWithoutMaintenance, invoiceController.processReturnInvoice);
 router.post("/:id/payments", requirePermission("invoice:action:add_payment"), invoiceController.addPayment); // <-- NEW
 router.post("/:id/complete", requirePermission("invoice:action:process_return"), invoiceController.completeInvoice);
 router.post("/:id/reopen", requirePermission("invoice:edit"), invoiceController.reopenInvoice);

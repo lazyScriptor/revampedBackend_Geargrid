@@ -46,6 +46,9 @@ router.post(
   logAuditAction("TENANT_CREATED"),
   superAdminController.createTenant,
 );
+router.get("/plans", superAdminController.getPlans);
+router.put("/plans", logAuditAction("PLANS_UPDATED"), superAdminController.savePlans);
+router.get("/tenants/:id/plan", superAdminController.getTenantPlan);
 router.get("/tenants", superAdminController.getAllTenants);
 router.get("/tenants/:id", superAdminController.getTenantDetails);
 router.patch(

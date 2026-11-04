@@ -9,21 +9,22 @@ import {
   getUsersForRole,
 } from "../controllers/roleController.js";
 import { protect, requirePermission, logTenantAuditAction } from "../middlewares/authMiddleware.js";
+import { requireFeature } from "../middlewares/planMiddleware.js";
 
 const router = express.Router();
 router.use(protect);
 
 router.route("/")
   .get(requirePermission("role:view"), getRoles)
-  .post(requirePermission("role:create"), logTenantAuditAction("ROLE_CREATED"), createRole);
+  .post(requireFeature("admin.roles"), requirePermission("role:create"), logTenantAuditAction("ROLE_CREATED"), createRole);
 
 router.route("/:id")
-  .put(requirePermission("role:update"), logTenantAuditAction("ROLE_UPDATED"), updateRole)
-  .delete(requirePermission("role:delete"), logTenantAuditAction("ROLE_DELETED"), deleteRole);
+  .put(requireFeature("admin.roles"), requirePermission("role:update"), logTenantAuditAction("ROLE_UPDATED"), updateRole)
+  .delete(requireFeature("admin.roles"), requirePermission("role:delete"), logTenantAuditAction("ROLE_DELETED"), deleteRole);
 
-router.post("/:id/assign-permissions", requirePermission("role:assign_permission"), logTenantAuditAction("ROLE_PERMISSIONS_ASSIGNED"), assignPermissions);
+router.post("/:id/assign-permissions", requireFeature("admin.roles"), requirePermission("role:assign_permission"), logTenantAuditAction("ROLE_PERMISSIONS_ASSIGNED"), assignPermissions);
 
 router.get("/:id/users", requirePermission("role:view"), getUsersForRole);
-router.post("/:id/assign-users", requirePermission("role:assign_permission"), logTenantAuditAction("ROLE_USERS_ASSIGNED"), assignUsers);
+router.post("/:id/assign-users", requireFeature("admin.roles"), requirePermission("role:assign_permission"), logTenantAuditAction("ROLE_USERS_ASSIGNED"), assignUsers);
 
 export default router;

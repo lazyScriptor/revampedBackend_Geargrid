@@ -1,3 +1,4 @@
+import * as planService from "../services/planService.js";
 import * as superAdminAuthService from "../services/superAdminAuthService.js";
 import * as superAdminTenantService from "../services/superAdminTenantService.js";
 import * as superAdminInquiryService from "../services/superAdminInquiryService.js";
@@ -15,6 +16,21 @@ const getCookieOptions = (req) => {
 };
 
 const cookieOptions = getCookieOptions();
+
+// ============================================================================
+// PLANS
+// ============================================================================
+export const getPlans = catchAsync(async (req, res) => {
+  res.status(200).json({ status: "success", data: await planService.getPlansForEditor() });
+});
+
+export const savePlans = catchAsync(async (req, res) => {
+  res.status(200).json({ status: "success", data: await planService.savePlans(req.body) });
+});
+
+export const getTenantPlan = catchAsync(async (req, res) => {
+  res.status(200).json({ status: "success", data: await superAdminTenantService.getTenantPlanDetails(req.params.id) });
+});
 
 // ============================================================================
 // AUTH

@@ -1,4 +1,5 @@
 import express from "express";
+import { requireFeature } from "../middlewares/planMiddleware.js";
 import * as permMgmtController from "../controllers/permissionManagementController.js";
 import { protect, restrictTo } from "../middlewares/authMiddleware.js";
 
@@ -7,6 +8,7 @@ const router = express.Router();
 // All permission management routes require auth + admin role
 router.use(protect);
 router.use(restrictTo("Admin"));
+router.use(requireFeature("admin.roles"));
 
 // Full permission matrix (roles + users + overrides)
 router.get("/matrix", permMgmtController.getPermissionMatrix);

@@ -1,3 +1,4 @@
+import { capImportedMachines } from "./planService.js";
 import { Readable } from "stream";
 import csvParser from "csv-parser";
 import { Parser } from "json2csv";
@@ -370,6 +371,14 @@ export const importEquipment = async (models, fileBuffer) => {
             errors.push({ row: rowNum, message: err.message });
           }
         }
+
+        // The plan's machine limit: what doesn't fit is reported, the rest still goes in.
+        const capped = await capImportedMachines(models, models.sequelize?.config?.database, results);
+        for (const row of capped.refused) {
+          errors.push({ row: row.equipment_name, message: `Your ${capped.tier} plan includes up to ${capped.limit} machines.` });
+        }
+        results.length = 0;
+        results.push(...capped.allowed);
 
         try {
           let insertedCount = 0;

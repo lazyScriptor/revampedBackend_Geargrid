@@ -14,6 +14,7 @@ import {
   saveEquipmentSheet,
 } from "../controllers/equipmentController.js";
 import { protect, requirePermission } from "../middlewares/authMiddleware.js";
+import { enforceLimit, requireFeature } from "../middlewares/planMiddleware.js";
 import * as photos from "../controllers/equipmentPhotoController.js";
 
 const router = express.Router();
@@ -25,7 +26,7 @@ router.use(protect);
 // POST /api/equipment
 router.route("/")
   .get(requirePermission("equipment:view"), getEquipment)
-  .post(requirePermission("equipment:create"), createEquipment);
+  .post(requirePermission("equipment:create"), enforceLimit("max_equipment"), createEquipment);
 
 // Aggregated live stats for equipment dashboard
 router.get("/stats", requirePermission("equipment:view"), getEquipmentStats);
@@ -34,15 +35,25 @@ router.get("/stats", requirePermission("equipment:view"), getEquipmentStats);
 router.get("/next", requirePermission("equipment:create"), getNextEquipment);
 
 // Add and edit many machines from the grid, all or nothing (MUST be before /:id)
-router.post("/bulk-save", requirePermission("equipment:create"), requirePermission("equipment:edit"), bulkSaveEquipment);
+router.post(
+  "/bulk-save",
+  requireFeature("data.add_machines"),
+  requirePermission("equipment:create"),
+  requirePermission("equipment:edit"),
+  enforceLimit("max_equipment", (req) => (Array.isArray(req.body?.rows) ? req.body.rows.filter((r) => !r.equipment_id).length : 0)),
+  bulkSaveEquipment,
+);
 
 // The equipment sheet: edits, additions and deletions together, all or nothing (MUST be before /:id)
 const whenSheetHas = (list, permission) => (req, res, next) => (req.body?.[list]?.length ? requirePermission(permission)(req, res, next) : next());
 router.post(
   "/sheet-save",
+  requireFeature("data.equipment_sheet"),
   whenSheetHas("updates", "equipment:edit"),
   whenSheetHas("creates", "equipment:create"),
   whenSheetHas("deletes", "equipment:delete"),
+  // Deleting in the same save makes room for what it adds.
+  enforceLimit("max_equipment", (req) => (req.body?.creates?.length ?? 0) - (req.body?.deletes?.length ?? 0)),
   saveEquipmentSheet,
 );
 

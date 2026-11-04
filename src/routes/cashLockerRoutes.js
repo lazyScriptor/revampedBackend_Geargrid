@@ -1,10 +1,12 @@
 import express from "express";
 import * as locker from "../controllers/cashLockerController.js";
 import { protect, requirePermission } from "../middlewares/authMiddleware.js";
+import { requireFeature } from "../middlewares/planMiddleware.js";
 
 const router = express.Router();
 
 router.use(protect);
+router.use(requireFeature("cash_locker"));
 
 // Counting the drawer (cashier)
 router.get("/status", requirePermission("locker:count", "locker:manage"), locker.getStatus);

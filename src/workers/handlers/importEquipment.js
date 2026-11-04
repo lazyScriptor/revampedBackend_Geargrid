@@ -18,6 +18,8 @@ const getField = (row, candidates) => {
   return null;
 };
 
+import { capImportedMachines } from "../../services/planService.js";
+
 export default async function importEquipment(ctx) {
   const { models, job, reportProgress } = ctx;
   const inputPath = job.input_file_path;
@@ -308,6 +310,15 @@ export default async function importEquipment(ctx) {
           image_url: imageUrl || null,
         });
       }
+
+      // The plan's machine limit: what doesn't fit is reported, the rest still goes in.
+      const { allowed, refused, limit, tier } = await capImportedMachines(models, models.sequelize?.config?.database, validRows);
+      for (const row of refused) {
+        skipped += 1;
+        errors.push({ row: row.equipment_name, message: `Your ${tier} plan includes up to ${limit} machines.` });
+      }
+      validRows.length = 0;
+      validRows.push(...allowed);
 
       if (validRows.length > 0) {
         try {

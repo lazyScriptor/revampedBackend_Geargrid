@@ -2,6 +2,7 @@ import express from "express";
 import multer from "multer";
 import * as bulkJobController from "../controllers/bulkJobController.js";
 import { protect, requirePermission } from "../middlewares/authMiddleware.js";
+import { requireFeature } from "../middlewares/planMiddleware.js";
 
 const router = express.Router();
 
@@ -24,12 +25,14 @@ router.get("/:id/download", bulkJobController.downloadJobOutput);
 // Job creation
 router.post(
   "/export/:entity",
+  requireFeature("data.exports"),
   requirePermission("inventory_permission"),
   bulkJobController.createExportJob,
 );
 
 router.post(
   "/import/:entity",
+  requireFeature("data.imports"),
   requirePermission("inventory_permission"),
   upload.single("file"),
   bulkJobController.createImportJob,
