@@ -3,6 +3,7 @@ import path from "path";
 import fs from "fs";
 import { Op } from "sequelize";
 import AppError from "../utils/AppError.js";
+import { getMasterModels } from "../models/master/index.js";
 
 // Fields the user is allowed to update on themselves. Everything else
 // (username/email/roles/permissions/warehouse) is admin-only.
@@ -168,7 +169,7 @@ export const changeMyPassword = async (
   }
 
   const user = await models.User.findByPk(userId, {
-    attributes: ["user_id", "password_hash"],
+    attributes: ["user_id", "email", "password_hash"],
   });
   if (!user) throw new AppError("User not found.", 404);
 
@@ -177,9 +178,11 @@ export const changeMyPassword = async (
 
   const newHash = await bcrypt.hash(newPassword, 10);
   await models.User.update(
-    { password_hash: newHash, password_changed_at: new Date() },
+    { password_hash: newHash, password_changed_at: new Date(), must_change_password: false },
     { where: { user_id: userId } },
   );
+  // Login checks the master directory, so the new password only works once it is there too.
+  await getMasterModels().GlobalUser.update({ password_hash: newHash }, { where: { email: user.email } });
   return { ok: true };
 };
 

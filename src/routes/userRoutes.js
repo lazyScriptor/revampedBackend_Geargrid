@@ -2,6 +2,7 @@ import express from "express";
 import {
   getUsers,
   createUser,
+  createResetCode,
   updateUser,
   deleteUser,
   assignRoles,
@@ -29,6 +30,8 @@ router.route("/technicians/:id")
 router.route("/")
   .get(requirePermission("user:view"), getUsers)
   .post(requirePermission("user:create"), enforceLimit("max_users"), logTenantAuditAction("USER_CREATED"), createUser);
+
+router.post("/:id/reset-code", requirePermission("user:update"), logTenantAuditAction("USER_RESET_CODE_CREATED"), createResetCode);
 
 router.route("/:id")
   .put(requirePermission("user:update"), logTenantAuditAction("USER_UPDATED"), updateUser)

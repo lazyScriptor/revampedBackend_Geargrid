@@ -14,6 +14,8 @@ export default (sequelize) => {
         allowNull: false,
         unique: true,
       },
+      // Log in with this instead of the email. Empty if another shop uses the same name.
+      username: { type: DataTypes.STRING(100), allowNull: true, unique: "global_users_username_unique" },
       password_hash: {
         type: DataTypes.STRING(255),
         allowNull: false,

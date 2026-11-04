@@ -8,21 +8,25 @@ import { getTenantPlan } from "./planService.js";
 import { QueryTypes } from "sequelize";
 import crypto from "crypto";
 
-export const loginUser = async (email, password) => {
+const BAD_LOGIN = "Incorrect email, username or password.";
+
+// `identifier` is an email or a username: an email has an @, anything else is a username.
+export const loginUser = async (identifier, password) => {
+  const value = String(identifier ?? "").trim();
   // 1. Query the MASTER Database
   const globalUsers = await masterSequelize.query(
     `SELECT gu.*, t.db_name, t.db_host, t.db_user, t.encrypted_db_pass 
      FROM GLOBAL_USERS gu 
      JOIN TENANTS t ON gu.target_tenant_id = t.tenant_id 
-     WHERE gu.email = :email`,
+     WHERE ${value.includes("@") ? "gu.email" : "gu.username"} = :value`,
     {
-      replacements: { email: email },
+      replacements: { value },
       type: QueryTypes.SELECT,
     },
   );
 
   if (globalUsers.length === 0) {
-    throw new AppError("Invalid email or account does not exist.", 401);
+    throw new AppError(BAD_LOGIN, 401);
   }
 
   const globalUser = globalUsers[0];
@@ -32,7 +36,7 @@ export const loginUser = async (email, password) => {
     globalUser.password_hash,
   );
   if (!isPasswordValid) {
-    throw new AppError("Invalid password.", 401);
+    throw new AppError(BAD_LOGIN, 401);
   }
 
   // 2. Connect to the user's specific TENANT Database
@@ -188,6 +192,7 @@ export const loginUser = async (email, password) => {
       permissions: effectivePermissions, // ✅ Now includes user-level overrides
       // Sent with the login so the menu is right from the first screen.
       plan: await getTenantPlan(globalUser.db_name),
+      must_change_password: !!tenantUser.must_change_password,
     },
   };
 };

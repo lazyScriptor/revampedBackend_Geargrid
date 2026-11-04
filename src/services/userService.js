@@ -21,6 +21,7 @@ const getTenantId = async (dbName) => {
 export const createUser = async (models, tenantDbName, payload) => {
   const { email, username, password, first_name, last_name, nic_no, role_ids } = payload;
 
+  if (username?.includes("@")) throw new AppError("A username can't contain @.", 400);
   if (!password) throw new AppError("Password is required.", 400);
   if (password.length < 8) throw new AppError("Password must be at least 8 characters.", 400);
 
@@ -31,11 +32,13 @@ export const createUser = async (models, tenantDbName, payload) => {
   if (username) orConditions.push({ username });
   if (nic_no)   orConditions.push({ nic_no });
 
-  const [existingTenant, existingGlobal, tenantId] = await Promise.all([
+  const [existingTenant, existingGlobal, usernameTaken, tenantId] = await Promise.all([
     models.User.findOne({ where: { [Op.or]: orConditions } }),
     GlobalUser.findOne({ where: { email } }),
+    username ? GlobalUser.findOne({ where: { username } }) : null,
     getTenantId(tenantDbName),
   ]);
+  if (usernameTaken) throw new AppError("Username already taken.", 400);
 
   if (existingTenant) {
     if (existingTenant.email === email)       throw new AppError("Email already in use.", 400);
@@ -54,7 +57,7 @@ export const createUser = async (models, tenantDbName, payload) => {
   //    "tenant rolled back but master already committed" split-brain bug.
   const newUser = await models.sequelize.transaction(async (t) => {
     const user = await models.User.create(
-      { email, username, password_hash, first_name, last_name, nic_no, is_active: true },
+      { email, username, password_hash, first_name, last_name, nic_no, is_active: true, must_change_password: true },
       { transaction: t }
     );
     if (role_ids && role_ids.length > 0) {
@@ -67,6 +70,7 @@ export const createUser = async (models, tenantDbName, payload) => {
   try {
     await GlobalUser.create({
       email,
+      username,
       password_hash,
       target_tenant_id: tenantId,
     });
@@ -102,9 +106,18 @@ export const updateUser = async (models, userId, payload) => {
     globalUpdates.email = payload.email;
   }
 
+  if (payload.username && payload.username !== user.username) {
+    if (payload.username.includes("@")) throw new AppError("A username can't contain @.", 400);
+    const taken = await GlobalUser.findOne({ where: { username: payload.username } });
+    if (taken && taken.email !== user.email) throw new AppError("Username already taken.", 400);
+    globalUpdates.username = payload.username;
+  }
+
   if (payload.password) {
     payload.password_hash = await bcrypt.hash(payload.password, 12);
     globalUpdates.password_hash = payload.password_hash;
+    // An admin set it, so it is temporary: the user chooses their own at next login.
+    payload.must_change_password = true;
     delete payload.password;
   }
 
@@ -263,4 +276,20 @@ export const createTechnician = async (models, tenantDbName, payload) => {
 
 export const updateTechnician = async (models, userId, payload) => {
   return await updateUser(models, userId, payload);
+};
+
+/** Details an admin needs to hand a reset code to a staff member. Never for someone above them. */
+export const getUserForAdminReset = async (models, userId, actor) => {
+  const user = await models.User.findByPk(userId, {
+    attributes: ["user_id", "email", "username", "first_name", "phone_number", "is_active"],
+    include: [{ model: models.Role, attributes: ["hierarchy_level"] }],
+  });
+  if (!user) throw new AppError("User not found.", 404);
+  if (!user.is_active) throw new AppError("This user is deactivated. Activate them first.", 400);
+  if (Number(actor?.userId) === Number(userId)) throw new AppError("Use Forgot password or your profile to change your own password.", 400);
+  const theirLevel = Math.max(0, ...(user.Roles ?? []).map((r) => Number(r.hierarchy_level) || 0));
+  if (actor && theirLevel > (Number(actor.roleHierarchyLevel) || 0)) {
+    throw new AppError("You can't reset the password of someone with a higher role.", 403);
+  }
+  return user;
 };

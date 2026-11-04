@@ -7,6 +7,7 @@ import PlatformConfigFactory from "./PlatformConfig.js";
 import ContactInquiryFactory from "./ContactInquiry.js";
 import TranslationPackFactory from "./TranslationPack.js";
 import DevicePairingCodeFactory from "./DevicePairingCode.js";
+import PasswordResetCodeFactory from "./PasswordResetCode.js";
 
 let masterModels = null;
 
@@ -22,6 +23,7 @@ export const initMasterModels = (masterSequelize) => {
   const ContactInquiry = ContactInquiryFactory(masterSequelize);
   const TranslationPack = TranslationPackFactory(masterSequelize);
   const DevicePairingCode = DevicePairingCodeFactory(masterSequelize);
+  const PasswordResetCode = PasswordResetCodeFactory(masterSequelize);
 
   // Associations
   Tenant.hasMany(GlobalUser, { foreignKey: "target_tenant_id" });
@@ -43,6 +45,7 @@ export const initMasterModels = (masterSequelize) => {
     ContactInquiry,
     TranslationPack,
     DevicePairingCode,
+    PasswordResetCode,
     sequelize: masterSequelize,
   };
 

@@ -1,3 +1,6 @@
+import { sendWelcomeUserEmail } from "../services/emailService.js";
+import { issueAdminResetCode } from "../services/passwordResetService.js";
+import { pickWhatsAppNumber } from "../utils/whatsappPhone.js";
 import * as userService from "../services/userService.js";
 import { getCachedTenantConnection } from "../config/database.js";
 import { initTenantModels } from "../models/index.js";
@@ -17,8 +20,18 @@ export const getUsers = catchAsync(async (req, res, next) => {
 });
 
 export const createUser = catchAsync(async (req, res, next) => {
-  const user = await userService.createUser(getModels(req), req.user.tenantDbName, req.body);
-  res.status(201).json({ status: "success", message: "User created successfully.", data: { user } });
+  const models = getModels(req);
+  const user = await userService.createUser(models, req.user.tenantDbName, req.body);
+  // The user exists now: a failed email is reported, not treated as a failed save.
+  const config = await models.TenantConfig.findOne({ order: [["updatedAt", "DESC"]], attributes: ["business_display_name"], raw: true }).catch(() => null);
+  const email = await sendWelcomeUserEmail({ to: user.email, firstName: user.first_name, shopName: config?.business_display_name, username: user.username, password: req.body.password });
+  res.status(201).json({ status: "success", message: "User created successfully.", data: { user, email_sent: email.sent } });
+});
+
+export const createResetCode = catchAsync(async (req, res) => {
+  const user = await userService.getUserForAdminReset(getModels(req), req.params.id, req.user);
+  const { code, minutes } = await issueAdminResetCode(user.email);
+  res.status(200).json({ status: "success", data: { code, minutes, name: user.first_name || user.username, username: user.username, whatsapp_digits: pickWhatsAppNumber(user.phone_number).digits || "" } });
 });
 
 export const updateUser = catchAsync(async (req, res, next) => {

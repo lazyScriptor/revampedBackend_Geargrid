@@ -13,6 +13,8 @@ import { clearPlanCache, countUsage, getTenantPlan } from "./planService.js";
 import { buildShopNotice } from "../config/paymentNotice.js";
 import { getNoticeDefaults } from "./paymentNoticeService.js";
 import { clearTenantStatusCache } from "../utils/tenantStatusCache.js";
+import { issueAdminResetCode } from "./passwordResetService.js";
+import { pickWhatsAppNumber } from "../utils/whatsappPhone.js";
 import { updateCorsOrigins } from "../config/cors-config.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -218,6 +220,10 @@ export const createTenant = async ({
   const { Tenant, GlobalUser } = getMasterModels();
 
   // Guard: email must be unique across all global users
+  if (admin_username) {
+    if (admin_username.includes("@")) throw new AppError("A username can't contain @.", 400);
+    if (await GlobalUser.findOne({ where: { username: admin_username } })) throw new AppError("That username is already taken.", 400);
+  }
   const existing = await GlobalUser.findOne({ where: { email: contact_email } });
   if (existing) throw new AppError("A user with this email already exists.", 400);
 
@@ -328,6 +334,7 @@ export const createTenant = async ({
     // 9. Create GlobalUser entry (enables login from master auth)
     await GlobalUser.create({
       email: contact_email,
+      username: admin_username,
       password_hash,
       target_tenant_id: tenant_id,
     });
@@ -512,6 +519,19 @@ export const saveTenantLogo = async (tenantId, fileUrl) => {
 export const updateTenantSubscription = updateTenantConfig;
 
 /** A shop's plan as it applies today, with what it is using, for the console's shop panel. */
+/** A reset code the console hands over itself, and what it needs to send it on WhatsApp. */
+export const createTenantUserResetCode = async (tenantId, userId) => {
+  const { Tenant } = getMasterModels();
+  const tenant = await Tenant.findByPk(tenantId);
+  if (!tenant) throw new AppError("Tenant not found.", 404);
+  const conn = await getTenantConnection(tenant.db_name, tenant.db_user, tenant.encrypted_db_pass, tenant.db_host);
+  const user = await initTenantModels(conn).User.findByPk(userId, { attributes: ["email", "username", "first_name", "phone_number", "is_active"] });
+  if (!user) throw new AppError("User not found.", 404);
+  if (!user.is_active) throw new AppError("This user is deactivated. Activate them first.", 400);
+  const { code, minutes } = await issueAdminResetCode(user.email);
+  return { code, minutes, name: user.first_name || user.username, username: user.username, whatsapp_digits: pickWhatsAppNumber(user.phone_number).digits || "" };
+};
+
 export const getTenantPlanDetails = async (tenantId) => {
   const { Tenant } = getMasterModels();
   const tenant = await Tenant.findByPk(tenantId);
@@ -690,6 +710,8 @@ export const createTenantUser = async (tenantId, { username, email, password, fi
   // Email uniqueness guard
   const existingGU = await GlobalUser.findOne({ where: { email } });
   if (existingGU) throw new AppError("A user with this email already exists.", 400);
+  if (username?.includes("@")) throw new AppError("A username can't contain @.", 400);
+  if (username && (await GlobalUser.findOne({ where: { username } }))) throw new AppError("That username is already taken.", 400);
 
   const { Tenant } = getMasterModels();
   const tenant = await Tenant.findByPk(tenantId);
@@ -724,7 +746,8 @@ export const createTenantUser = async (tenantId, { username, email, password, fi
   }
 
   // Create GlobalUser entry so they can log in
-  await GlobalUser.create({ email, password_hash, target_tenant_id: tenantId });
+  await GlobalUser.create({ email, username, password_hash, target_tenant_id: tenantId });
+  await newUser.update({ must_change_password: true });
 
   const plain = newUser.get({ plain: true });
   delete plain.password_hash;
@@ -768,6 +791,11 @@ export const updateTenantUser = async (tenantId, userId, { username, email, firs
 
   // Sync GlobalUser if email or password changed
   const emailChanged = email && email !== oldEmail;
+  if (updates.username) {
+    await GlobalUser.update({ username: updates.username }, { where: { email: oldEmail } }).catch((err) => {
+      console.warn("username not added to login directory:", err?.message);
+    });
+  }
   if (emailChanged) {
     await GlobalUser.update({ email }, { where: { email: oldEmail } });
   }

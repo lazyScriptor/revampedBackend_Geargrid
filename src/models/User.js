@@ -35,6 +35,8 @@ export default (sequelize) => {
       last_login_at: { type: DataTypes.DATE, allowNull: true },
       last_login_ip: { type: DataTypes.STRING(45), allowNull: true },
       password_changed_at: { type: DataTypes.DATE, allowNull: true },
+      // Their password was set by someone else: they choose their own at next login.
+      must_change_password: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
       // ── Operator saved signature (reused on every bill, no re-draw) ──────
       // Public path to a stored PNG (e.g. /uploads/signatures/.../user-12.png).
       signature_url: { type: DataTypes.STRING(500), allowNull: true },

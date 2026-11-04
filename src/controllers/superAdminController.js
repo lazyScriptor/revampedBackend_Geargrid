@@ -1,3 +1,4 @@
+import { sendWelcomeShopEmail, sendWelcomeUserEmail } from "../services/emailService.js";
 import * as paymentNotices from "../services/paymentNoticeService.js";
 import * as planService from "../services/planService.js";
 import * as superAdminAuthService from "../services/superAdminAuthService.js";
@@ -96,7 +97,9 @@ export const getDashboard = catchAsync(async (req, res) => {
 // ============================================================================
 export const createTenant = catchAsync(async (req, res) => {
   const tenant = await superAdminTenantService.createTenant(req.body);
-  res.status(201).json({ status: "success", data: { tenant } });
+  // The shop exists now: a failed email is reported, not treated as a failed setup.
+  const email = await sendWelcomeShopEmail({ to: tenant.contact_email, shopName: tenant.display_name, username: req.body.admin_username, tier: tenant.tier });
+  res.status(201).json({ status: "success", data: { tenant, email_sent: email.sent } });
 });
 
 export const getAllTenants = catchAsync(async (req, res) => {
@@ -187,7 +190,13 @@ export const getTenantRoles = catchAsync(async (req, res) => {
 
 export const createTenantUser = catchAsync(async (req, res) => {
   const user = await superAdminTenantService.createTenantUser(req.params.id, req.body);
-  res.status(201).json({ status: "success", data: { user } });
+  const email = await sendWelcomeUserEmail({ to: user.email, firstName: user.first_name, username: user.username, password: req.body.password });
+  res.status(201).json({ status: "success", data: { user, email_sent: email.sent } });
+});
+
+export const createTenantUserResetCode = catchAsync(async (req, res) => {
+  const data = await superAdminTenantService.createTenantUserResetCode(req.params.id, req.params.userId);
+  res.status(200).json({ status: "success", data });
 });
 
 export const updateTenantUser = catchAsync(async (req, res) => {

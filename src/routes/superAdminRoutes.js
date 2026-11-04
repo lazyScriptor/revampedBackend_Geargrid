@@ -101,6 +101,11 @@ router.post(
   logAuditAction("TENANT_USER_CREATED"),
   superAdminController.createTenantUser,
 );
+router.post(
+  "/tenants/:id/users/:userId/reset-code",
+  logAuditAction("TENANT_USER_RESET_CODE_CREATED"),
+  superAdminController.createTenantUserResetCode,
+);
 router.patch(
   "/tenants/:id/users/:userId",
   logAuditAction("TENANT_USER_UPDATED"),

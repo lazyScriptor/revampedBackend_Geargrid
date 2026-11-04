@@ -1,3 +1,4 @@
+import * as passwordReset from "../services/passwordResetService.js";
 import jwt from "jsonwebtoken";
 import * as authService from "../services/authService.js";
 import * as meService from "../services/meService.js";
@@ -45,6 +46,17 @@ export const register = catchAsync(async (req, res, next) => {
     message: "User created successfully in Master and Tenant databases.",
     user: { email: newUser.email, username: newUser.username },
   });
+});
+
+// Same answer whether or not the account exists; the work happens after replying, so timing can't tell either.
+export const forgotPassword = catchAsync(async (req, res) => {
+  res.status(200).json({ status: "success", message: "If that account exists, a code has been sent to its email." });
+  passwordReset.requestResetCode(req.body?.identifier);
+});
+
+export const resetPassword = catchAsync(async (req, res) => {
+  await passwordReset.resetPasswordWithCode({ identifier: req.body?.identifier, code: req.body?.code, newPassword: req.body?.new_password });
+  res.status(200).json({ status: "success", message: "Your password has been changed." });
 });
 
 export const login = catchAsync(async (req, res, next) => {
