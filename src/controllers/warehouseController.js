@@ -24,3 +24,13 @@ export const updateWarehouse = catchAsync(async (req, res, next) => {
   const warehouse = await warehouseService.updateWarehouse(getModels(req), req.params.id, req.body);
   res.status(200).json({ status: 'success', data: { warehouse } });
 });
+
+export const getWarehouseUsage = catchAsync(async (req, res, next) => {
+  const usage = await warehouseService.getWarehouseUsage(getModels(req), req.params.id);
+  res.status(200).json({ status: 'success', data: { usage } });
+});
+
+export const deleteWarehouse = catchAsync(async (req, res, next) => {
+  const data = await warehouseService.deleteWarehouse(getModels(req), req.params.id, { moveToId: req.body?.move_to_id });
+  res.status(200).json({ status: 'success', data });
+});

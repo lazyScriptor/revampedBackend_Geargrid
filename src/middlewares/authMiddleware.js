@@ -1,11 +1,12 @@
 import jwt from "jsonwebtoken";
 import AppError from "../utils/AppError.js";
+import { STATUS_CACHE_TTL, tenantStatusCache } from "../utils/tenantStatusCache.js";
+import { isPaymentLocked } from "../config/paymentNotice.js";
 import { getCachedTenantConnection } from "../config/database.js";
 import { initTenantModels } from "../models/index.js";
 
-// 5-minute in-process cache for tenant subscription status
-const tenantStatusCache = new Map();
-const STATUS_CACHE_TTL = 5 * 60 * 1000;
+// Reachable while a shop is locked for non-payment: its lock screen needs them.
+const PAYMENT_LOCK_EXEMPT = ["/api/me/plan", "/api/auth/"];
 
 export const protect = async (req, res, next) => {
   let token = req.cookies?.accessToken;
@@ -30,18 +31,22 @@ export const protect = async (req, res, next) => {
       const now = Date.now();
 
       let status = "Active";
+      let paymentNotice = null;
       if (cached && now - cached.cachedAt < STATUS_CACHE_TTL) {
         status = cached.status;
+        paymentNotice = cached.paymentNotice;
       } else {
         try {
           const { getMasterModels } = await import("../models/master/index.js");
           const { Tenant } = getMasterModels();
           const tenant = await Tenant.findOne({
             where: { db_name: decoded.tenantDbName },
-            attributes: ["subscription_status"],
+            attributes: ["subscription_status", "feature_flags"],
           });
           status = tenant?.subscription_status || "Active";
-          tenantStatusCache.set(cacheKey, { status, cachedAt: now });
+          const flags = typeof tenant?.feature_flags === "string" ? JSON.parse(tenant.feature_flags) : tenant?.feature_flags;
+          paymentNotice = flags?.payment_notice ?? null;
+          tenantStatusCache.set(cacheKey, { status, paymentNotice, cachedAt: now });
         } catch {
           // Master DB unreachable — fail open to avoid locking out tenants on infra issues
         }
@@ -55,7 +60,7 @@ export const protect = async (req, res, next) => {
           ),
         );
       }
-      if (status === "Overdue") {
+      if (isPaymentLocked(status, paymentNotice, now) && !PAYMENT_LOCK_EXEMPT.some((p) => req.originalUrl?.startsWith(p))) {
         return next(
           new AppError(
             "Your subscription payment is overdue. Please settle your account to regain access.",

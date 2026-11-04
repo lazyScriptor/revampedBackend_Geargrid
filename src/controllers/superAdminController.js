@@ -1,3 +1,4 @@
+import * as paymentNotices from "../services/paymentNoticeService.js";
 import * as planService from "../services/planService.js";
 import * as superAdminAuthService from "../services/superAdminAuthService.js";
 import * as superAdminTenantService from "../services/superAdminTenantService.js";
@@ -26,6 +27,14 @@ export const getPlans = catchAsync(async (req, res) => {
 
 export const savePlans = catchAsync(async (req, res) => {
   res.status(200).json({ status: "success", data: await planService.savePlans(req.body) });
+});
+
+export const getPaymentNotice = catchAsync(async (req, res) => {
+  res.status(200).json({ status: "success", data: await paymentNotices.getNoticeDefaults() });
+});
+
+export const savePaymentNotice = catchAsync(async (req, res) => {
+  res.status(200).json({ status: "success", data: await paymentNotices.saveNoticeDefaults(req.body) });
 });
 
 export const getTenantPlan = catchAsync(async (req, res) => {
@@ -141,7 +150,7 @@ export const activateTenant = catchAsync(async (req, res) => {
 });
 
 export const markTenantOverdue = catchAsync(async (req, res) => {
-  const tenant = await superAdminTenantService.markTenantOverdue(req.params.id);
+  const tenant = await superAdminTenantService.markTenantOverdue(req.params.id, req.body);
   res.status(200).json({ status: "success", message: "Tenant marked overdue.", data: { tenant } });
 });
 

@@ -63,3 +63,42 @@ export const updateWarehouse = async (models, warehouseId, updateData) => {
   await warehouse.update(updateData);
   return warehouse;
 };
+
+/** What still points at a location: it can't go until these have somewhere else to be. */
+export const getWarehouseUsage = async (models, warehouseId, { transaction } = {}) => {
+  const where = { warehouse_id: warehouseId };
+  const [machines, staff, expenses] = await Promise.all([
+    models.Equipment.count({ where, transaction }),
+    models.User.count({ where, transaction }),
+    models.Expense.count({ where, transaction }),
+  ]);
+  return { machines, staff, expenses };
+};
+
+/** Remove a location, moving what is in it to `moveToId` first. All of it happens, or none of it. */
+export const deleteWarehouse = async (models, warehouseId, { moveToId } = {}) => {
+  const id = Number(warehouseId);
+  const target = moveToId === undefined || moveToId === null || moveToId === '' ? null : Number(moveToId);
+  return models.sequelize.transaction(async (transaction) => {
+    const warehouse = await models.Warehouse.findByPk(id, { transaction, lock: transaction.LOCK?.UPDATE });
+    if (!warehouse) throw new AppError('Warehouse not found.', 404);
+    if ((await models.Warehouse.count({ transaction })) <= 1) {
+      throw new AppError('A shop needs at least one location, so this one cannot be removed.', 400);
+    }
+    const usage = await getWarehouseUsage(models, id, { transaction });
+    if (usage.machines + usage.staff + usage.expenses > 0) {
+      if (target === null) {
+        throw new AppError('This location still has machines, staff or expenses. Choose where to move them first.', 409);
+      }
+      if (target === id || !(await models.Warehouse.findByPk(target, { transaction }))) {
+        throw new AppError('Choose another location to move them to.', 400);
+      }
+      const move = { fields: ['warehouse_id'], where: { warehouse_id: id }, transaction };
+      await models.Equipment.update({ warehouse_id: target }, move);
+      await models.User.update({ warehouse_id: target }, move);
+      await models.Expense.update({ warehouse_id: target }, move);
+    }
+    await warehouse.destroy({ transaction });
+    return { moved: usage };
+  });
+};

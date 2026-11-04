@@ -1,5 +1,5 @@
 import express from 'express';
-import { createWarehouse, getWarehouses, getSingleWarehouse, updateWarehouse } from '../controllers/warehouseController.js';
+import { createWarehouse, getWarehouses, getSingleWarehouse, updateWarehouse, deleteWarehouse, getWarehouseUsage } from '../controllers/warehouseController.js';
 import { protect, requirePermission } from '../middlewares/authMiddleware.js';
 import { enforceLimit } from '../middlewares/planMiddleware.js';
 
@@ -12,6 +12,9 @@ router.route('/')
 
 router.route('/:id')
   .get(requirePermission("warehouse:view"), getSingleWarehouse)
-  .put(requirePermission("warehouse:manage"), updateWarehouse);
+  .put(requirePermission("warehouse:manage"), updateWarehouse)
+  .delete(requirePermission("warehouse:manage"), deleteWarehouse);
+
+router.get('/:id/usage', requirePermission("warehouse:view"), getWarehouseUsage);
 
 export default router;

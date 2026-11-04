@@ -3,6 +3,7 @@ import { getCachedTenantConnection } from "../config/database.js";
 import { initTenantModels } from "../models/index.js";
 import catchAsync from "../utils/catchAsync.js";
 import { countUsage, getTenantPlan } from "../services/planService.js";
+import { getTenantNotice } from "../services/paymentNoticeService.js";
 
 const getModels = (req) => {
   const connection = getCachedTenantConnection(req.user.tenantDbName);
@@ -17,8 +18,8 @@ export const getProfile = catchAsync(async (req, res) => {
 // What this shop's plan includes. Null plan: it couldn't be read, and the app then hides nothing.
 export const getPlan = catchAsync(async (req, res) => {
   const plan = await getTenantPlan(req.user.tenantDbName);
-  const usage = plan ? await countUsage(getModels(req)) : null;
-  res.status(200).json({ status: "success", data: { plan, usage } });
+  const [usage, notice] = await Promise.all([plan ? countUsage(getModels(req)) : null, getTenantNotice(req.user.tenantDbName)]);
+  res.status(200).json({ status: "success", data: { plan, usage, notice } });
 });
 
 export const updateProfile = catchAsync(async (req, res) => {

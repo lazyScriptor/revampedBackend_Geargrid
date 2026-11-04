@@ -4,6 +4,7 @@ import { masterSequelize, getTenantConnection } from "../config/database.js";
 import { initTenantModels } from "../models/index.js";
 import { getMasterModels } from "../models/master/index.js";
 import AppError from "../utils/AppError.js";
+import { getTenantPlan } from "./planService.js";
 import { QueryTypes } from "sequelize";
 import crypto from "crypto";
 
@@ -185,6 +186,8 @@ export const loginUser = async (email, password) => {
       language: tenantUser.language || tenantDefaultLanguage || "si",
       configData: configData ? { ...configData, tenant_default_language: tenantDefaultLanguage } : { tenant_default_language: tenantDefaultLanguage },
       permissions: effectivePermissions, // ✅ Now includes user-level overrides
+      // Sent with the login so the menu is right from the first screen.
+      plan: await getTenantPlan(globalUser.db_name),
     },
   };
 };

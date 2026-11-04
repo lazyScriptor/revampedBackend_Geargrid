@@ -10,6 +10,9 @@ import { initTenantModels } from "../models/index.js";
 import AppError from "../utils/AppError.js";
 import { normalizeOverrides } from "../config/planCatalog.js";
 import { clearPlanCache, countUsage, getTenantPlan } from "./planService.js";
+import { buildShopNotice } from "../config/paymentNotice.js";
+import { getNoticeDefaults } from "./paymentNoticeService.js";
+import { clearTenantStatusCache } from "../utils/tenantStatusCache.js";
 import { updateCorsOrigins } from "../config/cors-config.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -443,15 +446,25 @@ export const updateTenantConfig = async (tenantId, updates) => {
     if (updates[key] !== undefined) filtered[key] = updates[key];
   }
 
+  const storedFlags = parseJsonField(tenant.feature_flags);
   if (filtered.feature_flags !== undefined) {
     const flags = parseJsonField(filtered.feature_flags);
     filtered.feature_flags = { ...flags, plan_overrides: normalizeOverrides(flags.plan_overrides) };
+    // Only the overdue actions change this: a form saved from an older screen must not undo a timer.
+    if (storedFlags.payment_notice) filtered.feature_flags.payment_notice = storedFlags.payment_notice;
+    else delete filtered.feature_flags.payment_notice;
+  }
+  // Not overdue any more: the timer and its wording go with it.
+  if (filtered.subscription_status !== undefined && filtered.subscription_status !== "Overdue" && storedFlags.payment_notice) {
+    const { payment_notice, ...rest } = parseJsonField(filtered.feature_flags ?? tenant.feature_flags);
+    filtered.feature_flags = rest;
   }
 
   await tenant.update(filtered);
   await tenant.reload();
   // A tier or exception change applies to the shop's very next request.
   clearPlanCache();
+  clearTenantStatusCache();
 
   // Sync display_name + branding into the tenant's own TENANT_CONFIG
   if (filtered.display_name !== undefined || filtered.branding !== undefined) {
@@ -523,8 +536,19 @@ export const suspendTenant = async (tenantId) =>
 export const activateTenant = async (tenantId) =>
   updateTenantConfig(tenantId, { subscription_status: "Active" });
 
-export const markTenantOverdue = async (tenantId) =>
-  updateTenantConfig(tenantId, { subscription_status: "Overdue" });
+/** Mark a shop overdue, or change the timer and wording of one that already is. */
+export const markTenantOverdue = async (tenantId, input = {}) => {
+  const { Tenant } = getMasterModels();
+  const tenant = await Tenant.findByPk(tenantId);
+  if (!tenant) throw new AppError("Tenant not found.", 404);
+  const flags = parseJsonField(tenant.feature_flags);
+  const existing = tenant.subscription_status === "Overdue" ? flags.payment_notice : null;
+  const payment_notice = buildShopNotice(input, await getNoticeDefaults(), existing);
+  await tenant.update({ subscription_status: "Overdue", feature_flags: { ...flags, payment_notice } });
+  await tenant.reload();
+  clearTenantStatusCache();
+  return tenant;
+};
 
 // ============================================================================
 // BILLING / PAYMENT HISTORY
@@ -550,7 +574,7 @@ export const recordPayment = async (tenantId, paymentData) => {
 
   // Auto-activate if payment received and tenant was overdue
   if (paymentData.status === "Paid" && tenant.subscription_status === "Overdue") {
-    await tenant.update({ subscription_status: "Active" });
+    await updateTenantConfig(tenantId, { subscription_status: "Active" });
   }
 
   return payment.get({ plain: true });
