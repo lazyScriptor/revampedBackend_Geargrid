@@ -168,6 +168,45 @@ export const deleteUser = async (models, userId) => {
   return user;
 };
 
+/**
+ * Permanently removes an already-deactivated user so they stop counting against the shop.
+ * Users with invoice/payment/expense history are kept on record (cannot log in) so old records
+ * keep their name; the response says which happened.
+ */
+export const permanentlyDeleteUser = async (models, userId) => {
+  const user = await models.User.findByPk(userId);
+  if (!user) throw new AppError("User not found.", 404);
+  if (user.is_active) throw new AppError("Deactivate this user before removing them permanently.", 400);
+
+  const where = (field) => ({ where: { [field]: user.user_id } });
+  const history = (
+    await Promise.all([
+      models.Invoice.unscoped().count(where("issued_by_user_id")),
+      models.Payment.count(where("received_by_user_id")),
+      models.Expense.count(where("recorded_by_user_id")),
+      models.InvoiceTrace.count(where("actor_user_id")),
+    ])
+  ).reduce((sum, n) => sum + n, 0);
+
+  let removed = false;
+  if (history === 0) {
+    try {
+      await user.setRoles([]);
+      await user.destroy();
+      removed = true;
+    } catch (err) {
+      if (err?.name !== "SequelizeForeignKeyConstraintError") throw err;
+    }
+  }
+
+  if (removed) {
+    // Free the login (email/username) for reuse.
+    const { GlobalUser } = initMasterModels(masterSequelize);
+    await GlobalUser.destroy({ where: { email: user.email } });
+  }
+  return { removed, archived: !removed };
+};
+
 export const getAllUsers = async (models, showInactive = false) => {
   const whereClause = showInactive ? {} : { is_active: true };
   return await models.User.findAll({

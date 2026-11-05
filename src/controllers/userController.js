@@ -50,6 +50,22 @@ export const deleteUser = catchAsync(async (req, res, next) => {
   res.status(200).json({ status: "success", message: "User deactivated successfully.", data: { user } });
 });
 
+export const permanentlyDeleteUser = catchAsync(async (req, res, next) => {
+  const { id } = req.params;
+  const actorId = req.user.userId || req.user.id;
+  if (Number(actorId) === Number(id)) {
+    return res.status(403).json({ status: "fail", message: "You cannot remove your own account." });
+  }
+  const result = await userService.permanentlyDeleteUser(getModels(req), id);
+  res.status(200).json({
+    status: "success",
+    message: result.removed
+      ? "User removed permanently."
+      : "This user has invoice/payment history, so the account stays on record (inactive) and cannot log in.",
+    data: result,
+  });
+});
+
 export const assignRoles = catchAsync(async (req, res, next) => {
   const { id } = req.params;
   const { roleIds } = req.body;

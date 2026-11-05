@@ -10,7 +10,8 @@ export default (sequelize) => {
         primaryKey: true,
       },
       category_name: { type: DataTypes.STRING(150), allowNull: false },
-      category_description: { type: DataTypes.TEXT, allowNull: true },
+      // Exposed as `description` (what the API/UI sends); stored in the legacy category_description column.
+      description: { type: DataTypes.TEXT, allowNull: true, field: "category_description" },
     },
     {
       tableName: "EQUIPMENT_CATEGORIES",

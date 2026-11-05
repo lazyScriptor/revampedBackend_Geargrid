@@ -5,6 +5,7 @@ import {
   createResetCode,
   updateUser,
   deleteUser,
+  permanentlyDeleteUser,
   assignRoles,
   getTechnicianRoster,
   addTechnician,
@@ -36,6 +37,8 @@ router.post("/:id/reset-code", requirePermission("user:update"), logTenantAuditA
 router.route("/:id")
   .put(requirePermission("user:update"), logTenantAuditAction("USER_UPDATED"), updateUser)
   .delete(requirePermission("user:delete"), logTenantAuditAction("USER_DELETED"), deleteUser);
+
+router.delete("/:id/permanent", requirePermission("user:delete"), logTenantAuditAction("USER_REMOVED_PERMANENTLY"), permanentlyDeleteUser);
 
 router.post("/:id/assign-roles", requirePermission("user:assign_role"), logTenantAuditAction("USER_ROLES_ASSIGNED"), assignRoles);
 
