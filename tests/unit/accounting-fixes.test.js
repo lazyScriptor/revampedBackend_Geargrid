@@ -4,7 +4,7 @@ import { Op } from "sequelize";
 const { computeDepreciation, getProfitAndLoss, getDashboardKPIs, getAccountsReceivable, getDailyCashFlow } = await import("../../src/services/reportService.js");
 const expenseService = await import("../../src/services/expenseService.js");
 const { addContinuousPayment } = await import("../../src/services/invoiceService.js");
-const { getTransactionJournal, getChartData } = await import("../../src/services/accountingService.js");
+const { getTransactionJournal, getChartData, getFilteredInvoices } = await import("../../src/services/accountingService.js");
 
 const D = (s) => new Date(s);
 
@@ -174,5 +174,39 @@ describe("B13/B14 — refund guard and who received the money", () => {
     await expect(addContinuousPayment(m, 1, { amount: 0, method: "Cash" }, 4)).rejects.toMatchObject({ statusCode: 400 });
     await addContinuousPayment(m, 1, { amount: 250, method: "Card" }, 4);
     expect(m.Payment.create.mock.calls[0][0]).toMatchObject({ payment_amount: 250, received_by_user_id: 4 });
+  });
+});
+
+describe("getFilteredInvoices — database-wide summary aggregates across pagination", () => {
+  it("computes totals across all matching invoices, not just the single page", async () => {
+    const mockInvoices = [
+      { toJSON: () => ({ invoice_id: 1, total_amount: 5000, Payments: [{ payment_amount: 3000 }] }) },
+    ];
+    const allMatching = [
+      { invoice_id: 1, total_amount: "5000" },
+      { invoice_id: 2, total_amount: "10000" },
+      { invoice_id: 3, total_amount: "15000" },
+    ];
+
+    const models = {
+      sequelize: { fn: vi.fn(), col: vi.fn() },
+      Invoice: {
+        findAndCountAll: vi.fn(async () => ({ count: 3, rows: mockInvoices })),
+        findAll: vi.fn(async () => allMatching),
+      },
+      Payment: {
+        findOne: vi.fn(async () => ({ sum_paid: "18000" })),
+      },
+    };
+
+    const res = await getFilteredInvoices(models, { page: 1, pageSize: 1 });
+    expect(res.rows).toHaveLength(1);
+    expect(res.totalCount).toBe(3);
+    // Summary is across all 3 invoices (30,000 total, 18,000 paid, 12,000 outstanding)
+    expect(res.summary).toEqual({
+      total_amount: 30000,
+      total_paid: 18000,
+      outstanding: 12000,
+    });
   });
 });

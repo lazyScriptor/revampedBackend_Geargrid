@@ -135,7 +135,66 @@ export const getFilteredInvoices = async (models, query) => {
     };
   });
 
-  return { rows: invoices, totalCount: count };
+  // Database-wide summary aggregates across ALL matching invoices (independent of pagination limit/offset)
+  let summary = {
+    total_amount: 0,
+    total_paid: 0,
+    outstanding: 0,
+  };
+
+  if (count > 0) {
+    const matchingInvoices = await models.Invoice.findAll({
+      where,
+      attributes: ["invoice_id", "total_amount"],
+      include: query.search
+        ? [
+            {
+              model: models.Customer,
+              attributes: [],
+            },
+          ]
+        : [],
+      raw: true,
+    });
+
+    const seenIds = new Set();
+    const uniqueMatching = [];
+    for (const inv of matchingInvoices) {
+      if (!seenIds.has(inv.invoice_id)) {
+        seenIds.add(inv.invoice_id);
+        uniqueMatching.push(inv);
+      }
+    }
+
+    const totalAmountSum = uniqueMatching.reduce(
+      (acc, inv) => acc + parseFloat(inv.total_amount || 0),
+      0
+    );
+    const invoiceIds = uniqueMatching.map((inv) => inv.invoice_id);
+
+    let totalPaidSum = 0;
+    if (invoiceIds.length > 0) {
+      const paymentSumResult = await models.Payment.findOne({
+        where: {
+          invoice_id: { [Op.in]: invoiceIds },
+          is_voided: false,
+        },
+        attributes: [
+          [models.sequelize.fn("SUM", models.sequelize.col("payment_amount")), "sum_paid"],
+        ],
+        raw: true,
+      });
+      totalPaidSum = parseFloat(paymentSumResult?.sum_paid || 0);
+    }
+
+    summary = {
+      total_amount: Math.round(totalAmountSum * 100) / 100,
+      total_paid: Math.round(totalPaidSum * 100) / 100,
+      outstanding: Math.round((totalAmountSum - totalPaidSum) * 100) / 100,
+    };
+  }
+
+  return { rows: invoices, totalCount: count, summary };
 };
 
 // ============================================================================
