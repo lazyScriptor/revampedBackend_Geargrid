@@ -41,6 +41,7 @@ export const updateUser = catchAsync(async (req, res, next) => {
 });
 
 export const deleteUser = catchAsync(async (req, res, next) => {
+  const { id } = req.params;
   const actorId = req.user.userId || req.user.id;
   if (Number(actorId) === Number(id)) {
     return res.status(403).json({ status: "fail", message: "You cannot deactivate your own account." });

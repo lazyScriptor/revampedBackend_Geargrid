@@ -1,3 +1,4 @@
+import { Op } from "sequelize";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
@@ -812,22 +813,60 @@ export const updateTenantUser = async (tenantId, userId, { username, email, firs
 };
 
 export const deleteTenantUser = async (tenantId, userId) => {
-  const { GlobalUser } = getMasterModels();
-  const { Tenant } = getMasterModels();
+  const { GlobalUser, Tenant, PasswordResetCode } = getMasterModels();
   const tenant = await Tenant.findByPk(tenantId);
   if (!tenant) throw new AppError("Tenant not found.", 404);
 
   const conn = await getTenantConnection(tenant.db_name, tenant.db_user, tenant.encrypted_db_pass, tenant.db_host);
   const models = initTenantModels(conn);
 
-  const user = await models.User.findByPk(userId);
+  const user = await models.User.findByPk(userId, {
+    include: [{ model: models.Role, attributes: ["hierarchy_level"] }],
+  });
   if (!user) throw new AppError("User not found.", 404);
 
-  const email = user.email;
-  await user.destroy();
+  // A shop must keep someone who can run it.
+  if (user.is_active && user.Roles?.some((r) => Number(r.hierarchy_level) >= 100)) {
+    const otherAdmin = await models.User.findOne({
+      where: { user_id: { [Op.ne]: user.user_id }, is_active: true },
+      include: [{ model: models.Role, where: { hierarchy_level: { [Op.gte]: 100 } }, attributes: ["role_id"] }],
+    });
+    if (!otherAdmin) throw new AppError("This is the shop's only active administrator, so it can't be removed.", 400);
+  }
 
-  // Remove GlobalUser login entry
+  const email = user.email;
+  const login = await GlobalUser.findOne({ where: { email } });
+
+  // Anyone with history stays on record, so old invoices and payments keep their name. They just can't log in.
+  const where = (field) => ({ where: { [field]: user.user_id } });
+  const history = (
+    await Promise.all([
+      models.Invoice.unscoped().count(where("issued_by_user_id")),
+      models.Payment.count(where("received_by_user_id")),
+      models.Expense.count(where("recorded_by_user_id")),
+      models.InvoiceTrace.count(where("actor_user_id")),
+    ])
+  ).reduce((sum, n) => sum + n, 0);
+
+  let archived = false;
+  if (history > 0) {
+    await user.update({ is_active: false });
+    archived = true;
+  } else {
+    try {
+      await user.setRoles([]);
+      await user.destroy();
+    } catch (err) {
+      // Some other record still points at them: keep them on record, as with invoices.
+      if (err?.name !== "SequelizeForeignKeyConstraintError") throw err;
+      await user.update({ is_active: false });
+      archived = true;
+    }
+  }
+
+  if (login) await PasswordResetCode.destroy({ where: { global_user_id: login.global_user_id } });
   await GlobalUser.destroy({ where: { email } });
+  return { archived };
 };
 
 // ============================================================================
