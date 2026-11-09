@@ -1,0 +1,1271 @@
+[
+  {
+    "id": "A1-day1",
+    "description": "Scaffold 250/5d/50 qty 2 open-ended day 1 (8h elapsed = 1 day <= 5d min). Arithmetic: (250 + max(0, 1-5)*50)*2 = 500. extraDays=0, delta=0.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-09",
+      "track_overdue": false,
+      "locked_base_price": 250,
+      "locked_minimum_days": 5,
+      "locked_extra_daily_rate": 50,
+      "borrow_quantity": 2,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-09T18:00:00+05:30",
+    "returnDate": "2026-11-09",
+    "expected": {
+      "dispatchTotal": 500,
+      "extraOrLateDays": 0,
+      "chargeAtReturn": 500,
+      "accruedChargeIfStillOut": 0,
+      "subTotalDelta": 0,
+      "totalDelta": 0
+    }
+  },
+  {
+    "id": "A1-day2",
+    "description": "Scaffold 250/5d/50 qty 2 open-ended day 2 (26h elapsed = 2 days <= 5d min). Arithmetic: (250 + max(0, 2-5)*50)*2 = 500. extraDays=0, delta=0.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-09",
+      "track_overdue": false,
+      "locked_base_price": 250,
+      "locked_minimum_days": 5,
+      "locked_extra_daily_rate": 50,
+      "borrow_quantity": 2,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-10T12:00:00+05:30",
+    "returnDate": "2026-11-10",
+    "expected": {
+      "dispatchTotal": 500,
+      "extraOrLateDays": 0,
+      "chargeAtReturn": 500,
+      "accruedChargeIfStillOut": 0,
+      "subTotalDelta": 0,
+      "totalDelta": 0
+    }
+  },
+  {
+    "id": "A1-day3",
+    "description": "Scaffold 250/5d/50 qty 2 open-ended day 3 (50h elapsed = 3 days <= 5d min). Arithmetic: (250 + max(0, 3-5)*50)*2 = 500. extraDays=0, delta=0.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-09",
+      "track_overdue": false,
+      "locked_base_price": 250,
+      "locked_minimum_days": 5,
+      "locked_extra_daily_rate": 50,
+      "borrow_quantity": 2,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-11T12:00:00+05:30",
+    "returnDate": "2026-11-11",
+    "expected": {
+      "dispatchTotal": 500,
+      "extraOrLateDays": 0,
+      "chargeAtReturn": 500,
+      "accruedChargeIfStillOut": 0,
+      "subTotalDelta": 0,
+      "totalDelta": 0
+    }
+  },
+  {
+    "id": "A1-day4",
+    "description": "Scaffold 250/5d/50 qty 2 open-ended day 4 (74h elapsed = 4 days <= 5d min). Arithmetic: (250 + max(0, 4-5)*50)*2 = 500. extraDays=0, delta=0.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-09",
+      "track_overdue": false,
+      "locked_base_price": 250,
+      "locked_minimum_days": 5,
+      "locked_extra_daily_rate": 50,
+      "borrow_quantity": 2,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-12T12:00:00+05:30",
+    "returnDate": "2026-11-12",
+    "expected": {
+      "dispatchTotal": 500,
+      "extraOrLateDays": 0,
+      "chargeAtReturn": 500,
+      "accruedChargeIfStillOut": 0,
+      "subTotalDelta": 0,
+      "totalDelta": 0
+    }
+  },
+  {
+    "id": "A1-day5",
+    "description": "Scaffold 250/5d/50 qty 2 open-ended day 5 (98h elapsed = 5 days <= 5d min). Arithmetic: (250 + max(0, 5-5)*50)*2 = 500. extraDays=0, delta=0.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-09",
+      "track_overdue": false,
+      "locked_base_price": 250,
+      "locked_minimum_days": 5,
+      "locked_extra_daily_rate": 50,
+      "borrow_quantity": 2,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-13T12:00:00+05:30",
+    "returnDate": "2026-11-13",
+    "expected": {
+      "dispatchTotal": 500,
+      "extraOrLateDays": 0,
+      "chargeAtReturn": 500,
+      "accruedChargeIfStillOut": 0,
+      "subTotalDelta": 0,
+      "totalDelta": 0
+    }
+  },
+  {
+    "id": "A1-day6",
+    "description": "Scaffold 250/5d/50 qty 2 open-ended day 6 (122h elapsed = 6 days > 5d min). Arithmetic: 6-5 = 1 extra day. 1 * 50 * 2 = 100 rental. Total = 600, delta = 100.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-09",
+      "track_overdue": false,
+      "locked_base_price": 250,
+      "locked_minimum_days": 5,
+      "locked_extra_daily_rate": 50,
+      "borrow_quantity": 2,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-14T12:00:00+05:30",
+    "returnDate": "2026-11-14",
+    "expected": {
+      "dispatchTotal": 500,
+      "extraOrLateDays": 1,
+      "chargeAtReturn": 600,
+      "accruedChargeIfStillOut": 100,
+      "subTotalDelta": 100,
+      "totalDelta": 100
+    }
+  },
+  {
+    "id": "A1-day7",
+    "description": "Scaffold 250/5d/50 qty 2 open-ended day 7 (146h elapsed = 7 days > 5d min). Arithmetic: 7-5 = 2 extra days. 2 * 50 * 2 = 200 rental. Total = 700, delta = 200.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-09",
+      "track_overdue": false,
+      "locked_base_price": 250,
+      "locked_minimum_days": 5,
+      "locked_extra_daily_rate": 50,
+      "borrow_quantity": 2,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-15T12:00:00+05:30",
+    "returnDate": "2026-11-15",
+    "expected": {
+      "dispatchTotal": 500,
+      "extraOrLateDays": 2,
+      "chargeAtReturn": 700,
+      "accruedChargeIfStillOut": 200,
+      "subTotalDelta": 200,
+      "totalDelta": 200
+    }
+  },
+  {
+    "id": "A1-day10",
+    "description": "Scaffold 250/5d/50 qty 2 open-ended day 10 (218h elapsed = 10 days > 5d min). Arithmetic: 10-5 = 5 extra days. 5 * 50 * 2 = 500 rental. Total = 1000, delta = 500.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-09",
+      "track_overdue": false,
+      "locked_base_price": 250,
+      "locked_minimum_days": 5,
+      "locked_extra_daily_rate": 50,
+      "borrow_quantity": 2,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-18T12:00:00+05:30",
+    "returnDate": "2026-11-18",
+    "expected": {
+      "dispatchTotal": 500,
+      "extraOrLateDays": 5,
+      "chargeAtReturn": 1000,
+      "accruedChargeIfStillOut": 500,
+      "subTotalDelta": 500,
+      "totalDelta": 500
+    }
+  },
+  {
+    "id": "A2-exact-120h",
+    "description": "Scaffold 250/5d/50 qty 2 open-ended returned at exactly 120h (120 * 3600s). Elapsed days = ceil(120/24) = 5 days. Arithmetic: max(0, 5-5) = 0 extra days. Total = 500, delta = 0.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-09",
+      "track_overdue": false,
+      "locked_base_price": 250,
+      "locked_minimum_days": 5,
+      "locked_extra_daily_rate": 50,
+      "borrow_quantity": 2,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-14T10:00:00+05:30",
+    "returnDate": "2026-11-14",
+    "expected": {
+      "dispatchTotal": 500,
+      "extraOrLateDays": 0,
+      "chargeAtReturn": 500,
+      "accruedChargeIfStillOut": 0,
+      "subTotalDelta": 0,
+      "totalDelta": 0
+    }
+  },
+  {
+    "id": "A2-120h-plus-1m",
+    "description": "Scaffold 250/5d/50 qty 2 open-ended returned at 120h + 1 minute. Elapsed days = ceil(120.0167/24) = 6 days. Arithmetic: 6-5 = 1 extra day * 50 * 2 = 100. Total = 600, delta = 100.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-09",
+      "track_overdue": false,
+      "locked_base_price": 250,
+      "locked_minimum_days": 5,
+      "locked_extra_daily_rate": 50,
+      "borrow_quantity": 2,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-14T10:01:00+05:30",
+    "returnDate": "2026-11-14",
+    "expected": {
+      "dispatchTotal": 500,
+      "extraOrLateDays": 1,
+      "chargeAtReturn": 600,
+      "accruedChargeIfStillOut": 100,
+      "subTotalDelta": 100,
+      "totalDelta": 100
+    }
+  },
+  {
+    "id": "A3-tracked-due1-ret2",
+    "description": "Scaffold 250/5d/50 qty 2 tracked due +1 (2026-11-10), returned +2 (2026-11-11). Late = 1 day, insidePeriod = 4. Chargeable = max(0, 1-4) = 0. Late fee = 0. Total = 500.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-10",
+      "track_overdue": true,
+      "locked_base_price": 250,
+      "locked_minimum_days": 5,
+      "locked_extra_daily_rate": 50,
+      "borrow_quantity": 2,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-11T12:00:00+05:30",
+    "returnDate": "2026-11-11",
+    "expected": {
+      "dispatchTotal": 500,
+      "extraOrLateDays": 0,
+      "chargeAtReturn": 500,
+      "accruedChargeIfStillOut": 0,
+      "subTotalDelta": 0,
+      "totalDelta": 0
+    }
+  },
+  {
+    "id": "A3-tracked-due1-ret4",
+    "description": "Scaffold 250/5d/50 qty 2 tracked due +1 (2026-11-10), returned +4 (2026-11-13). Late = 3 days, insidePeriod = 4. Chargeable = max(0, 3-4) = 0. Late fee = 0. Total = 500.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-10",
+      "track_overdue": true,
+      "locked_base_price": 250,
+      "locked_minimum_days": 5,
+      "locked_extra_daily_rate": 50,
+      "borrow_quantity": 2,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-13T12:00:00+05:30",
+    "returnDate": "2026-11-13",
+    "expected": {
+      "dispatchTotal": 500,
+      "extraOrLateDays": 0,
+      "chargeAtReturn": 500,
+      "accruedChargeIfStillOut": 0,
+      "subTotalDelta": 0,
+      "totalDelta": 0
+    }
+  },
+  {
+    "id": "A3-tracked-due1-ret5",
+    "description": "Scaffold 250/5d/50 qty 2 tracked due +1 (2026-11-10), returned +5 (2026-11-14). Late = 4 days, insidePeriod = 4. Chargeable = max(0, 4-4) = 0. Late fee = 0. Total = 500.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-10",
+      "track_overdue": true,
+      "locked_base_price": 250,
+      "locked_minimum_days": 5,
+      "locked_extra_daily_rate": 50,
+      "borrow_quantity": 2,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-14T12:00:00+05:30",
+    "returnDate": "2026-11-14",
+    "expected": {
+      "dispatchTotal": 500,
+      "extraOrLateDays": 0,
+      "chargeAtReturn": 500,
+      "accruedChargeIfStillOut": 0,
+      "subTotalDelta": 0,
+      "totalDelta": 0
+    }
+  },
+  {
+    "id": "A3-tracked-due1-ret6",
+    "description": "Scaffold 250/5d/50 qty 2 tracked due +1 (2026-11-10), returned +6 (2026-11-15). Late = 5 days, insidePeriod = 4. Chargeable = max(0, 5-4) = 1. Late fee = 1 * 50 * 2 = 100. Total = 600 (subtotal 500 + fee 100).",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-10",
+      "track_overdue": true,
+      "locked_base_price": 250,
+      "locked_minimum_days": 5,
+      "locked_extra_daily_rate": 50,
+      "borrow_quantity": 2,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-15T12:00:00+05:30",
+    "returnDate": "2026-11-15",
+    "expected": {
+      "dispatchTotal": 500,
+      "extraOrLateDays": 1,
+      "chargeAtReturn": 600,
+      "accruedChargeIfStillOut": 100,
+      "subTotalDelta": 0,
+      "totalDelta": 100
+    }
+  },
+  {
+    "id": "A3-tracked-due1-ret8",
+    "description": "Scaffold 250/5d/50 qty 2 tracked due +1 (2026-11-10), returned +8 (2026-11-17). Late = 7 days, insidePeriod = 4. Chargeable = max(0, 7-4) = 3. Late fee = 3 * 50 * 2 = 300. Total = 800 (subtotal 500 + fee 300).",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-10",
+      "track_overdue": true,
+      "locked_base_price": 250,
+      "locked_minimum_days": 5,
+      "locked_extra_daily_rate": 50,
+      "borrow_quantity": 2,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-17T12:00:00+05:30",
+    "returnDate": "2026-11-17",
+    "expected": {
+      "dispatchTotal": 500,
+      "extraOrLateDays": 3,
+      "chargeAtReturn": 800,
+      "accruedChargeIfStillOut": 300,
+      "subTotalDelta": 0,
+      "totalDelta": 300
+    }
+  },
+  {
+    "id": "A4-tracked-due5-ret5",
+    "description": "Scaffold 250/5d/50 qty 2 tracked due +5 (2026-11-14), returned on-time +5 (2026-11-14). Late = 0. Total = 500.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-14",
+      "track_overdue": true,
+      "locked_base_price": 250,
+      "locked_minimum_days": 5,
+      "locked_extra_daily_rate": 50,
+      "borrow_quantity": 2,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-14T12:00:00+05:30",
+    "returnDate": "2026-11-14",
+    "expected": {
+      "dispatchTotal": 500,
+      "extraOrLateDays": 0,
+      "chargeAtReturn": 500,
+      "accruedChargeIfStillOut": 0,
+      "subTotalDelta": 0,
+      "totalDelta": 0
+    }
+  },
+  {
+    "id": "A4-tracked-due5-ret6",
+    "description": "Scaffold 250/5d/50 qty 2 tracked due +5 (2026-11-14), returned +6 (2026-11-15). Late = 1 day, insidePeriod = 0. Chargeable = 1. Late fee = 1 * 50 * 2 = 100. Total = 600.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-14",
+      "track_overdue": true,
+      "locked_base_price": 250,
+      "locked_minimum_days": 5,
+      "locked_extra_daily_rate": 50,
+      "borrow_quantity": 2,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-15T12:00:00+05:30",
+    "returnDate": "2026-11-15",
+    "expected": {
+      "dispatchTotal": 500,
+      "extraOrLateDays": 1,
+      "chargeAtReturn": 600,
+      "accruedChargeIfStillOut": 100,
+      "subTotalDelta": 0,
+      "totalDelta": 100
+    }
+  },
+  {
+    "id": "A4-tracked-due5-ret9",
+    "description": "Scaffold 250/5d/50 qty 2 tracked due +5 (2026-11-14), returned +9 (2026-11-18). Late = 4 days, insidePeriod = 0. Chargeable = 4. Late fee = 4 * 50 * 2 = 400. Total = 900.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-14",
+      "track_overdue": true,
+      "locked_base_price": 250,
+      "locked_minimum_days": 5,
+      "locked_extra_daily_rate": 50,
+      "borrow_quantity": 2,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-18T12:00:00+05:30",
+    "returnDate": "2026-11-18",
+    "expected": {
+      "dispatchTotal": 500,
+      "extraOrLateDays": 4,
+      "chargeAtReturn": 900,
+      "accruedChargeIfStillOut": 400,
+      "subTotalDelta": 0,
+      "totalDelta": 400
+    }
+  },
+  {
+    "id": "A5-tracked-due7-ret7",
+    "description": "Scaffold 250/5d/50 qty 2 tracked due +7 (2026-11-16). Dispatch charges 7 days: (250 + 2*50)*2 = 700. Returned on-time +7: late = 0, total = 700.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-16",
+      "track_overdue": true,
+      "locked_base_price": 250,
+      "locked_minimum_days": 5,
+      "locked_extra_daily_rate": 50,
+      "borrow_quantity": 2,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-16T12:00:00+05:30",
+    "returnDate": "2026-11-16",
+    "expected": {
+      "dispatchTotal": 700,
+      "extraOrLateDays": 0,
+      "chargeAtReturn": 700,
+      "accruedChargeIfStillOut": 0,
+      "subTotalDelta": 0,
+      "totalDelta": 0
+    }
+  },
+  {
+    "id": "A5-tracked-due7-ret9",
+    "description": "Scaffold 250/5d/50 qty 2 tracked due +7 (2026-11-16). Dispatch total = 700. Returned +9 (2026-11-18): 2 days late. Fee = 2 * 50 * 2 = 200. Total = 900.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-16",
+      "track_overdue": true,
+      "locked_base_price": 250,
+      "locked_minimum_days": 5,
+      "locked_extra_daily_rate": 50,
+      "borrow_quantity": 2,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-18T12:00:00+05:30",
+    "returnDate": "2026-11-18",
+    "expected": {
+      "dispatchTotal": 700,
+      "extraOrLateDays": 2,
+      "chargeAtReturn": 900,
+      "accruedChargeIfStillOut": 200,
+      "subTotalDelta": 0,
+      "totalDelta": 200
+    }
+  },
+  {
+    "id": "A6-tracked-early",
+    "description": "Scaffold 250/5d/50 qty 2 tracked due +7 (2026-11-16). Dispatch total = 700. Returned early on +2 (2026-11-11). Nothing refunded: charge = 700, delta = 0.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-16",
+      "track_overdue": true,
+      "locked_base_price": 250,
+      "locked_minimum_days": 5,
+      "locked_extra_daily_rate": 50,
+      "borrow_quantity": 2,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-11T12:00:00+05:30",
+    "returnDate": "2026-11-11",
+    "expected": {
+      "dispatchTotal": 700,
+      "extraOrLateDays": 0,
+      "chargeAtReturn": 700,
+      "accruedChargeIfStillOut": 0,
+      "subTotalDelta": 0,
+      "totalDelta": 0
+    }
+  },
+  {
+    "id": "A7-tracked-fee-waived",
+    "description": "Scaffold 250/5d/50 qty 2 tracked due +5 (2026-11-14), returned +9 (2026-11-18) with late fee waived (track_overdue=false at return). Extra charge = 0. Total = 500.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-14",
+      "track_overdue": true,
+      "locked_base_price": 250,
+      "locked_minimum_days": 5,
+      "locked_extra_daily_rate": 50,
+      "borrow_quantity": 2,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-18T12:00:00+05:30",
+    "returnDate": "2026-11-18",
+    "waiveLateFee": true,
+    "expected": {
+      "dispatchTotal": 500,
+      "extraOrLateDays": 0,
+      "chargeAtReturn": 500,
+      "accruedChargeIfStillOut": 400,
+      "subTotalDelta": 0,
+      "totalDelta": 0
+    }
+  },
+  {
+    "id": "B8-1day-open-23h",
+    "description": "1-day machine 300/1d/300 qty 1 open-ended out 23 hours. Elapsed = 1 day. Extra = 0. Total = 300.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-09",
+      "track_overdue": false,
+      "locked_base_price": 300,
+      "locked_minimum_days": 1,
+      "locked_extra_daily_rate": 300,
+      "borrow_quantity": 1,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-10T09:00:00+05:30",
+    "returnDate": "2026-11-10",
+    "expected": {
+      "dispatchTotal": 300,
+      "extraOrLateDays": 0,
+      "chargeAtReturn": 300,
+      "accruedChargeIfStillOut": 0,
+      "subTotalDelta": 0,
+      "totalDelta": 0
+    }
+  },
+  {
+    "id": "B8-1day-open-24h",
+    "description": "1-day machine 300/1d/300 qty 1 open-ended out exactly 24 hours. Elapsed = 1 day. Extra = 0. Total = 300.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-09",
+      "track_overdue": false,
+      "locked_base_price": 300,
+      "locked_minimum_days": 1,
+      "locked_extra_daily_rate": 300,
+      "borrow_quantity": 1,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-10T10:00:00+05:30",
+    "returnDate": "2026-11-10",
+    "expected": {
+      "dispatchTotal": 300,
+      "extraOrLateDays": 0,
+      "chargeAtReturn": 300,
+      "accruedChargeIfStillOut": 0,
+      "subTotalDelta": 0,
+      "totalDelta": 0
+    }
+  },
+  {
+    "id": "B8-1day-open-25h",
+    "description": "1-day machine 300/1d/300 qty 1 open-ended out 25 hours. Elapsed = 2 days. Extra = 2-1 = 1 day * 300 = 300. Total = 600.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-09",
+      "track_overdue": false,
+      "locked_base_price": 300,
+      "locked_minimum_days": 1,
+      "locked_extra_daily_rate": 300,
+      "borrow_quantity": 1,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-10T11:00:00+05:30",
+    "returnDate": "2026-11-10",
+    "expected": {
+      "dispatchTotal": 300,
+      "extraOrLateDays": 1,
+      "chargeAtReturn": 600,
+      "accruedChargeIfStillOut": 300,
+      "subTotalDelta": 300,
+      "totalDelta": 300
+    }
+  },
+  {
+    "id": "B8-1day-open-29h",
+    "description": "1-day machine 300/1d/300 qty 1 open-ended out 29 hours. Elapsed = 2 days. Extra = 2-1 = 1 day * 300 = 300. Total = 600.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-09",
+      "track_overdue": false,
+      "locked_base_price": 300,
+      "locked_minimum_days": 1,
+      "locked_extra_daily_rate": 300,
+      "borrow_quantity": 1,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-10T15:00:00+05:30",
+    "returnDate": "2026-11-10",
+    "expected": {
+      "dispatchTotal": 300,
+      "extraOrLateDays": 1,
+      "chargeAtReturn": 600,
+      "accruedChargeIfStillOut": 300,
+      "subTotalDelta": 300,
+      "totalDelta": 300
+    }
+  },
+  {
+    "id": "B9-1day-tracked-ontime",
+    "description": "1-day machine 300/1d/300 qty 1 tracked due +1 (2026-11-10), returned +1. Late = 0. Total = 300.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-10",
+      "track_overdue": true,
+      "locked_base_price": 300,
+      "locked_minimum_days": 1,
+      "locked_extra_daily_rate": 300,
+      "borrow_quantity": 1,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-10T12:00:00+05:30",
+    "returnDate": "2026-11-10",
+    "expected": {
+      "dispatchTotal": 300,
+      "extraOrLateDays": 0,
+      "chargeAtReturn": 300,
+      "accruedChargeIfStillOut": 0,
+      "subTotalDelta": 0,
+      "totalDelta": 0
+    }
+  },
+  {
+    "id": "B9-1day-tracked-late2",
+    "description": "1-day machine 300/1d/300 qty 1 tracked due +1 (2026-11-10), returned +3 (2026-11-12). Late = 2 days. Fee = 2 * 300 = 600. Total = 900.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-10",
+      "track_overdue": true,
+      "locked_base_price": 300,
+      "locked_minimum_days": 1,
+      "locked_extra_daily_rate": 300,
+      "borrow_quantity": 1,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-12T12:00:00+05:30",
+    "returnDate": "2026-11-12",
+    "expected": {
+      "dispatchTotal": 300,
+      "extraOrLateDays": 2,
+      "chargeAtReturn": 900,
+      "accruedChargeIfStillOut": 600,
+      "subTotalDelta": 0,
+      "totalDelta": 600
+    }
+  },
+  {
+    "id": "B10-diff-rates-open",
+    "description": "1-day machine differing base/extra (500/1d/400) qty 1 open-ended returned day 3 (3 days elapsed). Extra days = 2. Extra rental = 2 * 400 = 800. Total = 1300.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-09",
+      "track_overdue": false,
+      "locked_base_price": 500,
+      "locked_minimum_days": 1,
+      "locked_extra_daily_rate": 400,
+      "borrow_quantity": 1,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-11T12:00:00+05:30",
+    "returnDate": "2026-11-11",
+    "expected": {
+      "dispatchTotal": 500,
+      "extraOrLateDays": 2,
+      "chargeAtReturn": 1300,
+      "accruedChargeIfStillOut": 800,
+      "subTotalDelta": 800,
+      "totalDelta": 800
+    }
+  },
+  {
+    "id": "C11-partial-step1",
+    "description": "Scaffold 250/5d/50 qty 3 open-ended. Handover 1 on day 2: 1 good unit returned. 2 days <= 5d min. Extra charge = 0. Line total remains 750.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-09",
+      "track_overdue": false,
+      "locked_base_price": 250,
+      "locked_minimum_days": 5,
+      "locked_extra_daily_rate": 50,
+      "borrow_quantity": 3,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-10T12:00:00+05:30",
+    "returnDate": "2026-11-10",
+    "returnQty": 1,
+    "expected": {
+      "dispatchTotal": 750,
+      "extraOrLateDays": 0,
+      "chargeAtReturn": 750,
+      "accruedChargeIfStillOut": 0,
+      "subTotalDelta": 0,
+      "totalDelta": 0
+    }
+  },
+  {
+    "id": "C11-partial-step2",
+    "description": "Scaffold 250/5d/50 qty 3 open-ended after 1 returned. Handover 2 on day 6: 1 unit returned. Elapsed 6d -> 1 extra day * 50 * 1 unit = 50. Line total becomes 750 + 50 = 800.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-09",
+      "track_overdue": false,
+      "locked_base_price": 250,
+      "locked_minimum_days": 5,
+      "locked_extra_daily_rate": 50,
+      "borrow_quantity": 3,
+      "good_returned_qty": 1,
+      "defective_returned_qty": 0,
+      "line_status": "Active",
+      "line_total_amount": 750
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-14T12:00:00+05:30",
+    "returnDate": "2026-11-14",
+    "returnQty": 1,
+    "expected": {
+      "dispatchTotal": 750,
+      "extraOrLateDays": 1,
+      "chargeAtReturn": 800,
+      "accruedChargeIfStillOut": 100,
+      "subTotalDelta": 50,
+      "totalDelta": 50
+    }
+  },
+  {
+    "id": "C11-partial-step3",
+    "description": "Scaffold 250/5d/50 qty 3 open-ended after 2 returned. Handover 3 on day 9: final unit returned. Elapsed 9d -> 4 extra days * 50 * 1 unit = 200. Line total becomes 800 + 200 = 1000.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-09",
+      "track_overdue": false,
+      "locked_base_price": 250,
+      "locked_minimum_days": 5,
+      "locked_extra_daily_rate": 50,
+      "borrow_quantity": 3,
+      "good_returned_qty": 2,
+      "defective_returned_qty": 0,
+      "line_status": "Active",
+      "line_total_amount": 800
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-17T12:00:00+05:30",
+    "returnDate": "2026-11-17",
+    "returnQty": 1,
+    "expected": {
+      "dispatchTotal": 750,
+      "extraOrLateDays": 4,
+      "chargeAtReturn": 1000,
+      "accruedChargeIfStillOut": 200,
+      "subTotalDelta": 200,
+      "totalDelta": 200
+    }
+  },
+  {
+    "id": "C12-tracked-good-and-defective",
+    "description": "Scaffold 250/5d/50 qty 2 tracked due +1 (2026-11-10), returned +6 (2026-11-15) with 1 good and 1 defective. Chargeable late days = 1. Late fee covers both units = 1 * 50 * 2 = 100. Total = 600.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-10",
+      "track_overdue": true,
+      "locked_base_price": 250,
+      "locked_minimum_days": 5,
+      "locked_extra_daily_rate": 50,
+      "borrow_quantity": 2,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-15T12:00:00+05:30",
+    "returnDate": "2026-11-15",
+    "goodQty": 1,
+    "defectiveQty": 1,
+    "expected": {
+      "dispatchTotal": 500,
+      "extraOrLateDays": 1,
+      "chargeAtReturn": 600,
+      "accruedChargeIfStillOut": 100,
+      "subTotalDelta": 0,
+      "totalDelta": 100
+    }
+  },
+  {
+    "id": "C13-still-out-vs-returned",
+    "description": "Scaffold 250/5d/50 qty 1 open-ended. Day 7 lineAccrual = 100 accrued (total 350). Returned day 7 = 100 delta (total 350). Both agree exactly.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-09",
+      "track_overdue": false,
+      "locked_base_price": 250,
+      "locked_minimum_days": 5,
+      "locked_extra_daily_rate": 50,
+      "borrow_quantity": 1,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-15T12:00:00+05:30",
+    "returnDate": "2026-11-15",
+    "expected": {
+      "dispatchTotal": 250,
+      "extraOrLateDays": 2,
+      "chargeAtReturn": 350,
+      "accruedChargeIfStillOut": 100,
+      "subTotalDelta": 100,
+      "totalDelta": 100
+    }
+  },
+  {
+    "id": "D14-qty0",
+    "description": "Quantity 0: periodCharge and line total are 0.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-09",
+      "track_overdue": false,
+      "locked_base_price": 250,
+      "locked_minimum_days": 5,
+      "locked_extra_daily_rate": 50,
+      "borrow_quantity": 0,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-15T12:00:00+05:30",
+    "returnDate": "2026-11-15",
+    "expected": {
+      "dispatchTotal": 0,
+      "extraOrLateDays": 2,
+      "chargeAtReturn": 0,
+      "accruedChargeIfStillOut": 0,
+      "subTotalDelta": 0,
+      "totalDelta": 0
+    }
+  },
+  {
+    "id": "D14-base0-extra0",
+    "description": "Base 0 and extra rate 0: free item always charges 0.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-09",
+      "track_overdue": false,
+      "locked_base_price": 0,
+      "locked_minimum_days": 5,
+      "locked_extra_daily_rate": 0,
+      "borrow_quantity": 2,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-15T12:00:00+05:30",
+    "returnDate": "2026-11-15",
+    "expected": {
+      "dispatchTotal": 0,
+      "extraOrLateDays": 2,
+      "chargeAtReturn": 0,
+      "accruedChargeIfStillOut": 0,
+      "subTotalDelta": 0,
+      "totalDelta": 0
+    }
+  },
+  {
+    "id": "D14-minDays-string-5",
+    "description": "locked_minimum_days given as string '5': parses as 5. 7 days out -> 2 extra days.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-09",
+      "track_overdue": false,
+      "locked_base_price": 250,
+      "locked_minimum_days": "5",
+      "locked_extra_daily_rate": 50,
+      "borrow_quantity": 2,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-15T12:00:00+05:30",
+    "returnDate": "2026-11-15",
+    "expected": {
+      "dispatchTotal": 500,
+      "extraOrLateDays": 2,
+      "chargeAtReturn": 700,
+      "accruedChargeIfStillOut": 200,
+      "subTotalDelta": 200,
+      "totalDelta": 200
+    }
+  },
+  {
+    "id": "D14-minDays-0-counts-as-1",
+    "description": "locked_minimum_days given as 0: counts as 1. 3 days out -> 2 extra days.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-09",
+      "track_overdue": false,
+      "locked_base_price": 300,
+      "locked_minimum_days": 0,
+      "locked_extra_daily_rate": 300,
+      "borrow_quantity": 1,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-11T12:00:00+05:30",
+    "returnDate": "2026-11-11",
+    "expected": {
+      "dispatchTotal": 300,
+      "extraOrLateDays": 2,
+      "chargeAtReturn": 900,
+      "accruedChargeIfStillOut": 600,
+      "subTotalDelta": 600,
+      "totalDelta": 600
+    }
+  },
+  {
+    "id": "D14-minDays-null",
+    "description": "locked_minimum_days given as null: counts as 1. 3 days out -> 2 extra days.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-09",
+      "track_overdue": false,
+      "locked_base_price": 300,
+      "locked_minimum_days": null,
+      "locked_extra_daily_rate": 300,
+      "borrow_quantity": 1,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-11T12:00:00+05:30",
+    "returnDate": "2026-11-11",
+    "expected": {
+      "dispatchTotal": 300,
+      "extraOrLateDays": 2,
+      "chargeAtReturn": 900,
+      "accruedChargeIfStillOut": 600,
+      "subTotalDelta": 600,
+      "totalDelta": 600
+    }
+  },
+  {
+    "id": "D15-decimal-strings",
+    "description": "Prices as MySQL DECIMAL strings ('250.00' and '50.00'): numeric arithmetic converts correctly. 7 days out -> (250 + 2*50)*2 = 700.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-09",
+      "track_overdue": false,
+      "locked_base_price": "250.00",
+      "locked_minimum_days": 5,
+      "locked_extra_daily_rate": "50.00",
+      "borrow_quantity": 2,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-15T12:00:00+05:30",
+    "returnDate": "2026-11-15",
+    "expected": {
+      "dispatchTotal": 500,
+      "extraOrLateDays": 2,
+      "chargeAtReturn": 700,
+      "accruedChargeIfStillOut": 200,
+      "subTotalDelta": 200,
+      "totalDelta": 200
+    }
+  },
+  {
+    "id": "D16-backdated-borrow-date",
+    "description": "Backdated borrow_date (2026-11-07) vs issuedAt (2026-11-09T10:00:00+05:30). lineOutMoment combines date with clock -> 2026-11-07T10:00:00+05:30. Returned 2026-11-15T12:00:00 -> 9 elapsed days. Extra = 4 * 50 = 200. Total = 450.",
+    "line": {
+      "borrow_date": "2026-11-07",
+      "expected_return_date": "2026-11-07",
+      "track_overdue": false,
+      "locked_base_price": 250,
+      "locked_minimum_days": 5,
+      "locked_extra_daily_rate": 50,
+      "borrow_quantity": 1,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-15T12:00:00+05:30",
+    "returnDate": "2026-11-15",
+    "expected": {
+      "dispatchTotal": 250,
+      "extraOrLateDays": 4,
+      "chargeAtReturn": 450,
+      "accruedChargeIfStillOut": 200,
+      "subTotalDelta": 200,
+      "totalDelta": 200
+    }
+  },
+  {
+    "id": "D17-tz-boundary-midnight",
+    "description": "Bill at 23:30 Asia/Colombo (18:00Z), returned next day at 00:30 Asia/Colombo (19:00Z). Elapsed = 1h <= 24h = 1 day. Extra = 0. Total = 300.",
+    "line": {
+      "borrow_date": "2026-11-09",
+      "expected_return_date": "2026-11-09",
+      "track_overdue": false,
+      "locked_base_price": 300,
+      "locked_minimum_days": 1,
+      "locked_extra_daily_rate": 300,
+      "borrow_quantity": 1,
+      "good_returned_qty": 0,
+      "defective_returned_qty": 0,
+      "line_status": "Active"
+    },
+    "issuedAt": "2026-11-09T23:30:00+05:30",
+    "at": "2026-11-10T00:30:00+05:30",
+    "returnDate": "2026-11-10",
+    "expected": {
+      "dispatchTotal": 300,
+      "extraOrLateDays": 0,
+      "chargeAtReturn": 300,
+      "accruedChargeIfStillOut": 0,
+      "subTotalDelta": 0,
+      "totalDelta": 0
+    }
+  },
+  {
+    "id": "E18-multi-line-invoice",
+    "description": "Multi-line invoice: Line 1 (250/5d/50 qty 2) + Line 2 (300/1d/300 qty 1) + Transport 300 - Discount 100. Dispatch subtotal=800, total=1000. On day 7: Line 1 +200, Line 2 +1800. Subtotal=2800, total=3000.",
+    "invoice": {
+      "transport_fee": 300,
+      "discount_amount": 100,
+      "expectedDispatchSubTotal": 800,
+      "expectedDispatchTotal": 1000,
+      "expectedReturnSubTotal": 2800,
+      "expectedReturnTotal": 3000
+    },
+    "lines": [
+      {
+        "borrow_date": "2026-11-09",
+        "expected_return_date": "2026-11-09",
+        "track_overdue": false,
+        "locked_base_price": 250,
+        "locked_minimum_days": 5,
+        "locked_extra_daily_rate": 50,
+        "borrow_quantity": 2,
+        "good_returned_qty": 0,
+        "defective_returned_qty": 0,
+        "line_status": "Active"
+      },
+      {
+        "borrow_date": "2026-11-09",
+        "expected_return_date": "2026-11-09",
+        "track_overdue": false,
+        "locked_base_price": 300,
+        "locked_minimum_days": 1,
+        "locked_extra_daily_rate": 300,
+        "borrow_quantity": 1,
+        "good_returned_qty": 0,
+        "defective_returned_qty": 0,
+        "line_status": "Active"
+      }
+    ],
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-15T12:00:00+05:30",
+    "returnDate": "2026-11-15",
+    "expected": {
+      "dispatchTotal": 1000,
+      "subTotal": 800,
+      "chargeAtReturn": 3000,
+      "subTotalAtReturn": 2800
+    }
+  },
+  {
+    "id": "E18-discount-caps-at-zero",
+    "description": "Discount exceeding subtotal + transport caps total at 0: Subtotal 500, Transport 0, Discount 800 -> Total = max(0, 500 - 800) = 0.",
+    "invoice": {
+      "transport_fee": 0,
+      "discount_amount": 800,
+      "expectedDispatchSubTotal": 500,
+      "expectedDispatchTotal": 0
+    },
+    "lines": [
+      {
+        "borrow_date": "2026-11-09",
+        "expected_return_date": "2026-11-09",
+        "track_overdue": false,
+        "locked_base_price": 250,
+        "locked_minimum_days": 5,
+        "locked_extra_daily_rate": 50,
+        "borrow_quantity": 2,
+        "good_returned_qty": 0,
+        "defective_returned_qty": 0,
+        "line_status": "Active"
+      }
+    ],
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-09T18:00:00+05:30",
+    "returnDate": "2026-11-09",
+    "expected": {
+      "dispatchTotal": 0,
+      "subTotal": 500,
+      "chargeAtReturn": 0,
+      "subTotalAtReturn": 500
+    }
+  },
+  {
+    "id": "E19-inv-104-snapshot",
+    "description": "INV-104 snapshot as stored: Line 1 (50/5d/50 qty 2, lockedCost 100) + Line 2 (50/1d/50 qty 2, lockedCost 100). Both on day 1 -> Total = Rs. 200. Proves locked snapshot drives charge.",
+    "invoice": {
+      "transport_fee": 0,
+      "discount_amount": 0,
+      "expectedDispatchSubTotal": 200,
+      "expectedDispatchTotal": 200
+    },
+    "lines": [
+      {
+        "borrow_date": "2026-11-09",
+        "expected_return_date": "2026-11-09",
+        "track_overdue": false,
+        "locked_base_price": 50,
+        "locked_minimum_days": 5,
+        "locked_extra_daily_rate": 50,
+        "borrow_quantity": 2,
+        "good_returned_qty": 0,
+        "defective_returned_qty": 0,
+        "line_status": "Active",
+        "line_total_amount": 100
+      },
+      {
+        "borrow_date": "2026-11-09",
+        "expected_return_date": "2026-11-09",
+        "track_overdue": false,
+        "locked_base_price": 50,
+        "locked_minimum_days": 1,
+        "locked_extra_daily_rate": 50,
+        "borrow_quantity": 2,
+        "good_returned_qty": 0,
+        "defective_returned_qty": 0,
+        "line_status": "Active",
+        "line_total_amount": 100
+      }
+    ],
+    "issuedAt": "2026-11-09T10:00:00+05:30",
+    "at": "2026-11-09T18:00:00+05:30",
+    "returnDate": "2026-11-09",
+    "expected": {
+      "dispatchTotal": 200,
+      "subTotal": 200,
+      "chargeAtReturn": 200,
+      "subTotalAtReturn": 200
+    }
+  }
+]

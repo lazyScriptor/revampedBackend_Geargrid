@@ -32,3 +32,41 @@ jobs:
 
       - name: Run Vitest Suite
         run: npm test -- --reporter=verbose
+
+  pricing-regression:
+    name: Pricing Regression (${{ matrix.tz }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tz: [UTC, Asia/Colombo]
+    env:
+      JWT_SECRET: "test-jwt-secret-super-long-geargrid-key-32chars"
+      JWT_REFRESH_SECRET: "test-jwt-refresh-secret-geargrid-key-32chars"
+      NODE_ENV: test
+      TZ: ${{ matrix.tz }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci || npm install
+
+      - name: Verify Golden Integrity
+        run: |
+          shasum -a 256 tests/fixtures/pricing-golden.json | awk '{print $1}' > actual.sha256
+          diff -u actual.sha256 tests/fixtures/pricing-golden.sha256
+
+      - name: Run Pricing Regression Tests
+        run: |
+          if [ "${{ matrix.tz }}" = "UTC" ]; then
+            npm run test:tz:utc -- tests/unit/pricing-regression.test.js
+          else
+            npm run test:tz:colombo -- tests/unit/pricing-regression.test.js
+          fi

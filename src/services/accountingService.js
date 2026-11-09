@@ -145,7 +145,7 @@ export const getFilteredInvoices = async (models, query) => {
   if (count > 0) {
     const matchingInvoices = await models.Invoice.findAll({
       where,
-      attributes: ["invoice_id", "total_amount"],
+      attributes: ["invoice_id", "total_amount", "accrued_charges"],
       include: query.search
         ? [
             {
@@ -167,7 +167,7 @@ export const getFilteredInvoices = async (models, query) => {
     }
 
     const totalAmountSum = uniqueMatching.reduce(
-      (acc, inv) => acc + parseFloat(inv.total_amount || 0),
+      (acc, inv) => acc + (parseFloat(inv.total_amount || 0) + parseFloat(inv.accrued_charges || 0)),
       0
     );
     const invoiceIds = uniqueMatching.map((inv) => inv.invoice_id);
