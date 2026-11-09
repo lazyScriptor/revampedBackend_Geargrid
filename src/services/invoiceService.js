@@ -20,8 +20,8 @@ export const resolveIssuedDate = (value, now = new Date()) => {
 };
 
 // Rental day maths lives in utils/rentalDays.js (re-exported here for existing callers).
-import { isOpenEndedLine, lateDays, lineOutMoment, openEndedExtraDays } from "../utils/rentalDays.js";
-export { wholeDaysBetween, lateDays, isOpenEndedLine, lineOutMoment, elapsedRentalDays, openEndedExtraDays } from "../utils/rentalDays.js";
+import { chargeableLateDays, isOpenEndedLine, lineOutMoment, openEndedExtraDays, periodCharge } from "../utils/rentalDays.js";
+export { wholeDaysBetween, lateDays, isOpenEndedLine, lineOutMoment, elapsedRentalDays, openEndedExtraDays, periodCharge, chargeableLateDays, contractDays } from "../utils/rentalDays.js";
 
 // --- 1. DISPATCH ENGINE (With Row-Level Locks) ---
 export const createDispatchInvoice = async (models, payload, userId) => {
@@ -41,15 +41,13 @@ export const createDispatchInvoice = async (models, payload, userId) => {
       let totalDays = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
       if (totalDays < 1 || isNaN(totalDays)) totalDays = 1;
 
-      let lineTotal = 0;
-      if (totalDays <= item.locked_minimum_days) {
-        lineTotal = item.locked_base_price * item.borrow_quantity;
-      } else {
-        const extraDays = totalDays - item.locked_minimum_days;
-        lineTotal =
-          (item.locked_base_price + extraDays * item.locked_extra_daily_rate) *
-          item.borrow_quantity;
-      }
+      const lineTotal = periodCharge({
+        base: item.locked_base_price,
+        minDays: item.locked_minimum_days,
+        rate: item.locked_extra_daily_rate,
+        days: totalDays,
+        qty: item.borrow_quantity,
+      });
       subTotal += lineTotal;
 
       return {
@@ -431,7 +429,8 @@ export const processReturn = async (models, payload, userId) => {
       const extraDays = openEnded
         ? openEndedExtraDays(line, lineOutMoment(line, invoice.issued_date), returnData.actual_return_at || new Date())
         : overdueEnabled
-          ? lateDays(line.expected_return_date, returnData.actual_return_date)
+          ? // Days past the due date that are still inside the paid period are not charged.
+            chargeableLateDays(line, returnData.actual_return_date)
           : 0;
 
       let lineLateFee = 0;
