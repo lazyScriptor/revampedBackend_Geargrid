@@ -12,10 +12,10 @@ import { Op } from "sequelize";
 import { getCachedTenantConnection } from "../config/database.js";
 import { initTenantModels } from "../models/index.js";
 import {
+  chargeableLateDays,
   dayInShopTz,
   elapsedRentalDays,
   isOpenEndedLine,
-  lateDays,
   lineOutMoment,
   wholeDaysBetween,
 } from "../utils/rentalDays.js";
@@ -34,13 +34,13 @@ export const lineAccrual = (line, issuedAt, now = new Date()) => {
   if (isOpenEndedLine(line)) {
     // Elapsed time rounded up: past 24 hours is the next day.
     const daysOut = elapsedRentalDays(lineOutMoment(line, issuedAt), now);
-    const extra = Math.max(0, daysOut - Math.max(1, Number(line.locked_minimum_days) || 1));
+    const extra = Math.max(0, daysOut - Math.max(1, parseInt(line.locked_minimum_days, 10) || 1));
     // Days out are the rental itself (part of the subtotal), not a fee.
     return { accrued_charge: money(extra * rate * pending), accrued_days: extra, days_out: daysOut, rental: true };
   }
   const today = dayInShopTz(now);
   const daysOut = Math.max(1, wholeDaysBetween(line.borrow_date, today));
-  const late = isTracked(line.track_overdue) ? lateDays(line.expected_return_date, today) : 0;
+  const late = isTracked(line.track_overdue) ? chargeableLateDays(line, today) : 0;
   // Late days past a set due date: the exception, shown as a late fee.
   return { accrued_charge: money(late * rate * pending), accrued_days: late, days_out: daysOut, rental: false };
 };

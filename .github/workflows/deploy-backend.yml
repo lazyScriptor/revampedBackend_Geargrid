@@ -31,9 +31,72 @@ jobs:
       - name: 4. Execute Vitest Test Suites
         run: npm test -- --reporter=verbose
 
+  pricing-regression:
+    name: Pricing Regression (${{ matrix.tz }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tz: [UTC, Asia/Colombo]
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      JWT_SECRET: "test-jwt-secret-super-long-geargrid-key-32chars"
+      JWT_REFRESH_SECRET: "test-jwt-refresh-secret-geargrid-key-32chars"
+      NODE_ENV: test
+      TZ: ${{ matrix.tz }}
+    steps:
+      - name: 1. Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 2. Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: 3. Install Dependencies
+        run: npm ci || npm install
+
+      - name: 4. Verify Golden File Integrity & Remote Sync
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          shasum -a 256 tests/fixtures/pricing-golden.json | awk '{print $1}' > actual.sha256
+          if ! diff -u actual.sha256 tests/fixtures/pricing-golden.sha256; then
+            echo "::error::Local pricing-golden.json does not match pricing-golden.sha256"
+            exit 1
+          fi
+
+          echo "Comparing golden file with revampedFrontend..."
+          if gh api repos/lazyScriptor/revampedFrontend/contents/src/features/invoices/lib/__tests__/fixtures/pricing-golden.json --jq .content 2>/dev/null | base64 -d > remote-frontend-golden.json; then
+            if ! diff -u tests/fixtures/pricing-golden.json remote-frontend-golden.json; then
+              echo "::error::pricing-golden.json has drifted between backend and frontend!"
+              exit 1
+            fi
+            echo "Frontend and backend golden files are in exact sync."
+          else
+            echo "::warning::Unable to fetch frontend pricing-golden.json via gh api. Fallback to local sha256 check passed."
+          fi
+
+      - name: 5. Execute Pricing Regression Tests
+        run: |
+          if [ "${{ matrix.tz }}" = "UTC" ]; then
+            npm run test:tz:utc -- tests/unit/pricing-regression.test.js --reporter=verbose --reporter=junit --outputFile=pricing-results-${{ matrix.tz }}.xml
+          else
+            npm run test:tz:colombo -- tests/unit/pricing-regression.test.js --reporter=verbose --reporter=junit --outputFile=pricing-results-${{ matrix.tz }}.xml
+          fi
+
+      - name: 6. Upload Test Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-pricing-results-${{ matrix.tz }}
+          path: pricing-results-${{ matrix.tz }}.xml
+          if-no-files-found: warn
+
   deploy-backend:
     name: Deploy to Production VM
-    needs: [test-backend]
+    needs: [test-backend, pricing-regression]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     env:
