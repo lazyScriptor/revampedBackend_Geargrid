@@ -13,6 +13,32 @@ export const wholeDaysBetween = (from, to) => {
 };
 /** Days past the due date (0 when on time). */
 export const lateDays = (expected, actual) => Math.max(0, wholeDaysBetween(expected, actual));
+
+// ── The pricing rule (one place) ────────────────────────────────────────────────────────────────
+// The base price pays for the whole minimum period (e.g. Rs. 250 for up to 5 days). Every day after
+// that period costs the extra daily rate. Both are per unit. A 1-day machine is the same rule with a
+// 1-day period, so "Rs. 50 a day" = base 50, period 1, extra 50.
+const minDaysOf = (line) => Math.max(1, parseInt(line?.locked_minimum_days, 10) || 1);
+
+/** Charge for `days` out: (base + days past the period × extra rate) × qty. */
+export const periodCharge = ({ base, minDays, rate, days, qty }) => {
+  const d = Math.max(1, Number(days) || 1);
+  const extra = Math.max(0, d - Math.max(1, Number(minDays) || 1));
+  return ((Number(base) || 0) + extra * (Number(rate) || 0)) * (Number(qty) || 0);
+};
+
+/** Days the dispatch price was worked out for (out date to due date, at least 1). */
+export const contractDays = (line) => Math.max(1, wholeDaysBetween(line.borrow_date, line.expected_return_date));
+
+/**
+ * Chargeable late days for a line with a due date: days past the due date, but never days still
+ * inside the paid minimum period. A 5-day scaffold due back tomorrow and returned on day 3 owes
+ * nothing extra; returned on day 7 it owes 2 days. For 1-day machines this is plain days late.
+ */
+export const chargeableLateDays = (line, actual) => {
+  const insidePeriod = Math.max(0, minDaysOf(line) - contractDays(line));
+  return Math.max(0, lateDays(line.expected_return_date, actual) - insidePeriod);
+};
 /**
  * No return date was given at dispatch: the line was saved with a due date equal to the out date and
  * return tracking off. (A tracked line whose late fees were waived keeps its real due date, so it is not this.)
@@ -49,5 +75,5 @@ export const elapsedRentalDays = (outAt, returnAt) => {
 
 /** Days charged beyond what the locked price already covers, for an open-ended line. */
 export const openEndedExtraDays = (line, outAt, returnAt) =>
-  Math.max(0, elapsedRentalDays(outAt, returnAt) - Math.max(1, Number(line.locked_minimum_days) || 1));
+  Math.max(0, elapsedRentalDays(outAt, returnAt) - minDaysOf(line));
 
