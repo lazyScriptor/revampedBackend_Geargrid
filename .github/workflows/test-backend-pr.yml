@@ -66,7 +66,15 @@ jobs:
       - name: Run Pricing Regression Tests
         run: |
           if [ "${{ matrix.tz }}" = "UTC" ]; then
-            npm run test:tz:utc -- tests/unit/pricing-regression.test.js
+            npm run test:tz:utc -- --reporter=verbose --reporter=junit --outputFile=pricing-results-${{ matrix.tz }}.xml
           else
-            npm run test:tz:colombo -- tests/unit/pricing-regression.test.js
+            npm run test:tz:colombo -- --reporter=verbose --reporter=junit --outputFile=pricing-results-${{ matrix.tz }}.xml
           fi
+
+      - name: Upload Pricing Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-pricing-results-${{ matrix.tz }}
+          path: pricing-results-${{ matrix.tz }}.xml
+          if-no-files-found: warn

@@ -2,7 +2,7 @@
 // 5 days); each day after the period costs the extra daily rate. All per unit.
 import { describe, it, expect, vi } from "vitest";
 import { processReturn } from "../../src/services/invoiceService.js";
-import { lineAccrual } from "../../src/services/accrualService.js";
+import { lineAccrual, refreshAccruals } from "../../src/services/accrualService.js";
 import { periodCharge, chargeableLateDays } from "../../src/utils/rentalDays.js";
 
 vi.mock("../../src/sockets/emitters.js", () => ({ emitToUser: vi.fn(), emitToTenant: vi.fn() }));
@@ -104,6 +104,44 @@ describe("returning a 5-day scaffold (2 units, no return date)", () => {
     expect(line.line_status).toBe("Active");
     // the unit still out has the same 2 extra days running
     expect(lineAccrual(line, ISSUED, DAY[7]).accrued_charge).toBe(100);
+  });
+
+  it("three partial handovers accumulate only each returned unit's own extra days", async () => {
+    const line = scaffold({ borrow_quantity: 3, line_total_amount: 750 });
+    const inv = invoiceFor(line);
+    const models = buildModels(inv, line);
+    const equipment = withUpdate({ equipment_id: 1, rented_qty: 3, available_qty: 0, defective_qty: 0 });
+    models.Equipment.findByPk = async () => equipment;
+
+    const handOverOne = (goodQty, date, actualReturnAt) => processReturn(
+      models,
+      {
+        invoice_id: 104,
+        final_payment_amount: 0,
+        lines_returned: [{ line_id: 1, good_qty: goodQty, defective_qty: 0, actual_return_date: date, actual_return_at: actualReturnAt }],
+      },
+      1,
+    );
+
+    await handOverOne(1, "2026-11-10", "2026-11-10T13:55:00+05:30"); // elapsed day 2: +0
+    expect(line.line_total_amount).toBe(750);
+    expect(line.line_status).toBe("Active");
+    expect(inv.total_amount).toBe(750);
+
+    await handOverOne(1, "2026-11-14", "2026-11-14T13:55:00+05:30"); // elapsed day 6: +50
+    expect(line.line_total_amount).toBe(800);
+    expect(line.line_status).toBe("Active");
+    expect(inv.total_amount).toBe(800);
+    await refreshAccruals(models, { now: at("2026-11-14T13:55:00") });
+    expect(inv.accrued_charges).toBe(50); // one remaining unit continues accruing
+
+    await handOverOne(1, "2026-11-17", "2026-11-17T13:55:00+05:30"); // elapsed day 9: +200
+    expect(line.line_total_amount).toBe(1000);
+    expect(line.line_status).toBe("Returned");
+    expect(inv.total_amount).toBe(1000);
+    expect(inv.sub_total).toBe(1000);
+    expect(inv.accrued_charges).toBe(0);
+    expect(equipment.rented_qty).toBe(0);
   });
 });
 

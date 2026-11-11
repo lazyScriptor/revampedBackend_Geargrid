@@ -14,8 +14,8 @@
     "db:migrate:status": "node ./src/scripts/migrate.js status",
     "db:migrate:baseline": "node ./src/scripts/migrate.js baseline",
     "db:migrate:create": "node ./src/scripts/migrate.js create",
-    "test:tz:utc": "TZ=UTC vitest run tests/unit/pricing-regression.test.js",
-    "test:tz:colombo": "TZ=Asia/Colombo vitest run tests/unit/pricing-regression.test.js"
+    "test:tz:utc": "TZ=UTC vitest run tests/unit/pricing-regression.test.js tests/unit/period-pricing.test.js tests/unit/pricing-repricing.test.js",
+    "test:tz:colombo": "TZ=Asia/Colombo vitest run tests/unit/pricing-regression.test.js tests/unit/period-pricing.test.js tests/unit/pricing-repricing.test.js"
   },
   "author": "",
   "license": "ISC",

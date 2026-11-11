@@ -206,6 +206,56 @@ describe("Step 2.2: Dispatch Invoice calculations", () => {
     const res = await createDispatchInvoice(models, payload, 1);
     expect(res.sub_total).toBeCloseTo(multiCase.invoice.expectedDispatchSubTotal, 2);
     expect(res.total_amount).toBeCloseTo(multiCase.invoice.expectedDispatchTotal, 2);
+    expect(createdLines).toHaveLength(multiCase.lines.length);
+    for (const [index, line] of createdLines.entries()) {
+      expect(Number(line.line_total_amount)).toBeCloseTo(
+        periodCharge({
+          base: line.locked_base_price,
+          minDays: line.locked_minimum_days,
+          rate: line.locked_extra_daily_rate,
+          days: Math.max(1, wholeDaysBetween(line.borrow_date, line.expected_return_date)),
+          qty: line.borrow_quantity,
+        }),
+        2,
+      );
+      expect(Number(line.locked_base_price)).toBe(Number(multiCase.lines[index].locked_base_price));
+      expect(Number(line.locked_minimum_days)).toBe(Number(multiCase.lines[index].locked_minimum_days));
+      expect(Number(line.locked_extra_daily_rate)).toBe(Number(multiCase.lines[index].locked_extra_daily_rate));
+    }
+  });
+
+  it("INV-104 snapshot: dispatch stores the old locked prices and Rs. 200 total until repriced", async () => {
+    const snapshot = goldenCases.find((c) => c.id === "E19-inv-104-snapshot");
+    expect(snapshot).toBeDefined();
+    const createdLines = [];
+    const models = {
+      sequelize: { transaction: async (fn) => fn({ LOCK: { UPDATE: "UPDATE" } }) },
+      Invoice: {
+        create: vi.fn(async (data) => withUpdate({ invoice_id: 204, ...data })),
+        findAll: vi.fn(async () => []),
+      },
+      InvoiceLine: { bulkCreate: vi.fn(async (lines) => (createdLines.push(...lines), lines)) },
+      Equipment: {
+        findByPk: vi.fn(async (id) => withUpdate({ equipment_id: id, available_qty: 10, rented_qty: 0 })),
+      },
+      InvoiceTrace: { create: vi.fn() },
+      Customer: { findByPk: vi.fn(async () => ({ customer_id: 1, customer_delete_status: false, status: "Active" })) },
+    };
+    const result = await createDispatchInvoice(
+      models,
+      {
+        customer_id: 1,
+        items: snapshot.lines.map((line, index) => ({ ...line, equipment_id: index + 1 })),
+        fees: { transport: 0, discount: 0 },
+        issued_date: snapshot.issuedAt,
+      },
+      1,
+    );
+    expect(result.sub_total).toBe(200);
+    expect(result.total_amount).toBe(200);
+    expect(createdLines.map((line) => Number(line.line_total_amount))).toEqual([100, 100]);
+    expect(createdLines.map((line) => Number(line.locked_base_price))).toEqual([50, 50]);
+    expect(createdLines.map((line) => Number(line.locked_minimum_days))).toEqual([5, 1]);
   });
 
   it("caps total_amount at zero when discount exceeds subtotal + fees", async () => {
