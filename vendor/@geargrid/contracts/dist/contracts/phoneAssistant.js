@@ -102,6 +102,10 @@ export const RegisterDeviceContract = {
         os_version: z.string().trim().max(20).nullable().optional(),
         reported_state: ReportedStateSchema.nullable().optional(),
         click_to_call_enabled: z.boolean().optional(),
+        cached_briefs: z.number().int().nonnegative().optional(),
+        outbox_pending: z.number().int().nonnegative().optional(),
+        last_brief_sync_at: ISODate.optional(),
+        last_contact_sync_at: ISODate.optional(),
     }),
     response: successEnvelope(z.object({
         is_admin: z.boolean(),
@@ -576,6 +580,11 @@ export const UpdateShopDeviceContract = {
         contact_sync_mode: ContactSyncModeEnum.optional(),
         call_logging_scope: CallLoggingScopeEnum.optional(),
         sim_filter: z.string().trim().max(64).nullable().optional(),
+        notification_language: z.enum(["en", "si", "ta", "si-Latn"]).nullable().optional(),
+        app_language: z.enum(["follow_phone", "en", "si", "ta"]).nullable().optional(),
+        call_text_scale: z.number().min(0.8).max(2).nullable().optional(),
+        app_text_size: z.enum(["small", "default", "large", "extra_large"]).nullable().optional(),
+        app_lock_enabled: z.boolean().optional(),
     }),
     response: successEnvelope(z.object({
         device: ShopDeviceItemSchema,
@@ -652,6 +661,7 @@ export const BriefProfileSchema = z.object({
     fields: z.array(z.string()),
     lock_screen: BriefLockScreenModeEnum,
     amounts: BriefAmountModeEnum,
+    call_screen: z.unknown().optional(),
 });
 export const OverlayPolicySchema = z.object({
     position: z.enum(["top", "bottom"]),
@@ -696,6 +706,23 @@ export const AfterCallCardPolicySchema = z.object({
         .default([...DEFAULT_AFTER_CALL_TAGS]),
     auto_dismiss_seconds: z.number().int().min(0).max(120).default(25),
 });
+export const CallScreenSchema = z.object({
+    version: z.literal(1),
+    size: z.enum(["compact", "standard", "large", "extra_large"]),
+    text_scale: z.number().min(0.8).max(2),
+    shape: z.object({ width: z.enum(["inset", "full"]), corner_radius: z.number().int().min(0).max(28), position: z.enum(["top", "middle", "bottom"]), opacity: z.number().min(0.8).max(1), elevation: z.boolean() }),
+    theme: z.object({ mode: z.enum(["auto", "light", "dark"]), accent: z.enum(["brand", "neutral"]), status_bar: z.boolean() }),
+    header: z.object({ show_logo: z.boolean(), show_shop_name: z.boolean() }),
+    rows: z.array(z.object({ field: z.string(), style: z.enum(["title", "emphasis", "body", "caption", "stars", "list", "chip"]), label: z.boolean().optional(), max_items: z.number().int().min(1).max(10).optional() })).min(1).max(16),
+    rules: z.array(z.object({ when: z.enum(["status_blacklisted", "balance_due_over", "overdue_days_over", "rating_under", "id_retained", "unknown_caller"]), value: z.number().optional(), accent: z.enum(["danger", "warning", "brand", "neutral"]).optional(), banner: z.boolean().optional(), vibrate: z.boolean().optional() })).max(12),
+    actions: z.array(z.enum(["dismiss", "add_note", "open_on_desktop", "open_app", "call_back_later"])).max(3),
+    behaviour: z.object({ auto_dismiss_seconds: z.number().int().min(0).max(60), draggable: z.boolean(), tap_to_expand: z.boolean(), show_for: z.enum(["incoming", "incoming_and_outgoing"]), collapsed_rows: z.number().int().min(1).max(10) }),
+    locked: z.object({ mode: BriefLockScreenModeEnum }),
+});
+export const SyncPolicySchema = z.object({ stale_after_minutes: z.number().int().min(1).max(10080), warn_after_hours: z.number().int().min(1).max(8760), show_sync_footer: z.enum(["always", "only_when_stale", "never"]) });
+export const CallScreenPolicySchema = z.object({ allow_phone_text_scale: z.boolean(), min: z.number().min(0.8).max(2), max: z.number().min(0.8).max(2), respect_system_font: z.boolean() });
+export const NotificationsLanguagePolicySchema = z.object({ default_language: z.enum(["en", "si", "ta", "si-Latn"]), allowed_languages: z.array(z.enum(["en", "si", "ta", "si-Latn"])).min(1), bilingual: z.enum(["off", "append_english"]), format: z.object({ currency: z.enum(["LKR", "Rs.", "රු."]), date: z.enum(["yyyy-mm-dd", "dd MMM", "dd/mm"]), time: z.enum(["24h", "12h"]), digits: z.literal("latin") }) });
+export const FullAppPolicySchema = z.object({ enabled: z.boolean(), require_app_lock: z.boolean(), session_minutes: z.number().int().min(1).max(1440), block_screenshots: z.boolean() });
 export const PhoneAssistantPolicySchema = z.object({
     approval_mode: PhoneAssistantApprovalModeEnum,
     auto_suspend_days: z.number().int().min(0).max(365),
@@ -709,6 +736,10 @@ export const PhoneAssistantPolicySchema = z.object({
     unknown_caller: UnknownCallerModeEnum.optional(),
     shared_number: SharedNumberModeEnum.optional(),
     desktop_popup: z.object({ roles: z.array(PositiveInt) }).optional(),
+    sync: SyncPolicySchema.optional(),
+    call_screen: CallScreenPolicySchema.optional(),
+    notifications: NotificationsLanguagePolicySchema.optional(),
+    full_app: FullAppPolicySchema.optional(),
     contact_sync: ContactSyncPolicySchema.optional(),
     call_logging: CallLoggingPolicySchema.optional(),
     after_call_card: AfterCallCardPolicySchema.optional(),
@@ -727,6 +758,12 @@ export const UpdatePhoneAssistantPolicyContract = {
     response: successEnvelope(z.object({
         policy: PhoneAssistantPolicySchema,
     })),
+};
+export const PatchPhoneAssistantPolicyContract = {
+    path: "/phone-assistant/policy",
+    method: "PATCH",
+    body: z.object({ updates: z.array(z.object({ path: z.string().min(1).max(120), value: z.unknown() })).min(1).max(30) }),
+    response: successEnvelope(z.object({ policy: PhoneAssistantPolicySchema })),
 };
 export const DevicePolicyResponseSchema = z.object({
     device_status: DeviceStatusEnum,
@@ -750,6 +787,10 @@ export const DevicePolicyResponseSchema = z.object({
     paired_at: ISODate.nullable().optional(),
     consented_capabilities: z.record(z.string(), z.boolean()).optional(),
     after_call_card: AfterCallCardPolicySchema.optional(),
+    call_screen: CallScreenSchema.optional(),
+    sync: SyncPolicySchema.optional(),
+    notification_languages: z.array(z.string()).optional(),
+    full_app: FullAppPolicySchema.optional(),
     min_app_version: z.string().optional(),
     latest_app_version: z.string().optional(),
 });
@@ -940,5 +981,27 @@ export const CreateDeviceLeadContactContract = {
     response: successEnvelope(z.object({
         lead: LeadContactItemSchema,
     })),
+};
+export const PushTemplateSchema = z.object({
+    event_key: z.string(), language: z.enum(["en", "si", "ta", "si-Latn"]), title: z.string().max(160), body: z.string().max(500),
+    title_private: z.string().max(160).nullable().optional(), body_private: z.string().max(500).nullable().optional(), edited: z.boolean().optional(),
+});
+export const GetPushTemplatesContract = {
+    path: "/phone-assistant/templates", method: "GET",
+    response: successEnvelope(z.object({ templates: z.array(PushTemplateSchema), languages: z.array(z.string()), events: z.array(z.object({ key: z.string(), placeholders: z.array(z.string()) })) })),
+};
+export const PutPushTemplateContract = {
+    path: "/phone-assistant/templates/:event_key/:language", method: "PUT",
+    params: z.object({ event_key: z.string(), language: z.enum(["en", "si", "ta", "si-Latn"]) }),
+    body: PushTemplateSchema.omit({ event_key: true, language: true, edited: true }),
+    response: successEnvelope(z.object({ template: PushTemplateSchema })),
+};
+export const DeletePushTemplateContract = {
+    path: "/phone-assistant/templates/:event_key/:language", method: "DELETE", params: z.object({ event_key: z.string(), language: z.enum(["en", "si", "ta", "si-Latn"]) }), response: successEnvelope(z.object({ restored: z.boolean() })),
+};
+export const PreviewPushTemplateContract = {
+    path: "/phone-assistant/templates/preview", method: "POST",
+    body: z.object({ event_key: z.string(), language: z.enum(["en", "si", "ta", "si-Latn"]), title: z.string().max(160), body: z.string().max(500), title_private: z.string().max(160).nullable().optional(), body_private: z.string().max(500).nullable().optional() }),
+    response: successEnvelope(z.object({ normal: z.object({ title: z.string(), body: z.string() }), private: z.object({ title: z.string(), body: z.string() }) })),
 };
 //# sourceMappingURL=phoneAssistant.js.map

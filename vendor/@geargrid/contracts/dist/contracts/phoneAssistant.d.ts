@@ -124,6 +124,10 @@ export declare const RegisterDeviceContract: {
             sim_count: z.ZodOptional<z.ZodNumber>;
         }, z.core.$loose>>>;
         click_to_call_enabled: z.ZodOptional<z.ZodBoolean>;
+        cached_briefs: z.ZodOptional<z.ZodNumber>;
+        outbox_pending: z.ZodOptional<z.ZodNumber>;
+        last_brief_sync_at: z.ZodOptional<z.ZodString>;
+        last_contact_sync_at: z.ZodOptional<z.ZodString>;
     }, z.core.$strip>;
     readonly response: z.ZodObject<{
         status: z.ZodLiteral<"success">;
@@ -1346,6 +1350,26 @@ export declare const UpdateShopDeviceContract: {
             customers_and_contacts: "customers_and_contacts";
         }>>;
         sim_filter: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        notification_language: z.ZodOptional<z.ZodNullable<z.ZodEnum<{
+            en: "en";
+            si: "si";
+            ta: "ta";
+            "si-Latn": "si-Latn";
+        }>>>;
+        app_language: z.ZodOptional<z.ZodNullable<z.ZodEnum<{
+            en: "en";
+            si: "si";
+            ta: "ta";
+            follow_phone: "follow_phone";
+        }>>>;
+        call_text_scale: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+        app_text_size: z.ZodOptional<z.ZodNullable<z.ZodEnum<{
+            default: "default";
+            small: "small";
+            large: "large";
+            extra_large: "extra_large";
+        }>>>;
+        app_lock_enabled: z.ZodOptional<z.ZodBoolean>;
     }, z.core.$strip>;
     readonly response: z.ZodObject<{
         status: z.ZodLiteral<"success">;
@@ -1578,6 +1602,7 @@ export declare const BriefProfileSchema: z.ZodObject<{
         rounded: "rounded";
         flag_only: "flag_only";
     }>;
+    call_screen: z.ZodOptional<z.ZodUnknown>;
 }, z.core.$strip>;
 export type BriefProfile = z.infer<typeof BriefProfileSchema>;
 export declare const OverlayPolicySchema: z.ZodObject<{
@@ -1635,6 +1660,161 @@ export declare const AfterCallCardPolicySchema: z.ZodObject<{
     auto_dismiss_seconds: z.ZodDefault<z.ZodNumber>;
 }, z.core.$strip>;
 export type AfterCallCardPolicy = z.infer<typeof AfterCallCardPolicySchema>;
+export declare const CallScreenSchema: z.ZodObject<{
+    version: z.ZodLiteral<1>;
+    size: z.ZodEnum<{
+        large: "large";
+        extra_large: "extra_large";
+        compact: "compact";
+        standard: "standard";
+    }>;
+    text_scale: z.ZodNumber;
+    shape: z.ZodObject<{
+        width: z.ZodEnum<{
+            full: "full";
+            inset: "inset";
+        }>;
+        corner_radius: z.ZodNumber;
+        position: z.ZodEnum<{
+            top: "top";
+            bottom: "bottom";
+            middle: "middle";
+        }>;
+        opacity: z.ZodNumber;
+        elevation: z.ZodBoolean;
+    }, z.core.$strip>;
+    theme: z.ZodObject<{
+        mode: z.ZodEnum<{
+            auto: "auto";
+            light: "light";
+            dark: "dark";
+        }>;
+        accent: z.ZodEnum<{
+            brand: "brand";
+            neutral: "neutral";
+        }>;
+        status_bar: z.ZodBoolean;
+    }, z.core.$strip>;
+    header: z.ZodObject<{
+        show_logo: z.ZodBoolean;
+        show_shop_name: z.ZodBoolean;
+    }, z.core.$strip>;
+    rows: z.ZodArray<z.ZodObject<{
+        field: z.ZodString;
+        style: z.ZodEnum<{
+            title: "title";
+            emphasis: "emphasis";
+            body: "body";
+            caption: "caption";
+            stars: "stars";
+            list: "list";
+            chip: "chip";
+        }>;
+        label: z.ZodOptional<z.ZodBoolean>;
+        max_items: z.ZodOptional<z.ZodNumber>;
+    }, z.core.$strip>>;
+    rules: z.ZodArray<z.ZodObject<{
+        when: z.ZodEnum<{
+            id_retained: "id_retained";
+            status_blacklisted: "status_blacklisted";
+            balance_due_over: "balance_due_over";
+            overdue_days_over: "overdue_days_over";
+            rating_under: "rating_under";
+            unknown_caller: "unknown_caller";
+        }>;
+        value: z.ZodOptional<z.ZodNumber>;
+        accent: z.ZodOptional<z.ZodEnum<{
+            brand: "brand";
+            neutral: "neutral";
+            danger: "danger";
+            warning: "warning";
+        }>>;
+        banner: z.ZodOptional<z.ZodBoolean>;
+        vibrate: z.ZodOptional<z.ZodBoolean>;
+    }, z.core.$strip>>;
+    actions: z.ZodArray<z.ZodEnum<{
+        dismiss: "dismiss";
+        add_note: "add_note";
+        open_on_desktop: "open_on_desktop";
+        open_app: "open_app";
+        call_back_later: "call_back_later";
+    }>>;
+    behaviour: z.ZodObject<{
+        auto_dismiss_seconds: z.ZodNumber;
+        draggable: z.ZodBoolean;
+        tap_to_expand: z.ZodBoolean;
+        show_for: z.ZodEnum<{
+            incoming: "incoming";
+            incoming_and_outgoing: "incoming_and_outgoing";
+        }>;
+        collapsed_rows: z.ZodNumber;
+    }, z.core.$strip>;
+    locked: z.ZodObject<{
+        mode: z.ZodEnum<{
+            full: "full";
+            name_rating: "name_rating";
+            name_only: "name_only";
+            hidden: "hidden";
+        }>;
+    }, z.core.$strip>;
+}, z.core.$strip>;
+export type CallScreen = z.infer<typeof CallScreenSchema>;
+export declare const SyncPolicySchema: z.ZodObject<{
+    stale_after_minutes: z.ZodNumber;
+    warn_after_hours: z.ZodNumber;
+    show_sync_footer: z.ZodEnum<{
+        never: "never";
+        always: "always";
+        only_when_stale: "only_when_stale";
+    }>;
+}, z.core.$strip>;
+export declare const CallScreenPolicySchema: z.ZodObject<{
+    allow_phone_text_scale: z.ZodBoolean;
+    min: z.ZodNumber;
+    max: z.ZodNumber;
+    respect_system_font: z.ZodBoolean;
+}, z.core.$strip>;
+export declare const NotificationsLanguagePolicySchema: z.ZodObject<{
+    default_language: z.ZodEnum<{
+        en: "en";
+        si: "si";
+        ta: "ta";
+        "si-Latn": "si-Latn";
+    }>;
+    allowed_languages: z.ZodArray<z.ZodEnum<{
+        en: "en";
+        si: "si";
+        ta: "ta";
+        "si-Latn": "si-Latn";
+    }>>;
+    bilingual: z.ZodEnum<{
+        off: "off";
+        append_english: "append_english";
+    }>;
+    format: z.ZodObject<{
+        currency: z.ZodEnum<{
+            LKR: "LKR";
+            "Rs.": "Rs.";
+            "\u0DBB\u0DD4.": "රු.";
+        }>;
+        date: z.ZodEnum<{
+            "yyyy-mm-dd": "yyyy-mm-dd";
+            "dd MMM": "dd MMM";
+            "dd/mm": "dd/mm";
+        }>;
+        time: z.ZodEnum<{
+            "24h": "24h";
+            "12h": "12h";
+        }>;
+        digits: z.ZodLiteral<"latin">;
+    }, z.core.$strip>;
+}, z.core.$strip>;
+export declare const FullAppPolicySchema: z.ZodObject<{
+    enabled: z.ZodBoolean;
+    require_app_lock: z.ZodBoolean;
+    session_minutes: z.ZodNumber;
+    block_screenshots: z.ZodBoolean;
+}, z.core.$strip>;
 export declare const PhoneAssistantPolicySchema: z.ZodObject<{
     approval_mode: z.ZodEnum<{
         admin_approves_all: "admin_approves_all";
@@ -1660,6 +1840,7 @@ export declare const PhoneAssistantPolicySchema: z.ZodObject<{
             rounded: "rounded";
             flag_only: "flag_only";
         }>;
+        call_screen: z.ZodOptional<z.ZodUnknown>;
     }, z.core.$strip>>>;
     default_profile_by_role: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
     fallback_profile: z.ZodOptional<z.ZodString>;
@@ -1685,6 +1866,62 @@ export declare const PhoneAssistantPolicySchema: z.ZodObject<{
     }>>;
     desktop_popup: z.ZodOptional<z.ZodObject<{
         roles: z.ZodArray<z.ZodCoercedNumber<unknown>>;
+    }, z.core.$strip>>;
+    sync: z.ZodOptional<z.ZodObject<{
+        stale_after_minutes: z.ZodNumber;
+        warn_after_hours: z.ZodNumber;
+        show_sync_footer: z.ZodEnum<{
+            never: "never";
+            always: "always";
+            only_when_stale: "only_when_stale";
+        }>;
+    }, z.core.$strip>>;
+    call_screen: z.ZodOptional<z.ZodObject<{
+        allow_phone_text_scale: z.ZodBoolean;
+        min: z.ZodNumber;
+        max: z.ZodNumber;
+        respect_system_font: z.ZodBoolean;
+    }, z.core.$strip>>;
+    notifications: z.ZodOptional<z.ZodObject<{
+        default_language: z.ZodEnum<{
+            en: "en";
+            si: "si";
+            ta: "ta";
+            "si-Latn": "si-Latn";
+        }>;
+        allowed_languages: z.ZodArray<z.ZodEnum<{
+            en: "en";
+            si: "si";
+            ta: "ta";
+            "si-Latn": "si-Latn";
+        }>>;
+        bilingual: z.ZodEnum<{
+            off: "off";
+            append_english: "append_english";
+        }>;
+        format: z.ZodObject<{
+            currency: z.ZodEnum<{
+                LKR: "LKR";
+                "Rs.": "Rs.";
+                "\u0DBB\u0DD4.": "රු.";
+            }>;
+            date: z.ZodEnum<{
+                "yyyy-mm-dd": "yyyy-mm-dd";
+                "dd MMM": "dd MMM";
+                "dd/mm": "dd/mm";
+            }>;
+            time: z.ZodEnum<{
+                "24h": "24h";
+                "12h": "12h";
+            }>;
+            digits: z.ZodLiteral<"latin">;
+        }, z.core.$strip>;
+    }, z.core.$strip>>;
+    full_app: z.ZodOptional<z.ZodObject<{
+        enabled: z.ZodBoolean;
+        require_app_lock: z.ZodBoolean;
+        session_minutes: z.ZodNumber;
+        block_screenshots: z.ZodBoolean;
     }, z.core.$strip>>;
     contact_sync: z.ZodOptional<z.ZodObject<{
         allowed_modes: z.ZodArray<z.ZodEnum<{
@@ -1749,6 +1986,7 @@ export declare const GetPhoneAssistantPolicyContract: {
                         rounded: "rounded";
                         flag_only: "flag_only";
                     }>;
+                    call_screen: z.ZodOptional<z.ZodUnknown>;
                 }, z.core.$strip>>>;
                 default_profile_by_role: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
                 fallback_profile: z.ZodOptional<z.ZodString>;
@@ -1774,6 +2012,62 @@ export declare const GetPhoneAssistantPolicyContract: {
                 }>>;
                 desktop_popup: z.ZodOptional<z.ZodObject<{
                     roles: z.ZodArray<z.ZodCoercedNumber<unknown>>;
+                }, z.core.$strip>>;
+                sync: z.ZodOptional<z.ZodObject<{
+                    stale_after_minutes: z.ZodNumber;
+                    warn_after_hours: z.ZodNumber;
+                    show_sync_footer: z.ZodEnum<{
+                        never: "never";
+                        always: "always";
+                        only_when_stale: "only_when_stale";
+                    }>;
+                }, z.core.$strip>>;
+                call_screen: z.ZodOptional<z.ZodObject<{
+                    allow_phone_text_scale: z.ZodBoolean;
+                    min: z.ZodNumber;
+                    max: z.ZodNumber;
+                    respect_system_font: z.ZodBoolean;
+                }, z.core.$strip>>;
+                notifications: z.ZodOptional<z.ZodObject<{
+                    default_language: z.ZodEnum<{
+                        en: "en";
+                        si: "si";
+                        ta: "ta";
+                        "si-Latn": "si-Latn";
+                    }>;
+                    allowed_languages: z.ZodArray<z.ZodEnum<{
+                        en: "en";
+                        si: "si";
+                        ta: "ta";
+                        "si-Latn": "si-Latn";
+                    }>>;
+                    bilingual: z.ZodEnum<{
+                        off: "off";
+                        append_english: "append_english";
+                    }>;
+                    format: z.ZodObject<{
+                        currency: z.ZodEnum<{
+                            LKR: "LKR";
+                            "Rs.": "Rs.";
+                            "\u0DBB\u0DD4.": "රු.";
+                        }>;
+                        date: z.ZodEnum<{
+                            "yyyy-mm-dd": "yyyy-mm-dd";
+                            "dd MMM": "dd MMM";
+                            "dd/mm": "dd/mm";
+                        }>;
+                        time: z.ZodEnum<{
+                            "24h": "24h";
+                            "12h": "12h";
+                        }>;
+                        digits: z.ZodLiteral<"latin">;
+                    }, z.core.$strip>;
+                }, z.core.$strip>>;
+                full_app: z.ZodOptional<z.ZodObject<{
+                    enabled: z.ZodBoolean;
+                    require_app_lock: z.ZodBoolean;
+                    session_minutes: z.ZodNumber;
+                    block_screenshots: z.ZodBoolean;
                 }, z.core.$strip>>;
                 contact_sync: z.ZodOptional<z.ZodObject<{
                     allowed_modes: z.ZodArray<z.ZodEnum<{
@@ -1836,6 +2130,7 @@ export declare const UpdatePhoneAssistantPolicyContract: {
                 rounded: "rounded";
                 flag_only: "flag_only";
             }>;
+            call_screen: z.ZodOptional<z.ZodUnknown>;
         }, z.core.$strip>>>>;
         default_profile_by_role: z.ZodOptional<z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>>;
         fallback_profile: z.ZodOptional<z.ZodOptional<z.ZodString>>;
@@ -1861,6 +2156,62 @@ export declare const UpdatePhoneAssistantPolicyContract: {
         }>>>;
         desktop_popup: z.ZodOptional<z.ZodOptional<z.ZodObject<{
             roles: z.ZodArray<z.ZodCoercedNumber<unknown>>;
+        }, z.core.$strip>>>;
+        sync: z.ZodOptional<z.ZodOptional<z.ZodObject<{
+            stale_after_minutes: z.ZodNumber;
+            warn_after_hours: z.ZodNumber;
+            show_sync_footer: z.ZodEnum<{
+                never: "never";
+                always: "always";
+                only_when_stale: "only_when_stale";
+            }>;
+        }, z.core.$strip>>>;
+        call_screen: z.ZodOptional<z.ZodOptional<z.ZodObject<{
+            allow_phone_text_scale: z.ZodBoolean;
+            min: z.ZodNumber;
+            max: z.ZodNumber;
+            respect_system_font: z.ZodBoolean;
+        }, z.core.$strip>>>;
+        notifications: z.ZodOptional<z.ZodOptional<z.ZodObject<{
+            default_language: z.ZodEnum<{
+                en: "en";
+                si: "si";
+                ta: "ta";
+                "si-Latn": "si-Latn";
+            }>;
+            allowed_languages: z.ZodArray<z.ZodEnum<{
+                en: "en";
+                si: "si";
+                ta: "ta";
+                "si-Latn": "si-Latn";
+            }>>;
+            bilingual: z.ZodEnum<{
+                off: "off";
+                append_english: "append_english";
+            }>;
+            format: z.ZodObject<{
+                currency: z.ZodEnum<{
+                    LKR: "LKR";
+                    "Rs.": "Rs.";
+                    "\u0DBB\u0DD4.": "රු.";
+                }>;
+                date: z.ZodEnum<{
+                    "yyyy-mm-dd": "yyyy-mm-dd";
+                    "dd MMM": "dd MMM";
+                    "dd/mm": "dd/mm";
+                }>;
+                time: z.ZodEnum<{
+                    "24h": "24h";
+                    "12h": "12h";
+                }>;
+                digits: z.ZodLiteral<"latin">;
+            }, z.core.$strip>;
+        }, z.core.$strip>>>;
+        full_app: z.ZodOptional<z.ZodOptional<z.ZodObject<{
+            enabled: z.ZodBoolean;
+            require_app_lock: z.ZodBoolean;
+            session_minutes: z.ZodNumber;
+            block_screenshots: z.ZodBoolean;
         }, z.core.$strip>>>;
         contact_sync: z.ZodOptional<z.ZodOptional<z.ZodObject<{
             allowed_modes: z.ZodArray<z.ZodEnum<{
@@ -1921,6 +2272,7 @@ export declare const UpdatePhoneAssistantPolicyContract: {
                         rounded: "rounded";
                         flag_only: "flag_only";
                     }>;
+                    call_screen: z.ZodOptional<z.ZodUnknown>;
                 }, z.core.$strip>>>;
                 default_profile_by_role: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
                 fallback_profile: z.ZodOptional<z.ZodString>;
@@ -1946,6 +2298,216 @@ export declare const UpdatePhoneAssistantPolicyContract: {
                 }>>;
                 desktop_popup: z.ZodOptional<z.ZodObject<{
                     roles: z.ZodArray<z.ZodCoercedNumber<unknown>>;
+                }, z.core.$strip>>;
+                sync: z.ZodOptional<z.ZodObject<{
+                    stale_after_minutes: z.ZodNumber;
+                    warn_after_hours: z.ZodNumber;
+                    show_sync_footer: z.ZodEnum<{
+                        never: "never";
+                        always: "always";
+                        only_when_stale: "only_when_stale";
+                    }>;
+                }, z.core.$strip>>;
+                call_screen: z.ZodOptional<z.ZodObject<{
+                    allow_phone_text_scale: z.ZodBoolean;
+                    min: z.ZodNumber;
+                    max: z.ZodNumber;
+                    respect_system_font: z.ZodBoolean;
+                }, z.core.$strip>>;
+                notifications: z.ZodOptional<z.ZodObject<{
+                    default_language: z.ZodEnum<{
+                        en: "en";
+                        si: "si";
+                        ta: "ta";
+                        "si-Latn": "si-Latn";
+                    }>;
+                    allowed_languages: z.ZodArray<z.ZodEnum<{
+                        en: "en";
+                        si: "si";
+                        ta: "ta";
+                        "si-Latn": "si-Latn";
+                    }>>;
+                    bilingual: z.ZodEnum<{
+                        off: "off";
+                        append_english: "append_english";
+                    }>;
+                    format: z.ZodObject<{
+                        currency: z.ZodEnum<{
+                            LKR: "LKR";
+                            "Rs.": "Rs.";
+                            "\u0DBB\u0DD4.": "රු.";
+                        }>;
+                        date: z.ZodEnum<{
+                            "yyyy-mm-dd": "yyyy-mm-dd";
+                            "dd MMM": "dd MMM";
+                            "dd/mm": "dd/mm";
+                        }>;
+                        time: z.ZodEnum<{
+                            "24h": "24h";
+                            "12h": "12h";
+                        }>;
+                        digits: z.ZodLiteral<"latin">;
+                    }, z.core.$strip>;
+                }, z.core.$strip>>;
+                full_app: z.ZodOptional<z.ZodObject<{
+                    enabled: z.ZodBoolean;
+                    require_app_lock: z.ZodBoolean;
+                    session_minutes: z.ZodNumber;
+                    block_screenshots: z.ZodBoolean;
+                }, z.core.$strip>>;
+                contact_sync: z.ZodOptional<z.ZodObject<{
+                    allowed_modes: z.ZodArray<z.ZodEnum<{
+                        all: "all";
+                        off: "off";
+                        selected_labels: "selected_labels";
+                        selected_accounts: "selected_accounts";
+                    }>>;
+                    fields: z.ZodDefault<z.ZodArray<z.ZodString>>;
+                }, z.core.$strip>>;
+                call_logging: z.ZodOptional<z.ZodObject<{
+                    allowed_scopes: z.ZodArray<z.ZodEnum<{
+                        all: "all";
+                        off: "off";
+                        customers_only: "customers_only";
+                        customers_and_contacts: "customers_and_contacts";
+                    }>>;
+                    store_unknown_numbers: z.ZodDefault<z.ZodBoolean>;
+                    business_hours_only: z.ZodDefault<z.ZodBoolean>;
+                    business_hours: z.ZodOptional<z.ZodObject<{
+                        from: z.ZodString;
+                        to: z.ZodString;
+                    }, z.core.$strip>>;
+                    retention_days: z.ZodDefault<z.ZodNumber>;
+                }, z.core.$strip>>;
+                after_call_card: z.ZodOptional<z.ZodObject<{
+                    enabled: z.ZodDefault<z.ZodBoolean>;
+                    tags: z.ZodDefault<z.ZodArray<z.ZodString>>;
+                    auto_dismiss_seconds: z.ZodDefault<z.ZodNumber>;
+                }, z.core.$strip>>;
+            }, z.core.$strip>;
+        }, z.core.$strip>;
+    }, z.core.$strip>;
+};
+export declare const PatchPhoneAssistantPolicyContract: {
+    readonly path: "/phone-assistant/policy";
+    readonly method: "PATCH";
+    readonly body: z.ZodObject<{
+        updates: z.ZodArray<z.ZodObject<{
+            path: z.ZodString;
+            value: z.ZodUnknown;
+        }, z.core.$strip>>;
+    }, z.core.$strip>;
+    readonly response: z.ZodObject<{
+        status: z.ZodLiteral<"success">;
+        message: z.ZodOptional<z.ZodString>;
+        data: z.ZodObject<{
+            policy: z.ZodObject<{
+                approval_mode: z.ZodEnum<{
+                    admin_approves_all: "admin_approves_all";
+                    auto_approve_admin_phones: "auto_approve_admin_phones";
+                    auto_approve_all: "auto_approve_all";
+                }>;
+                auto_suspend_days: z.ZodNumber;
+                offline_wipe_days: z.ZodNumber;
+                capabilities: z.ZodRecord<z.ZodString, z.ZodBoolean>;
+                brief_profiles: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    id: z.ZodString;
+                    name: z.ZodString;
+                    fields: z.ZodArray<z.ZodString>;
+                    lock_screen: z.ZodEnum<{
+                        full: "full";
+                        name_rating: "name_rating";
+                        name_only: "name_only";
+                        hidden: "hidden";
+                    }>;
+                    amounts: z.ZodEnum<{
+                        exact: "exact";
+                        hidden: "hidden";
+                        rounded: "rounded";
+                        flag_only: "flag_only";
+                    }>;
+                    call_screen: z.ZodOptional<z.ZodUnknown>;
+                }, z.core.$strip>>>;
+                default_profile_by_role: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+                fallback_profile: z.ZodOptional<z.ZodString>;
+                cache_scope: z.ZodOptional<z.ZodString>;
+                overlay: z.ZodOptional<z.ZodObject<{
+                    position: z.ZodEnum<{
+                        top: "top";
+                        bottom: "bottom";
+                    }>;
+                    auto_dismiss_seconds: z.ZodNumber;
+                    show_for: z.ZodEnum<{
+                        incoming: "incoming";
+                        incoming_and_outgoing: "incoming_and_outgoing";
+                    }>;
+                }, z.core.$strip>>;
+                unknown_caller: z.ZodOptional<z.ZodEnum<{
+                    show_not_in_geargrid: "show_not_in_geargrid";
+                    show_nothing: "show_nothing";
+                }>>;
+                shared_number: z.ZodOptional<z.ZodEnum<{
+                    list_all: "list_all";
+                    first_only: "first_only";
+                }>>;
+                desktop_popup: z.ZodOptional<z.ZodObject<{
+                    roles: z.ZodArray<z.ZodCoercedNumber<unknown>>;
+                }, z.core.$strip>>;
+                sync: z.ZodOptional<z.ZodObject<{
+                    stale_after_minutes: z.ZodNumber;
+                    warn_after_hours: z.ZodNumber;
+                    show_sync_footer: z.ZodEnum<{
+                        never: "never";
+                        always: "always";
+                        only_when_stale: "only_when_stale";
+                    }>;
+                }, z.core.$strip>>;
+                call_screen: z.ZodOptional<z.ZodObject<{
+                    allow_phone_text_scale: z.ZodBoolean;
+                    min: z.ZodNumber;
+                    max: z.ZodNumber;
+                    respect_system_font: z.ZodBoolean;
+                }, z.core.$strip>>;
+                notifications: z.ZodOptional<z.ZodObject<{
+                    default_language: z.ZodEnum<{
+                        en: "en";
+                        si: "si";
+                        ta: "ta";
+                        "si-Latn": "si-Latn";
+                    }>;
+                    allowed_languages: z.ZodArray<z.ZodEnum<{
+                        en: "en";
+                        si: "si";
+                        ta: "ta";
+                        "si-Latn": "si-Latn";
+                    }>>;
+                    bilingual: z.ZodEnum<{
+                        off: "off";
+                        append_english: "append_english";
+                    }>;
+                    format: z.ZodObject<{
+                        currency: z.ZodEnum<{
+                            LKR: "LKR";
+                            "Rs.": "Rs.";
+                            "\u0DBB\u0DD4.": "රු.";
+                        }>;
+                        date: z.ZodEnum<{
+                            "yyyy-mm-dd": "yyyy-mm-dd";
+                            "dd MMM": "dd MMM";
+                            "dd/mm": "dd/mm";
+                        }>;
+                        time: z.ZodEnum<{
+                            "24h": "24h";
+                            "12h": "12h";
+                        }>;
+                        digits: z.ZodLiteral<"latin">;
+                    }, z.core.$strip>;
+                }, z.core.$strip>>;
+                full_app: z.ZodOptional<z.ZodObject<{
+                    enabled: z.ZodBoolean;
+                    require_app_lock: z.ZodBoolean;
+                    session_minutes: z.ZodNumber;
+                    block_screenshots: z.ZodBoolean;
                 }, z.core.$strip>>;
                 contact_sync: z.ZodOptional<z.ZodObject<{
                     allowed_modes: z.ZodArray<z.ZodEnum<{
@@ -2005,6 +2567,7 @@ export declare const DevicePolicyResponseSchema: z.ZodObject<{
             rounded: "rounded";
             flag_only: "flag_only";
         }>;
+        call_screen: z.ZodOptional<z.ZodUnknown>;
     }, z.core.$strip>;
     cache_scope: z.ZodString;
     overlay: z.ZodObject<{
@@ -2065,6 +2628,120 @@ export declare const DevicePolicyResponseSchema: z.ZodObject<{
         tags: z.ZodDefault<z.ZodArray<z.ZodString>>;
         auto_dismiss_seconds: z.ZodDefault<z.ZodNumber>;
     }, z.core.$strip>>;
+    call_screen: z.ZodOptional<z.ZodObject<{
+        version: z.ZodLiteral<1>;
+        size: z.ZodEnum<{
+            large: "large";
+            extra_large: "extra_large";
+            compact: "compact";
+            standard: "standard";
+        }>;
+        text_scale: z.ZodNumber;
+        shape: z.ZodObject<{
+            width: z.ZodEnum<{
+                full: "full";
+                inset: "inset";
+            }>;
+            corner_radius: z.ZodNumber;
+            position: z.ZodEnum<{
+                top: "top";
+                bottom: "bottom";
+                middle: "middle";
+            }>;
+            opacity: z.ZodNumber;
+            elevation: z.ZodBoolean;
+        }, z.core.$strip>;
+        theme: z.ZodObject<{
+            mode: z.ZodEnum<{
+                auto: "auto";
+                light: "light";
+                dark: "dark";
+            }>;
+            accent: z.ZodEnum<{
+                brand: "brand";
+                neutral: "neutral";
+            }>;
+            status_bar: z.ZodBoolean;
+        }, z.core.$strip>;
+        header: z.ZodObject<{
+            show_logo: z.ZodBoolean;
+            show_shop_name: z.ZodBoolean;
+        }, z.core.$strip>;
+        rows: z.ZodArray<z.ZodObject<{
+            field: z.ZodString;
+            style: z.ZodEnum<{
+                title: "title";
+                emphasis: "emphasis";
+                body: "body";
+                caption: "caption";
+                stars: "stars";
+                list: "list";
+                chip: "chip";
+            }>;
+            label: z.ZodOptional<z.ZodBoolean>;
+            max_items: z.ZodOptional<z.ZodNumber>;
+        }, z.core.$strip>>;
+        rules: z.ZodArray<z.ZodObject<{
+            when: z.ZodEnum<{
+                id_retained: "id_retained";
+                status_blacklisted: "status_blacklisted";
+                balance_due_over: "balance_due_over";
+                overdue_days_over: "overdue_days_over";
+                rating_under: "rating_under";
+                unknown_caller: "unknown_caller";
+            }>;
+            value: z.ZodOptional<z.ZodNumber>;
+            accent: z.ZodOptional<z.ZodEnum<{
+                brand: "brand";
+                neutral: "neutral";
+                danger: "danger";
+                warning: "warning";
+            }>>;
+            banner: z.ZodOptional<z.ZodBoolean>;
+            vibrate: z.ZodOptional<z.ZodBoolean>;
+        }, z.core.$strip>>;
+        actions: z.ZodArray<z.ZodEnum<{
+            dismiss: "dismiss";
+            add_note: "add_note";
+            open_on_desktop: "open_on_desktop";
+            open_app: "open_app";
+            call_back_later: "call_back_later";
+        }>>;
+        behaviour: z.ZodObject<{
+            auto_dismiss_seconds: z.ZodNumber;
+            draggable: z.ZodBoolean;
+            tap_to_expand: z.ZodBoolean;
+            show_for: z.ZodEnum<{
+                incoming: "incoming";
+                incoming_and_outgoing: "incoming_and_outgoing";
+            }>;
+            collapsed_rows: z.ZodNumber;
+        }, z.core.$strip>;
+        locked: z.ZodObject<{
+            mode: z.ZodEnum<{
+                full: "full";
+                name_rating: "name_rating";
+                name_only: "name_only";
+                hidden: "hidden";
+            }>;
+        }, z.core.$strip>;
+    }, z.core.$strip>>;
+    sync: z.ZodOptional<z.ZodObject<{
+        stale_after_minutes: z.ZodNumber;
+        warn_after_hours: z.ZodNumber;
+        show_sync_footer: z.ZodEnum<{
+            never: "never";
+            always: "always";
+            only_when_stale: "only_when_stale";
+        }>;
+    }, z.core.$strip>>;
+    notification_languages: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    full_app: z.ZodOptional<z.ZodObject<{
+        enabled: z.ZodBoolean;
+        require_app_lock: z.ZodBoolean;
+        session_minutes: z.ZodNumber;
+        block_screenshots: z.ZodBoolean;
+    }, z.core.$strip>>;
     min_app_version: z.ZodOptional<z.ZodString>;
     latest_app_version: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
@@ -2100,6 +2777,7 @@ export declare const GetDevicePolicyContract: {
                     rounded: "rounded";
                     flag_only: "flag_only";
                 }>;
+                call_screen: z.ZodOptional<z.ZodUnknown>;
             }, z.core.$strip>;
             cache_scope: z.ZodString;
             overlay: z.ZodObject<{
@@ -2159,6 +2837,120 @@ export declare const GetDevicePolicyContract: {
                 enabled: z.ZodDefault<z.ZodBoolean>;
                 tags: z.ZodDefault<z.ZodArray<z.ZodString>>;
                 auto_dismiss_seconds: z.ZodDefault<z.ZodNumber>;
+            }, z.core.$strip>>;
+            call_screen: z.ZodOptional<z.ZodObject<{
+                version: z.ZodLiteral<1>;
+                size: z.ZodEnum<{
+                    large: "large";
+                    extra_large: "extra_large";
+                    compact: "compact";
+                    standard: "standard";
+                }>;
+                text_scale: z.ZodNumber;
+                shape: z.ZodObject<{
+                    width: z.ZodEnum<{
+                        full: "full";
+                        inset: "inset";
+                    }>;
+                    corner_radius: z.ZodNumber;
+                    position: z.ZodEnum<{
+                        top: "top";
+                        bottom: "bottom";
+                        middle: "middle";
+                    }>;
+                    opacity: z.ZodNumber;
+                    elevation: z.ZodBoolean;
+                }, z.core.$strip>;
+                theme: z.ZodObject<{
+                    mode: z.ZodEnum<{
+                        auto: "auto";
+                        light: "light";
+                        dark: "dark";
+                    }>;
+                    accent: z.ZodEnum<{
+                        brand: "brand";
+                        neutral: "neutral";
+                    }>;
+                    status_bar: z.ZodBoolean;
+                }, z.core.$strip>;
+                header: z.ZodObject<{
+                    show_logo: z.ZodBoolean;
+                    show_shop_name: z.ZodBoolean;
+                }, z.core.$strip>;
+                rows: z.ZodArray<z.ZodObject<{
+                    field: z.ZodString;
+                    style: z.ZodEnum<{
+                        title: "title";
+                        emphasis: "emphasis";
+                        body: "body";
+                        caption: "caption";
+                        stars: "stars";
+                        list: "list";
+                        chip: "chip";
+                    }>;
+                    label: z.ZodOptional<z.ZodBoolean>;
+                    max_items: z.ZodOptional<z.ZodNumber>;
+                }, z.core.$strip>>;
+                rules: z.ZodArray<z.ZodObject<{
+                    when: z.ZodEnum<{
+                        id_retained: "id_retained";
+                        status_blacklisted: "status_blacklisted";
+                        balance_due_over: "balance_due_over";
+                        overdue_days_over: "overdue_days_over";
+                        rating_under: "rating_under";
+                        unknown_caller: "unknown_caller";
+                    }>;
+                    value: z.ZodOptional<z.ZodNumber>;
+                    accent: z.ZodOptional<z.ZodEnum<{
+                        brand: "brand";
+                        neutral: "neutral";
+                        danger: "danger";
+                        warning: "warning";
+                    }>>;
+                    banner: z.ZodOptional<z.ZodBoolean>;
+                    vibrate: z.ZodOptional<z.ZodBoolean>;
+                }, z.core.$strip>>;
+                actions: z.ZodArray<z.ZodEnum<{
+                    dismiss: "dismiss";
+                    add_note: "add_note";
+                    open_on_desktop: "open_on_desktop";
+                    open_app: "open_app";
+                    call_back_later: "call_back_later";
+                }>>;
+                behaviour: z.ZodObject<{
+                    auto_dismiss_seconds: z.ZodNumber;
+                    draggable: z.ZodBoolean;
+                    tap_to_expand: z.ZodBoolean;
+                    show_for: z.ZodEnum<{
+                        incoming: "incoming";
+                        incoming_and_outgoing: "incoming_and_outgoing";
+                    }>;
+                    collapsed_rows: z.ZodNumber;
+                }, z.core.$strip>;
+                locked: z.ZodObject<{
+                    mode: z.ZodEnum<{
+                        full: "full";
+                        name_rating: "name_rating";
+                        name_only: "name_only";
+                        hidden: "hidden";
+                    }>;
+                }, z.core.$strip>;
+            }, z.core.$strip>>;
+            sync: z.ZodOptional<z.ZodObject<{
+                stale_after_minutes: z.ZodNumber;
+                warn_after_hours: z.ZodNumber;
+                show_sync_footer: z.ZodEnum<{
+                    never: "never";
+                    always: "always";
+                    only_when_stale: "only_when_stale";
+                }>;
+            }, z.core.$strip>>;
+            notification_languages: z.ZodOptional<z.ZodArray<z.ZodString>>;
+            full_app: z.ZodOptional<z.ZodObject<{
+                enabled: z.ZodBoolean;
+                require_app_lock: z.ZodBoolean;
+                session_minutes: z.ZodNumber;
+                block_screenshots: z.ZodBoolean;
             }, z.core.$strip>>;
             min_app_version: z.ZodOptional<z.ZodString>;
             latest_app_version: z.ZodOptional<z.ZodString>;
@@ -2748,6 +3540,140 @@ export declare const CreateDeviceLeadContactContract: {
                 source: z.ZodLiteral<"lead">;
                 notes: z.ZodNullable<z.ZodString>;
                 created_by_user_id: z.ZodOptional<z.ZodNullable<z.ZodCoercedNumber<unknown>>>;
+            }, z.core.$strip>;
+        }, z.core.$strip>;
+    }, z.core.$strip>;
+};
+export declare const PushTemplateSchema: z.ZodObject<{
+    event_key: z.ZodString;
+    language: z.ZodEnum<{
+        en: "en";
+        si: "si";
+        ta: "ta";
+        "si-Latn": "si-Latn";
+    }>;
+    title: z.ZodString;
+    body: z.ZodString;
+    title_private: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    body_private: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    edited: z.ZodOptional<z.ZodBoolean>;
+}, z.core.$strip>;
+export type PushTemplate = z.infer<typeof PushTemplateSchema>;
+export declare const GetPushTemplatesContract: {
+    readonly path: "/phone-assistant/templates";
+    readonly method: "GET";
+    readonly response: z.ZodObject<{
+        status: z.ZodLiteral<"success">;
+        message: z.ZodOptional<z.ZodString>;
+        data: z.ZodObject<{
+            templates: z.ZodArray<z.ZodObject<{
+                event_key: z.ZodString;
+                language: z.ZodEnum<{
+                    en: "en";
+                    si: "si";
+                    ta: "ta";
+                    "si-Latn": "si-Latn";
+                }>;
+                title: z.ZodString;
+                body: z.ZodString;
+                title_private: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                body_private: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                edited: z.ZodOptional<z.ZodBoolean>;
+            }, z.core.$strip>>;
+            languages: z.ZodArray<z.ZodString>;
+            events: z.ZodArray<z.ZodObject<{
+                key: z.ZodString;
+                placeholders: z.ZodArray<z.ZodString>;
+            }, z.core.$strip>>;
+        }, z.core.$strip>;
+    }, z.core.$strip>;
+};
+export declare const PutPushTemplateContract: {
+    readonly path: "/phone-assistant/templates/:event_key/:language";
+    readonly method: "PUT";
+    readonly params: z.ZodObject<{
+        event_key: z.ZodString;
+        language: z.ZodEnum<{
+            en: "en";
+            si: "si";
+            ta: "ta";
+            "si-Latn": "si-Latn";
+        }>;
+    }, z.core.$strip>;
+    readonly body: z.ZodObject<{
+        title: z.ZodString;
+        body: z.ZodString;
+        title_private: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        body_private: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.core.$strip>;
+    readonly response: z.ZodObject<{
+        status: z.ZodLiteral<"success">;
+        message: z.ZodOptional<z.ZodString>;
+        data: z.ZodObject<{
+            template: z.ZodObject<{
+                event_key: z.ZodString;
+                language: z.ZodEnum<{
+                    en: "en";
+                    si: "si";
+                    ta: "ta";
+                    "si-Latn": "si-Latn";
+                }>;
+                title: z.ZodString;
+                body: z.ZodString;
+                title_private: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                body_private: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                edited: z.ZodOptional<z.ZodBoolean>;
+            }, z.core.$strip>;
+        }, z.core.$strip>;
+    }, z.core.$strip>;
+};
+export declare const DeletePushTemplateContract: {
+    readonly path: "/phone-assistant/templates/:event_key/:language";
+    readonly method: "DELETE";
+    readonly params: z.ZodObject<{
+        event_key: z.ZodString;
+        language: z.ZodEnum<{
+            en: "en";
+            si: "si";
+            ta: "ta";
+            "si-Latn": "si-Latn";
+        }>;
+    }, z.core.$strip>;
+    readonly response: z.ZodObject<{
+        status: z.ZodLiteral<"success">;
+        message: z.ZodOptional<z.ZodString>;
+        data: z.ZodObject<{
+            restored: z.ZodBoolean;
+        }, z.core.$strip>;
+    }, z.core.$strip>;
+};
+export declare const PreviewPushTemplateContract: {
+    readonly path: "/phone-assistant/templates/preview";
+    readonly method: "POST";
+    readonly body: z.ZodObject<{
+        event_key: z.ZodString;
+        language: z.ZodEnum<{
+            en: "en";
+            si: "si";
+            ta: "ta";
+            "si-Latn": "si-Latn";
+        }>;
+        title: z.ZodString;
+        body: z.ZodString;
+        title_private: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        body_private: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.core.$strip>;
+    readonly response: z.ZodObject<{
+        status: z.ZodLiteral<"success">;
+        message: z.ZodOptional<z.ZodString>;
+        data: z.ZodObject<{
+            normal: z.ZodObject<{
+                title: z.ZodString;
+                body: z.ZodString;
+            }, z.core.$strip>;
+            private: z.ZodObject<{
+                title: z.ZodString;
+                body: z.ZodString;
             }, z.core.$strip>;
         }, z.core.$strip>;
     }, z.core.$strip>;
