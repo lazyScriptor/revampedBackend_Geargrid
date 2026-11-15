@@ -726,6 +726,10 @@ export const registerDevice = async (
     os_version,
     reported_state,
     click_to_call_enabled,
+    cached_briefs,
+    outbox_pending,
+    last_brief_sync_at,
+    last_contact_sync_at,
   } = {},
 ) => {
   const now = nowUtc();
@@ -773,6 +777,10 @@ export const registerDevice = async (
       ...(prevState && typeof prevState === "object" ? prevState : {}),
       ...(reported_state && typeof reported_state === "object" ? reported_state : {}),
       ...(typeof click_to_call_enabled === "boolean" ? { click_to_call_enabled } : {}),
+      ...(Number.isInteger(cached_briefs) && cached_briefs >= 0 ? { cached_briefs } : {}),
+      ...(Number.isInteger(outbox_pending) && outbox_pending >= 0 ? { outbox_pending } : {}),
+      ...(last_brief_sync_at ? { last_brief_sync_at: String(last_brief_sync_at) } : {}),
+      ...(last_contact_sync_at ? { last_contact_sync_at: String(last_contact_sync_at) } : {}),
     };
     patch.reported_state = mergedState;
   }
@@ -1362,6 +1370,10 @@ export const getDevicePolicy = async (
     paired_at: device.paired_at ? new Date(device.paired_at).toISOString() : null,
     consented_capabilities: normalizeCapabilitiesMap(device.capabilities, DEFAULT_CAPABILITIES_MAP),
     after_call_card: policy.after_call_card || DEFAULT_AFTER_CALL_CARD_POLICY,
+    call_screen: briefProfile.call_screen,
+    sync: policy.sync,
+    notification_languages: policy.notifications?.allowed_languages || ["en"],
+    full_app: policy.full_app,
     min_app_version: versionConfig.min_app_version,
     latest_app_version: versionConfig.latest_app_version,
   };
@@ -1469,6 +1481,15 @@ export const updateDeviceSettings = async (
   if (body.sim_filter !== undefined) {
     updates.sim_filter = body.sim_filter ? String(body.sim_filter).trim().slice(0, 64) : null;
   }
+  if (body.notification_language !== undefined) updates.notification_language = body.notification_language || null;
+  if (body.app_language !== undefined) updates.app_language = body.app_language || null;
+  if (body.call_text_scale !== undefined) {
+    const value = body.call_text_scale === null ? null : Number(body.call_text_scale);
+    if (value !== null && (!Number.isFinite(value) || value < policy.call_screen.min || value > policy.call_screen.max)) throw new AppError("Call text size is outside your shop's allowed range.", 400, "policy_disallowed");
+    updates.call_text_scale = value;
+  }
+  if (body.app_text_size !== undefined) updates.app_text_size = body.app_text_size || null;
+  if (body.app_lock_enabled !== undefined) updates.app_lock_enabled = Boolean(body.app_lock_enabled);
 
   if (Object.keys(updates).length > 0 && device.update) {
     await device.update(updates);

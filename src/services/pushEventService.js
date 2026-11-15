@@ -8,6 +8,8 @@ import { isUserAdmin, listAdminUserIds } from "./userService.js";
 import { getTenantPlan } from "./planService.js";
 import { dayInShopTz } from "../utils/rentalDays.js";
 import { liveTotalOf, owedAmount } from "../utils/invoiceBalance.js";
+import { getPhoneAssistantPolicy } from "./phoneAssistantPolicyService.js";
+import { renderForRecipient } from "./pushTemplateService.js";
 
 const DEFAULT_TIMEZONE = "Asia/Colombo";
 const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -784,6 +786,7 @@ export const notifyEvent = async (
     amount = null,
     actorUserId = null,
     customerName = null,
+    vars = null,
     title = "",
     body = "",
     titleNoAmount = null,
@@ -812,7 +815,11 @@ export const notifyEvent = async (
       }
     }
 
-    const config = models?.TenantConfig?.findOne ? await models.TenantConfig.findOne() : null;
+    const [config, policyResult] = await Promise.all([
+      models?.TenantConfig?.findOne ? models.TenantConfig.findOne() : null,
+      getPhoneAssistantPolicy(models),
+    ]);
+    const policy = policyResult.policy;
     const settings = readStoredPushSettings(config);
     const rule = settings.events[eventKey];
 
@@ -899,22 +906,27 @@ export const notifyEvent = async (
       return { sent: 0, reached: 0, recipients: [], skipped: "user_preferences" };
     }
 
-    // 6. Strip LKR figures and/or customer names from push text per shop rules
+    // 6. New callers provide structured vars. Older callers retain their rendered copy for one release.
     let pushTitle = title;
     let pushBody = body;
-    if (settings.include_amounts === false) {
-      pushTitle = titleNoAmount != null ? titleNoAmount : stripCurrencyAmounts(pushTitle);
-      pushBody = bodyNoAmount != null ? bodyNoAmount : stripCurrencyAmounts(pushBody);
-    }
-    if (rule.hide_customer_name === true) {
-      pushTitle =
-        titleNoCustomerName != null
-          ? titleNoCustomerName
-          : redactCustomerName(pushTitle, customerName);
-      pushBody =
-        bodyNoCustomerName != null
-          ? bodyNoCustomerName
-          : redactCustomerName(pushBody, customerName);
+    if (vars && typeof vars === "object") {
+      const rendered = await renderForRecipient(models, eventKey, vars, {
+        language: policy.notifications?.default_language || "en",
+        hideAmounts: settings.include_amounts === false,
+        hideCustomer: rule.hide_customer_name === true,
+        policy,
+      });
+      pushTitle = rendered.title;
+      pushBody = rendered.body;
+    } else {
+      if (settings.include_amounts === false) {
+        pushTitle = titleNoAmount != null ? titleNoAmount : stripCurrencyAmounts(pushTitle);
+        pushBody = bodyNoAmount != null ? bodyNoAmount : stripCurrencyAmounts(pushBody);
+      }
+      if (rule.hide_customer_name === true) {
+        pushTitle = titleNoCustomerName != null ? titleNoCustomerName : redactCustomerName(pushTitle, customerName);
+        pushBody = bodyNoCustomerName != null ? bodyNoCustomerName : redactCustomerName(pushBody, customerName);
+      }
     }
 
     // 7. Quiet hours check per recipient (shop OR personal)

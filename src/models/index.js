@@ -33,6 +33,7 @@ import PushPreferenceFactory from "./PushPreference.js";
 import CallLogFactory from "./CallLog.js";
 import CallNoteFactory from "./CallNote.js";
 import DeviceAuditLogFactory from "./DeviceAuditLog.js";
+import PushTemplateFactory from "./PushTemplate.js";
 
 export const initTenantModels = (tenantConnection) => {
   const User = UserFactory(tenantConnection);
@@ -70,6 +71,7 @@ export const initTenantModels = (tenantConnection) => {
   const CallLog = CallLogFactory(tenantConnection);
   const CallNote = CallNoteFactory(tenantConnection);
   const DeviceAuditLog = DeviceAuditLogFactory(tenantConnection);
+  const PushTemplate = PushTemplateFactory(tenantConnection);
 
   // ==========================================
   // AUTH & USERS
@@ -305,6 +307,7 @@ export const initTenantModels = (tenantConnection) => {
     CallLog,
     CallNote,
     DeviceAuditLog,
+    PushTemplate,
     sequelize: tenantConnection,
   };
 };

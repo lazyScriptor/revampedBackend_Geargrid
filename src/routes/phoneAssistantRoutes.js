@@ -11,6 +11,11 @@ import {
   GetShopDeviceAuditContract,
   GetPhoneAssistantPolicyContract,
   UpdatePhoneAssistantPolicyContract,
+  PatchPhoneAssistantPolicyContract,
+  GetPushTemplatesContract,
+  PutPushTemplateContract,
+  DeletePushTemplateContract,
+  PreviewPushTemplateContract,
 } from "@geargrid/contracts";
 import { protect } from "../middlewares/authMiddleware.js";
 import { requireFeature } from "../middlewares/planMiddleware.js";
@@ -22,6 +27,8 @@ import { isUserAdmin, userHasPermission } from "../services/userService.js";
 import * as pushEventService from "../services/pushEventService.js";
 import * as deviceService from "../services/deviceService.js";
 import * as phoneAssistantPolicyService from "../services/phoneAssistantPolicyService.js";
+import * as pushTemplateService from "../services/pushTemplateService.js";
+import { sendDataPush } from "../services/devicePushService.js";
 import AppError from "../utils/AppError.js";
 
 const router = express.Router();
@@ -174,6 +181,45 @@ registerContract(router, UpdatePhoneAssistantPolicyContract, {
   middlewares: [requireAdmin],
   handler: ({ body, req }) =>
     phoneAssistantPolicyService.updatePhoneAssistantPolicy(resolveTenantModels(req), body),
+});
+
+registerContract(router, PatchPhoneAssistantPolicyContract, {
+  basePath: "/phone-assistant", middlewares: [requireAdmin],
+  handler: ({ body, req }) => phoneAssistantPolicyService.patchPhoneAssistantPolicy(resolveTenantModels(req), body.updates),
+});
+
+registerContract(router, GetPushTemplatesContract, {
+  basePath: "/phone-assistant", middlewares: [requireAdmin],
+  handler: ({ req }) => pushTemplateService.listTemplates(resolveTenantModels(req)),
+});
+registerContract(router, PutPushTemplateContract, {
+  basePath: "/phone-assistant", middlewares: [requireAdmin],
+  handler: ({ params, body, req }) => pushTemplateService.saveTemplate(resolveTenantModels(req), params.event_key, params.language, body, req.user?.userId || req.user?.id),
+});
+registerContract(router, DeletePushTemplateContract, {
+  basePath: "/phone-assistant", middlewares: [requireAdmin],
+  handler: ({ params, req }) => pushTemplateService.resetTemplate(resolveTenantModels(req), params.event_key, params.language),
+});
+registerContract(router, PreviewPushTemplateContract, {
+  basePath: "/phone-assistant", middlewares: [requireAdmin],
+  handler: async ({ body, req }) => {
+    pushTemplateService.validateTemplate(body.event_key, body);
+    const models = resolveTenantModels(req);
+    const { policy } = await phoneAssistantPolicyService.getPhoneAssistantPolicy(models);
+    const vars = { customer: "Nimal Perera", amount: 12000, balance: 2500, invoice_no: "INV-1042", items_count: 3, items: "Mixer", staff: "Kasun", date: "15 Nov", time: "14:05", shop: "GearGrid", contact: "Nimal", phone: "0771234567", reason: "Sample" };
+    const render = async (privateMode) => pushTemplateService.renderForRecipient(models, body.event_key, vars, { language: body.language, hideAmounts: privateMode, hideCustomer: privateMode, policy });
+    return { normal: await render(false), private: await render(true) };
+  },
+});
+
+router.post("/phone-assistant/call-screen/sample", requireAdmin, async (req, res, next) => {
+  try {
+    const models = resolveTenantModels(req);
+    const userId = req.user?.userId || req.user?.id;
+    const devices = await models.OperatorDevice.findAll({ where: { user_id: userId, is_native_app: true, status: "ACTIVE" } });
+    const results = await Promise.all((devices || []).map((device) => sendDataPush(device, { type: "sample_call" }).catch(() => null)));
+    res.json({ status: "success", data: { reached: results.filter(Boolean).length } });
+  } catch (error) { next(error); }
 });
 
 export default router;

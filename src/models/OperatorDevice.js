@@ -47,6 +47,11 @@ export default (sequelize) => {
       revoked_at: { type: DataTypes.DATE, allowNull: true },
       prev_token_hash: { type: DataTypes.STRING(64), allowNull: true },
       prev_token_expires_at: { type: DataTypes.DATE, allowNull: true },
+      notification_language: { type: DataTypes.STRING(10), allowNull: true },
+      app_language: { type: DataTypes.STRING(10), allowNull: true },
+      call_text_scale: { type: DataTypes.DECIMAL(3, 2), allowNull: true },
+      app_text_size: { type: DataTypes.STRING(12), allowNull: true },
+      app_lock_enabled: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
     },
     {
       tableName: "OPERATOR_DEVICES",
