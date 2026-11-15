@@ -13,7 +13,8 @@
     "db:migrate": "node ./src/scripts/migrate.js up",
     "db:migrate:status": "node ./src/scripts/migrate.js status",
     "db:migrate:baseline": "node ./src/scripts/migrate.js baseline",
-    "db:migrate:create": "node ./src/scripts/migrate.js create"
+    "db:migrate:create": "node ./src/scripts/migrate.js create",
+    "db:schema:check": "node ./src/scripts/schemaCheck.js"
   },
   "author": "",
   "license": "ISC",
