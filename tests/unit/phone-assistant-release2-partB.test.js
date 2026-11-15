@@ -534,7 +534,7 @@ describe("GearGrid Phone Assistant — Release 2 Part B (Device Trust)", () => {
     expect(device.status).toBe("SUSPENDED");
     expect(device.token_hash).toBe(sha256(token));
     expect(state.mockSend).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { type: "device_suspended" } }),
+      expect.objectContaining({ data: expect.objectContaining({ type: "device_suspended" }) }),
     );
     expect(auditLogs[0].action).toBe("suspended");
 
@@ -549,7 +549,7 @@ describe("GearGrid Phone Assistant — Release 2 Part B (Device Trust)", () => {
     expect(device.status).toBe("ACTIVE");
     expect(auditLogs[1].action).toBe("resumed");
     expect(state.mockSend).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { type: "device_resumed" } }),
+      expect.objectContaining({ data: expect.objectContaining({ type: "device_resumed" }) }),
     );
 
     // Revoking device clears tokens, deletes contacts + registry, sends push, keeps row for audit, hides from listMyDevices
@@ -692,7 +692,7 @@ describe("GearGrid Phone Assistant — Release 2 Part B (Device Trust)", () => {
     expect(patchRes.status).toBe(200);
     expect(patchRes.body.data.device.capabilities.caller_brief).toBe(false);
     expect(state.mockSend).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { type: "wipe_cache" } }),
+      expect.objectContaining({ data: expect.objectContaining({ type: "wipe_cache" }) }),
     );
 
     // Wipe endpoint

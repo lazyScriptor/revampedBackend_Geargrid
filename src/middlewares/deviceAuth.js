@@ -10,6 +10,16 @@ const LAST_SEEN_THROTTLE_MS = 60_000;
 const PAIR_AGAIN_MSG = "Device authentication failed. Please pair this phone again.";
 const PENDING_ALLOWED_PATHS = new Set(["/register", "/unpair", "/token/rotate", "/policy"]);
 
+/**
+ * Log why a phone was refused before answering 401, so a pairing problem can be traced from the
+ * server logs. Never logs the token; the device id is shortened.
+ */
+const refuse = (next, req, reason) => {
+  const id = String(req.headers["x-device-id"] || "").slice(0, 14);
+  console.warn(`deviceAuth 401 ${reason} ${req.method} ${String(req.originalUrl || req.url || "").split("?")[0]} device=${id || "-"}`);
+  return next(new AppError(PAIR_AGAIN_MSG, 401, "device_revoked"));
+};
+
 const getActiveTenantStatus = async (tenantDb) => {
   const now = Date.now();
   const cached = tenantStatusCache.get(tenantDb);
@@ -50,12 +60,13 @@ export const deviceAuth = async (req, res, next) => {
     const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
 
     if (!deviceId || !tenantDb || !token) {
-      return next(new AppError(PAIR_AGAIN_MSG, 401, "device_revoked"));
+      const missing = [!deviceId && "device_id", !tenantDb && "tenant_db", !token && "token"].filter(Boolean);
+      return refuse(next, req, `missing_headers:${missing.join(",")}`);
     }
 
     const tenantInfo = await getActiveTenantStatus(tenantDb);
     if (!tenantInfo) {
-      return next(new AppError(PAIR_AGAIN_MSG, 401, "device_revoked"));
+      return refuse(next, req, "unknown_shop");
     }
     if (tenantInfo.status !== "Active") {
       return next(new AppError("Shop subscription is currently inactive.", 403, "shop_inactive"));
@@ -70,9 +81,9 @@ export const deviceAuth = async (req, res, next) => {
     const tenantModels = initTenantModels(tenantConnection);
     const device = await tenantModels.OperatorDevice.findOne({ where: { device_id: deviceId } });
 
-    if (!device || device.status === "REVOKED" || !matchesDeviceToken(token, device)) {
-      return next(new AppError(PAIR_AGAIN_MSG, 401, "device_revoked"));
-    }
+    if (!device) return refuse(next, req, "unknown_device");
+    if (device.status === "REVOKED") return refuse(next, req, "device_revoked");
+    if (!matchesDeviceToken(token, device)) return refuse(next, req, "token_mismatch");
 
     // Verify paired user still exists and is active (A-03), loading roles/permissions for route checks (A-04)
     if (tenantModels.User?.findByPk) {
@@ -101,7 +112,7 @@ export const deviceAuth = async (req, res, next) => {
         ...(roleInclude.length > 0 ? { include: roleInclude } : {}),
       });
       if (!user || user.is_active === false) {
-        return next(new AppError(PAIR_AGAIN_MSG, 401, "device_revoked"));
+        return refuse(next, req, user ? "user_inactive" : "user_missing");
       }
       req.deviceUser = user;
     }
@@ -139,8 +150,10 @@ export const deviceAuth = async (req, res, next) => {
     }
 
     return next();
-  } catch {
-    return next(new AppError(PAIR_AGAIN_MSG, 401));
+  } catch (err) {
+    // A server fault is not a revoked phone. Answering 401 here made the app wipe its pairing.
+    console.error(`deviceAuth error ${req.method} ${String(req.originalUrl || req.url || "").split("?")[0]}:`, err?.message || err);
+    return next(new AppError("Could not check this phone right now. Please try again.", 500));
   }
 };
 

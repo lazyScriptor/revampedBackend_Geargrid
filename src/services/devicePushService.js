@@ -146,7 +146,12 @@ export const sendDataPush = async (device, data = {}, { priority = "high" } = {}
   const messaging = await getMessagingClient();
   if (!messaging) return { sent: false, reason: "unconfigured" };
 
-  const stringData = stringifyData(data);
+  // A phone keeps its push token when it re-pairs under a new device id, so name the target device.
+  // The app ignores wipe and revoke messages meant for a device id it no longer holds.
+  const stringData = stringifyData({
+    ...(device.device_id ? { device_id: device.device_id } : {}),
+    ...data,
+  });
   try {
     await messaging.send({
       token: device.push_token,
