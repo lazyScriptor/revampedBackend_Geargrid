@@ -1,14 +1,21 @@
 import { Op } from "sequelize";
 import { liveTotalOf, owedAmount } from "../utils/invoiceBalance.js";
 import { dayInShopTz, isOpenEndedLine, lateDays } from "../utils/rentalDays.js";
+import { parseJsonField } from "../utils/jsonFields.js";
 import { normalizePhone } from "../utils/whatsappPhone.js";
 import { extractCustomerPhoneEntries, findCustomerIdsByPhone } from "./customerPhoneService.js";
+import {
+  getPhoneAssistantPolicy,
+  loadUserCapabilitiesContext,
+  resolveDeviceBriefProfile,
+} from "./phoneAssistantPolicyService.js";
 
 const OPEN_STATUSES = new Set(["Active", "PendingPayment"]);
 const MAX_ACTIVE_ITEMS = 5;
 const MAX_SYNC_LIMIT = 500;
 
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+const roundNearest1000 = (n) => Math.round((Number(n) || 0) / 1000) * 1000;
 
 const toYmd = (value) => {
   if (!value) return null;
@@ -77,25 +84,43 @@ const composeSummaryLine = ({
   maxOverdueDays,
   invoiceCount,
   firstRental,
+  amounts = "exact",
+  includeRating = true,
+  includeBalanceDue = true,
+  includeActiveItems = true,
+  includeOverdue = true,
+  includeInvoiceCount = true,
+  includeRentalDates = true,
 }) => {
   const parts = [];
-  if (rating !== null && rating > 0) {
+  if (includeRating && rating !== null && rating > 0) {
     parts.push(`★${Math.round(rating)}`);
   }
-  if (balanceDue > 0) {
-    parts.push(`Owes LKR ${Math.round(balanceDue).toLocaleString("en-US")}`);
+  if (includeBalanceDue && amounts !== "hidden" && balanceDue > 0) {
+    if (amounts === "flag_only") {
+      parts.push("Has dues");
+    } else if (amounts === "rounded") {
+      const rounded = roundNearest1000(balanceDue);
+      if (rounded > 0) {
+        parts.push(`Owes LKR ${rounded.toLocaleString("en-US")}`);
+      } else {
+        parts.push("Has dues");
+      }
+    } else {
+      parts.push(`Owes LKR ${Math.round(balanceDue).toLocaleString("en-US")}`);
+    }
   }
-  if (overdueItemCount > 0) {
+  if (includeOverdue && overdueItemCount > 0) {
     parts.push(
       `${overdueItemCount} ${overdueItemCount === 1 ? "item" : "items"} overdue ${maxOverdueDays} ${
         maxOverdueDays === 1 ? "day" : "days"
       }`,
     );
-  } else if (activeItemCount > 0) {
+  } else if (includeActiveItems && activeItemCount > 0) {
     parts.push(`${activeItemCount} ${activeItemCount === 1 ? "item" : "items"} out`);
   }
-  if (invoiceCount > 0) {
-    const firstYear = firstRental ? String(firstRental).slice(0, 4) : null;
+  if (includeInvoiceCount && invoiceCount > 0) {
+    const firstYear = includeRentalDates && firstRental ? String(firstRental).slice(0, 4) : null;
     parts.push(
       `${invoiceCount} ${invoiceCount === 1 ? "rental" : "rentals"}${
         firstYear ? ` since ${firstYear}` : ""
@@ -103,6 +128,144 @@ const composeSummaryLine = ({
     );
   }
   return parts.join(" · ");
+};
+
+export const applyProfileToBrief = (rawBrief, profile) => {
+  if (!profile || typeof profile !== "object") {
+    return rawBrief;
+  }
+
+  const fields = Array.isArray(profile.fields) ? profile.fields : [];
+  const allowAll = fields.includes("*");
+  const hasField = (key) => allowAll || fields.includes(key);
+  const amounts = profile.amounts || "hidden";
+
+  const out = {
+    customer_id: rawBrief.customer_id,
+    display_name: rawBrief.display_name,
+    phones: rawBrief.phones,
+    status: hasField("status_warning") ? rawBrief.status : "Active",
+    updated_at: rawBrief.updated_at,
+  };
+
+  if (hasField("company")) {
+    out.company_name = rawBrief.company_name ?? null;
+    out.parent_company = rawBrief.parent_company ?? null;
+  }
+  if (hasField("rating")) {
+    out.rating = rawBrief.rating ?? null;
+  }
+
+  const rawBalance = Number(rawBrief.balance_due || 0);
+  const rawDeposit = Number(rawBrief.deposit_balance || 0);
+  if (hasField("balance_due") && amounts !== "hidden") {
+    if (amounts === "flag_only") {
+      out.has_dues = rawBalance > 0;
+    } else if (amounts === "rounded") {
+      out.balance_due = roundNearest1000(rawBalance);
+    } else {
+      out.balance_due = rawBalance;
+    }
+  }
+
+  if (hasField("deposit_balance") && (amounts === "exact" || amounts === "rounded")) {
+    out.deposit_balance = amounts === "rounded" ? roundNearest1000(rawDeposit) : rawDeposit;
+  }
+
+  if (hasField("id_retained")) {
+    out.id_retained = Boolean(rawBrief.id_retained);
+  }
+
+  const rawActive = Array.isArray(rawBrief.active_items) ? rawBrief.active_items : [];
+  const includeOverdue = hasField("overdue");
+  if (hasField("active_items")) {
+    out.active_items = rawActive.map((item) => ({
+      name: item.name,
+      qty: item.qty,
+      due: item.due ?? null,
+      overdue_days: includeOverdue ? Number(item.overdue_days || 0) : 0,
+    }));
+  }
+
+  if (includeOverdue) {
+    out.earliest_overdue_due = rawBrief.earliest_overdue_due ?? null;
+  }
+  if (hasField("invoice_count")) {
+    out.invoice_count = Number(rawBrief.invoice_count || 0);
+  }
+  if (hasField("rental_dates")) {
+    out.first_rental = rawBrief.first_rental ?? null;
+    out.last_rental = rawBrief.last_rental ?? null;
+  }
+  if (hasField("last_payment")) {
+    if (!rawBrief.last_payment) {
+      out.last_payment = null;
+    } else if (amounts === "hidden" || amounts === "flag_only") {
+      out.last_payment = {
+        date: rawBrief.last_payment.date ?? null,
+        method: rawBrief.last_payment.method ?? null,
+      };
+    } else if (amounts === "rounded") {
+      out.last_payment = {
+        amount: roundNearest1000(rawBrief.last_payment.amount),
+        date: rawBrief.last_payment.date ?? null,
+        method: rawBrief.last_payment.method ?? null,
+      };
+    } else {
+      out.last_payment = rawBrief.last_payment;
+    }
+  }
+  if (hasField("last_review_comment")) {
+    out.last_review_comment = rawBrief.last_review_comment ?? null;
+  }
+  if (hasField("recent_call_notes") && rawBrief.recent_call_notes !== undefined) {
+    out.recent_call_notes = rawBrief.recent_call_notes;
+  }
+
+  const overdueItems = rawActive.filter((item) => Number(item.overdue_days || 0) > 0);
+  const maxOverdueDays = overdueItems.reduce(
+    (max, item) => Math.max(max, Number(item.overdue_days || 0)),
+    0,
+  );
+
+  out.summary_line = composeSummaryLine({
+    rating: rawBrief.rating ?? null,
+    balanceDue: rawBalance,
+    activeItemCount: rawActive.length,
+    overdueItemCount: overdueItems.length,
+    maxOverdueDays,
+    invoiceCount: Number(rawBrief.invoice_count || 0),
+    firstRental: rawBrief.first_rental ?? null,
+    amounts,
+    includeRating: hasField("rating"),
+    includeBalanceDue: hasField("balance_due"),
+    includeActiveItems: hasField("active_items"),
+    includeOverdue,
+    includeInvoiceCount: hasField("invoice_count"),
+    includeRentalDates: hasField("rental_dates"),
+  });
+
+  return out;
+};
+
+export const matchesCacheScope = (rawBrief, cacheScope = "all", now = new Date()) => {
+  if (!cacheScope || cacheScope === "all") return true;
+  const activeCount = Array.isArray(rawBrief.active_items) ? rawBrief.active_items.length : 0;
+  const hasDues = Number(rawBrief.balance_due || 0) > 0;
+  if (cacheScope === "with_dues_or_active") {
+    return hasDues || activeCount > 0;
+  }
+  const match = /^active_months:(\d+)$/.exec(String(cacheScope));
+  if (match) {
+    if (hasDues || activeCount > 0) return true;
+    const months = Number(match[1]);
+    if (!rawBrief.last_rental) return false;
+    const cutoff = new Date(now.getTime());
+    cutoff.setUTCMonth(cutoff.getUTCMonth() - months);
+    const cutoffYmd = dayInShopTz(cutoff);
+    return String(rawBrief.last_rental) >= String(cutoffYmd);
+  }
+  return true;
 };
 
 /**
@@ -127,7 +290,7 @@ export const touchCustomerBrief = async (models, customerIds, { transaction, now
 /**
  * Build compact caller briefs for a batch of customer IDs using grouped queries.
  */
-export const buildBriefs = async (models, customerIds, { now = new Date() } = {}) => {
+export const buildBriefs = async (models, customerIds, { now = new Date(), profile = null } = {}) => {
   const requestedIds = normalizeCustomerIds(customerIds);
   if (requestedIds.length === 0 || !models?.Customer?.findAll) return [];
 
@@ -158,7 +321,7 @@ export const buildBriefs = async (models, customerIds, { now = new Date() } = {}
   const activeIds = requestedIds.filter((id) => customerById.has(id));
   if (activeIds.length === 0) return [];
 
-  const [phoneRows, invoices, reviews] = await Promise.all([
+  const [phoneRows, invoices, reviews, callNotes] = await Promise.all([
     models.CustomerPhone?.findAll
       ? models.CustomerPhone.findAll({
           where: { customer_id: { [Op.in]: activeIds } },
@@ -227,7 +390,49 @@ export const buildBriefs = async (models, customerIds, { now = new Date() } = {}
           raw: true,
         })
       : Promise.resolve([]),
+    models.CallNote?.findAll
+      ? models.CallNote.findAll({
+          where: { customer_id: { [Op.in]: activeIds } },
+          include: models.User
+            ? [
+                {
+                  model: models.User,
+                  as: "Author",
+                  attributes: ["user_id", "first_name", "last_name", "username"],
+                  required: false,
+                },
+              ]
+            : [],
+          order: [
+            ["created_at", "DESC"],
+            ["note_id", "DESC"],
+          ],
+        })
+      : Promise.resolve([]),
   ]);
+
+  const callNotesByCustomer = new Map();
+  for (const n of callNotes || []) {
+    const cid = Number(n.customer_id);
+    if (!Number.isFinite(cid) || cid <= 0) continue;
+    const list = callNotesByCustomer.get(cid) || [];
+    if (list.length >= 3) continue;
+    const tags = parseJsonField(n.tags, []);
+    const authorName = n.Author
+      ? `${n.Author.first_name || ""} ${n.Author.last_name || ""}`.trim() ||
+        n.Author.username ||
+        null
+      : null;
+    list.push({
+      note_id: Number(n.note_id),
+      outcome: Array.isArray(tags) && tags.length > 0 ? tags.join(", ") : null,
+      note_text: n.note || null,
+      follow_up_on: n.follow_up_on ? String(n.follow_up_on).slice(0, 10) : null,
+      author_name: authorName,
+      created_at: toIso(n.created_at, now),
+    });
+    callNotesByCustomer.set(cid, list);
+  }
 
   const phonesByCustomer = new Map();
   for (const row of phoneRows || []) {
@@ -354,6 +559,11 @@ export const buildBriefs = async (models, customerIds, { now = new Date() } = {}
       (max, item) => Math.max(max, item.overdue_days),
       0,
     );
+    const overdueDates = overdueItems
+      .map((item) => item.due)
+      .filter((d) => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d))
+      .sort();
+    const earliestOverdueDue = overdueDates.length > 0 ? overdueDates[0] : null;
 
     const balanceDue = round2(balanceDueSum);
     const depositBalance = round2(customer.deposit_balance);
@@ -369,7 +579,7 @@ export const buildBriefs = async (models, customerIds, { now = new Date() } = {}
       firstRental,
     });
 
-    return {
+    const rawBrief = {
       customer_id: cid,
       display_name: formatDisplayName(customer),
       company_name: customer.company_name ? String(customer.company_name).trim() || null : null,
@@ -386,10 +596,25 @@ export const buildBriefs = async (models, customerIds, { now = new Date() } = {}
       last_rental: lastRental,
       last_payment: latestPayment,
       last_review_comment: reviewByCustomer.get(cid) ?? null,
+      recent_call_notes: callNotesByCustomer.get(cid) || [],
       summary_line: summaryLine,
+      earliest_overdue_due: earliestOverdueDue,
       updated_at: toIso(customer.brief_changed_at || customer.updatedAt, now),
     };
+
+    return applyProfileToBrief(rawBrief, profile);
   });
+};
+
+const resolveBriefContextForDevice = async (models, device) => {
+  const [{ policy }, userCtx] = await Promise.all([
+    getPhoneAssistantPolicy(models),
+    device?.user_id
+      ? loadUserCapabilitiesContext(models, device.user_id)
+      : Promise.resolve({ user: null, isAdmin: false, permissionSet: new Set(), primaryRoleId: null }),
+  ]);
+  const profile = resolveDeviceBriefProfile(device, userCtx, policy);
+  return { policy, profile };
 };
 
 /**
@@ -411,32 +636,43 @@ export const syncDeviceBriefs = async (models, device, query = {}, { now = new D
     }
   }
 
-  const where = {
-    customer_delete_status: false,
-    ...(cursor > 0 ? { customer_id: { [Op.gt]: cursor } } : {}),
-    ...(sinceDate
-      ? {
-          [Op.or]: [
-            { brief_changed_at: { [Op.gt]: sinceDate } },
-            { updatedAt: { [Op.gt]: sinceDate } },
-          ],
-        }
-      : {}),
-  };
-
-  const rows = await models.Customer.findAll({
-    where,
-    attributes: ["customer_id"],
-    order: [["customer_id", "ASC"]],
-    limit: limit + 1,
-    raw: true,
-  });
+  const [{ policy, profile }, rows] = await Promise.all([
+    resolveBriefContextForDevice(models, device),
+    models.Customer.findAll({
+      where: {
+        customer_delete_status: false,
+        ...(cursor > 0 ? { customer_id: { [Op.gt]: cursor } } : {}),
+        ...(sinceDate
+          ? {
+              [Op.or]: [
+                { brief_changed_at: { [Op.gt]: sinceDate } },
+                { updatedAt: { [Op.gt]: sinceDate } },
+              ],
+            }
+          : {}),
+      },
+      attributes: ["customer_id"],
+      order: [["customer_id", "ASC"]],
+      limit: limit + 1,
+      raw: true,
+    }),
+  ]);
 
   const hasMore = rows.length > limit;
   const pageIds = rows.slice(0, limit).map((r) => Number(r.customer_id));
   const nextCursor = hasMore && pageIds.length > 0 ? pageIds[pageIds.length - 1] : null;
 
-  const briefs = await buildBriefs(models, pageIds, { now });
+  const rawBriefs = await buildBriefs(models, pageIds, { now, profile: null });
+  const cacheScope = policy?.cache_scope || "all";
+  const inScopeBriefs = [];
+  const outOfScopeIds = [];
+  for (const rawBrief of rawBriefs) {
+    if (matchesCacheScope(rawBrief, cacheScope, now)) {
+      inScopeBriefs.push(applyProfileToBrief(rawBrief, profile));
+    } else {
+      outOfScopeIds.push(rawBrief.customer_id);
+    }
+  }
 
   let deletedCustomerIds = [];
   if (sinceDate && cursor === 0 && models.Customer?.findAll) {
@@ -453,13 +689,16 @@ export const syncDeviceBriefs = async (models, device, query = {}, { now = new D
     });
     deletedCustomerIds = (deletedRows || []).map((r) => Number(r.customer_id)).filter(Boolean);
   }
+  if (sinceDate && outOfScopeIds.length > 0) {
+    deletedCustomerIds = [...new Set([...deletedCustomerIds, ...outOfScopeIds])];
+  }
 
   if (!hasMore && device?.update) {
     await device.update({ briefs_synced_at: now });
   }
 
   return {
-    briefs,
+    briefs: inScopeBriefs,
     deleted_customer_ids: deletedCustomerIds,
     next_cursor: nextCursor,
     server_time: now.toISOString(),
@@ -469,7 +708,7 @@ export const syncDeviceBriefs = async (models, device, query = {}, { now = new D
 /**
  * Fallback lookup by raw phone when the phone's local Room cache misses.
  */
-export const lookupDeviceBrief = async (models, _device, query = {}) => {
+export const lookupDeviceBrief = async (models, device, query = {}) => {
   const rawPhone = String(query.phone || "").trim();
   if (!rawPhone) {
     return { match: "none", brief: null, contact: null };
@@ -477,11 +716,14 @@ export const lookupDeviceBrief = async (models, _device, query = {}) => {
 
   const customerIds = await findCustomerIdsByPhone(models, rawPhone);
   if (customerIds.length > 0) {
-    const briefs = await buildBriefs(models, customerIds);
-    if (briefs.length > 0) {
+    const { policy, profile } = await resolveBriefContextForDevice(models, device);
+    const allBriefs = await buildBriefs(models, customerIds, { profile });
+    if (allBriefs.length > 0) {
+      const briefs = policy?.shared_number === "first_only" ? [allBriefs[0]] : allBriefs;
       return {
         match: "customer",
         brief: briefs[0],
+        briefs,
         contact: null,
       };
     }

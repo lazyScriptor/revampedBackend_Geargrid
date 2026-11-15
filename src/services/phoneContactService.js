@@ -1,7 +1,8 @@
 import { Op } from "sequelize";
 import AppError from "../utils/AppError.js";
 import { normalizePhone } from "../utils/whatsappPhone.js";
-import { phoneSearchCore } from "../utils/customerPhoneSearch.js";
+import { phoneSearchCore } from "../utils/customerSearch.js";
+import { loadUserCapabilitiesContext } from "./phoneAssistantPolicyService.js";
 import { notifyEvent } from "./pushEventService.js";
 
 const MAX_UPSERTS_PER_SYNC = 500;
@@ -40,9 +41,12 @@ export const splitDisplayName = (displayName) => {
 export const syncDeviceContacts = async (
   models,
   device,
-  { full = false, final = true, upserts = [], deletes = [], seen_keys } = {},
+  { full = false, final = true, confirm_empty = false, upserts = [], deletes = [], seen_keys } = {},
 ) => {
-  if (!device?.contact_sync_enabled) {
+  const syncAllowed =
+    Boolean(device?.contact_sync_enabled) ||
+    (Boolean(device?.contact_sync_mode) && device.contact_sync_mode !== "off");
+  if (!syncAllowed) {
     throw new AppError("Contact sync is disabled for this phone.", 409);
   }
   if (upserts.length > MAX_UPSERTS_PER_SYNC) {
@@ -173,7 +177,7 @@ export const syncDeviceContacts = async (
       });
     }
 
-    // Full sync pruning on the final batch
+    // Full sync pruning on the final batch (leads have operator_device_id = null so they are never affected)
     if (full && final !== false) {
       const keepKeys = Array.isArray(seen_keys)
         ? [...new Set([...seen_keys, ...upsertedKeys])]
@@ -188,6 +192,15 @@ export const syncDeviceContacts = async (
           ...opts,
         });
       } else {
+        if (!confirm_empty && models.PhoneContact.count) {
+          const existingCount = await models.PhoneContact.count({
+            where: { operator_device_id: deviceId },
+            ...opts,
+          });
+          if (existingCount > 0) {
+            throw new AppError("Empty full contact sync rejected without confirm_empty.", 409);
+          }
+        }
         await models.PhoneContact.destroy({
           where: { operator_device_id: deviceId },
           ...opts,
@@ -214,11 +227,11 @@ export const syncDeviceContacts = async (
 };
 
 /**
- * Staff search for unlinked synced phone contacts, by phone number only (never by name).
+ * Staff search for unlinked synced phone contacts and D7 leads, by phone number only (never by name).
  * Enforces MIN_CONTACT_SEARCH_DIGITS typed digits, cap 10 rows, linked_customer_id IS NULL,
- * and active contact_sync_enabled on the owning device.
+ * active contact_sync_enabled on synced phone rows, and admin-or-creator visibility on leads.
  */
-export const searchPhoneContacts = async (models, { search, limit = 10 } = {}) => {
+export const searchPhoneContacts = async (models, { search, limit = 10 } = {}, actorUser = null) => {
   const core = phoneSearchCore(search);
   const typedDigits = String(search ?? "").replace(/\D/g, "").length;
   if (!core || typedDigits < MIN_CONTACT_SEARCH_DIGITS) {
@@ -242,8 +255,7 @@ export const searchPhoneContacts = async (models, { search, limit = 10 } = {}) =
           {
             model: models.OperatorDevice,
             attributes: ["operator_device_id", "device_label", "contact_sync_enabled"],
-            where: { contact_sync_enabled: true },
-            required: true,
+            required: false,
           },
         ]
       : [],
@@ -251,15 +263,39 @@ export const searchPhoneContacts = async (models, { search, limit = 10 } = {}) =
     limit: safeLimit,
   });
 
+  const actorId = actorUser?.userId ?? actorUser?.user_id ?? actorUser?.id ?? null;
+  let admin = actorUser === null || actorUser === undefined || actorUser.isAdmin === true;
+  if (!admin && actorId) {
+    const userCtx = await loadUserCapabilitiesContext(models, actorId);
+    admin = Boolean(userCtx.isAdmin);
+  }
+
+  const visibleRows = (rows || []).filter((r) => {
+    const src = r.source || "phone";
+    if (src === "lead") {
+      return admin || (actorId != null && Number(r.created_by_user_id) === Number(actorId));
+    }
+    if (models.OperatorDevice) {
+      if (!r.OperatorDevice) return false;
+      if (r.OperatorDevice.contact_sync_enabled === false) return false;
+    }
+    return true;
+  });
+
   return {
-    contacts: (rows || []).map((r) => ({
-      contact_id: r.contact_id,
-      operator_device_id: r.operator_device_id,
-      device_label: r.OperatorDevice?.device_label ?? null,
-      display_name: r.display_name,
-      phone_e164: r.phone_e164,
-      raw_phone: r.raw_phone ?? null,
-    })),
+    contacts: visibleRows.slice(0, safeLimit).map((r) => {
+      const item = {
+        contact_id: r.contact_id,
+        operator_device_id: r.operator_device_id ?? null,
+        device_label: r.OperatorDevice?.device_label ?? null,
+        display_name: r.display_name,
+        phone_e164: r.phone_e164,
+        raw_phone: r.raw_phone ?? null,
+      };
+      if (r.source !== undefined) item.source = r.source;
+      if (r.notes !== undefined) item.notes = r.notes ?? null;
+      return item;
+    }),
   };
 };
 
@@ -292,13 +328,59 @@ const sendOwnerContactUsedAlert = async (models, contact, localPhone, actorUser)
 };
 
 /**
- * Mark a phone contact as used by staff, notify non-acting administrators,
- * and return prefill values for the new customer dialog.
+ * Mark a phone contact as used by staff, verify the typed phone number matches (A-05),
+ * notify non-acting administrators, and return prefill values for the new customer dialog.
  */
-export const usePhoneContact = async (models, contactId, actorUser) => {
-  const contact = await models.PhoneContact.findByPk(contactId);
+export const usePhoneContact = async (models, contactId, actorUser, { phone } = {}) => {
+  const core = phoneSearchCore(phone);
+  const typedDigits = String(phone ?? "").replace(/\D/g, "").length;
+  if (!core || typedDigits < MIN_CONTACT_SEARCH_DIGITS) {
+    throw new AppError(
+      `A phone number with at least ${MIN_CONTACT_SEARCH_DIGITS} digits is required.`,
+      400,
+    );
+  }
+
+  const findOpts = models.OperatorDevice
+    ? {
+        include: [
+          {
+            model: models.OperatorDevice,
+            attributes: ["operator_device_id", "contact_sync_enabled"],
+            required: false,
+          },
+        ],
+      }
+    : undefined;
+
+  const contact = findOpts
+    ? await models.PhoneContact.findByPk(contactId, findOpts)
+    : await models.PhoneContact.findByPk(contactId);
   if (!contact) {
     throw new AppError("Phone contact not found.", 404);
+  }
+  if (contact.linked_customer_id != null) {
+    throw new AppError("This contact is already linked to a customer.", 409);
+  }
+  const source = contact.source || "phone";
+  if (source === "lead") {
+    const actorId = actorUser?.userId ?? actorUser?.user_id ?? actorUser?.id ?? null;
+    let admin = actorUser === null || actorUser === undefined || actorUser.isAdmin === true;
+    if (!admin && actorId) {
+      const userCtx = await loadUserCapabilitiesContext(models, actorId);
+      admin = Boolean(userCtx.isAdmin);
+    }
+    if (!admin && Number(contact.created_by_user_id) !== Number(actorId)) {
+      throw new AppError("You do not have access to this lead.", 403);
+    }
+  } else if (contact.OperatorDevice && contact.OperatorDevice.contact_sync_enabled === false) {
+    throw new AppError("Contact sync is disabled for the phone that owns this contact.", 409);
+  }
+
+  const storedDigits = String(contact.phone_e164 || "").replace(/\D/g, "");
+  const rawCore = phoneSearchCore(contact.raw_phone || "");
+  if (!storedDigits.includes(core) && rawCore !== core) {
+    throw new AppError("Typed phone number does not match this contact.", 403);
   }
 
   const actorId = actorUser?.userId ?? actorUser?.id ?? null;
@@ -318,5 +400,138 @@ export const usePhoneContact = async (models, contactId, actorUser) => {
     first_name,
     last_name,
     phone_number,
+  };
+};
+
+/**
+ * Delete all contacts uploaded from one paired device (privacy reset / C.5).
+ */
+export const deleteDeviceContacts = async (models, device) => {
+  if (!device?.operator_device_id) {
+    throw new AppError("Device not found.", 404);
+  }
+  const deleted = models.PhoneContact?.destroy
+    ? await models.PhoneContact.destroy({
+        where: { operator_device_id: device.operator_device_id },
+      })
+    : 0;
+  if (device.update) {
+    await device.update({ contacts_synced_at: null });
+  }
+  if (models.DeviceAuditLog?.create) {
+    await models.DeviceAuditLog.create({
+      operator_device_id: device.operator_device_id,
+      actor_user_id: device.user_id ?? null,
+      action: "contacts_deleted",
+      detail: { deleted: Number(deleted || 0), source: "device" },
+    });
+  }
+  return { deleted: Number(deleted || 0) };
+};
+
+/**
+ * D7: Save an unknown caller as a lead (`PHONE_CONTACTS.source = 'lead'`, `operator_device_id = null`),
+ * visible to administrators and the staff member who saved them.
+ */
+export const createLeadContact = async (
+  models,
+  { display_name, phone, note = null, call_id = null } = {},
+  { actorUser = null, device = null } = {},
+) => {
+  const safeName = String(display_name || "").trim().slice(0, 255);
+  if (!safeName) {
+    throw new AppError("Lead name is required.", 400);
+  }
+  const parsed = normalizePhone(phone);
+  if (!parsed.digits) {
+    throw new AppError("A valid phone number is required.", 400);
+  }
+
+  if (models.CustomerPhone?.findOne) {
+    const existingCustomer = await models.CustomerPhone.findOne({
+      where: { phone_e164: parsed.digits },
+      attributes: ["customer_id"],
+    });
+    if (existingCustomer?.customer_id) {
+      throw new AppError("This phone number already belongs to an existing customer.", 409);
+    }
+  }
+
+  const creatorUserId =
+    actorUser?.userId ?? actorUser?.user_id ?? actorUser?.id ?? device?.user_id ?? null;
+  const safeNote = note !== undefined && note !== null ? String(note).trim().slice(0, 500) || null : null;
+  const rawPhone = String(phone || "").trim().slice(0, 50) || formatPhoneLocal(parsed.digits);
+
+  let leadRow = models.PhoneContact?.findOne
+    ? await models.PhoneContact.findOne({
+        where: {
+          source: "lead",
+          phone_e164: parsed.digits,
+          linked_customer_id: null,
+        },
+      })
+    : null;
+
+  if (leadRow) {
+    await leadRow.update({
+      display_name: safeName,
+      raw_phone: rawPhone,
+      notes: safeNote,
+      ...(leadRow.created_by_user_id == null && creatorUserId != null
+        ? { created_by_user_id: Number(creatorUserId) }
+        : {}),
+    });
+  } else {
+    leadRow = await models.PhoneContact.create({
+      operator_device_id: null,
+      source: "lead",
+      device_contact_key: `lead:${parsed.digits}`,
+      display_name: safeName,
+      phone_e164: parsed.digits,
+      raw_phone: rawPhone,
+      notes: safeNote,
+      linked_customer_id: null,
+      created_by_user_id: creatorUserId !== null ? Number(creatorUserId) : null,
+    });
+  }
+
+  if (models.CallLog?.update && leadRow?.contact_id) {
+    try {
+      await models.CallLog.update(
+        { contact_id: leadRow.contact_id },
+        {
+          where: {
+            phone_e164: parsed.digits,
+            customer_id: null,
+            contact_id: null,
+          },
+        },
+      );
+      if (call_id !== null && call_id !== undefined && String(call_id).trim()) {
+        const numericCallId = Number(call_id);
+        await models.CallLog.update(
+          { contact_id: leadRow.contact_id },
+          {
+            where: Number.isFinite(numericCallId) && numericCallId > 0
+              ? { call_id: numericCallId, customer_id: null }
+              : { client_call_id: String(call_id).trim(), customer_id: null },
+          },
+        );
+      }
+    } catch {
+      // Best-effort linking on call logs
+    }
+  }
+
+  return {
+    lead: {
+      contact_id: Number(leadRow.contact_id),
+      display_name: leadRow.display_name,
+      phone_e164: leadRow.phone_e164,
+      raw_phone: leadRow.raw_phone ?? null,
+      source: "lead",
+      notes: leadRow.notes ?? null,
+      created_by_user_id: leadRow.created_by_user_id ?? null,
+    },
   };
 };

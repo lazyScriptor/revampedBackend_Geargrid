@@ -3,6 +3,7 @@ import { Op, QueryTypes } from "sequelize";
 import AppError from "../utils/AppError.js";
 import { masterSequelize } from "../config/database.js";
 import { initMasterModels } from "../models/master/index.js";
+import { sendDataPush } from "./devicePushService.js";
 
 // Helper to get tenant ID from db_name
 const getTenantId = async (dbName) => {
@@ -127,8 +128,13 @@ export const updateUser = async (models, userId, payload) => {
 
   await user.update(payload);
 
+  if (payload.is_active === false) {
+    await suspendUserDevices(models, user.user_id);
+  }
+
   if (payload.role_ids) {
     await user.setRoles(payload.role_ids);
+    await wipeBriefCacheIfCallsViewRemoved(models, user.user_id);
   }
 
   const userData = user.toJSON();
@@ -165,6 +171,7 @@ export const deleteUser = async (models, userId) => {
 
   user.is_active = false;
   await user.save();
+  await revokeUserDevices(models, user.user_id);
   return user;
 };
 
@@ -177,6 +184,8 @@ export const permanentlyDeleteUser = async (models, userId) => {
   const user = await models.User.findByPk(userId);
   if (!user) throw new AppError("User not found.", 404);
   if (user.is_active) throw new AppError("Deactivate this user before removing them permanently.", 400);
+
+  await revokeUserDevices(models, user.user_id);
 
   const where = (field) => ({ where: { [field]: user.user_id } });
   const history = (
@@ -232,6 +241,9 @@ export const updateUserStatus = async (models, userId, isActive) => {
 
   user.is_active = isActive;
   await user.save();
+  if (!isActive) {
+    await suspendUserDevices(models, user.user_id);
+  }
   return user;
 };
 
@@ -247,6 +259,7 @@ export const assignUserRoles = async (models, userId, roleIds, reqUserHierarchy 
   }
 
   await user.setRoles(roleIds);
+  await wipeBriefCacheIfCallsViewRemoved(models, userId);
 
   return await models.User.findByPk(userId, {
     attributes: { exclude: ["password_hash"] },
@@ -340,6 +353,186 @@ export const isUserAdmin = (user) => {
   return roles.some(
     (role) => role && role.is_active !== false && Number(role.hierarchy_level) >= 100,
   );
+};
+
+/**
+ * Check whether an active user holds a given RBAC permission code via roles or
+ * per-user overrides (A-04). Admins (hierarchy_level >= 100) hold every permission.
+ */
+export const userHasPermission = async (models, user, permissionCode) => {
+  if (!user || user.is_active === false) return false;
+  if (isUserAdmin(user)) return true;
+
+  const effective = new Set();
+  const roles = Array.isArray(user.Roles) ? user.Roles : [];
+  for (const role of roles) {
+    if (!role || role.is_active === false) continue;
+    for (const perm of role.Permissions || []) {
+      if (perm?.permission_code) effective.add(perm.permission_code);
+    }
+  }
+
+  if (models?.UserPermissionOverride?.findAll && user.user_id) {
+    const overrides = await models.UserPermissionOverride.findAll({
+      where: { user_id: user.user_id },
+      include: models.Permission
+        ? [{ model: models.Permission, attributes: ["permission_code"] }]
+        : [],
+    });
+    for (const override of overrides || []) {
+      const code = override.Permission?.permission_code;
+      if (!code) continue;
+      if (override.grant_type === "grant") {
+        effective.add(code);
+      } else if (override.grant_type === "revoke") {
+        effective.delete(code);
+      }
+    }
+  }
+
+  return effective.has(permissionCode);
+};
+
+/**
+ * Suspend all ACTIVE/PENDING devices belonging to a deactivated user (Part B):
+ * clears brief sync watermark, pushes device_suspended, and writes audit log.
+ */
+export const suspendUserDevices = async (models, userId, actorUserId = null, reason = "user_deactivated") => {
+  if (!models?.OperatorDevice?.findAll || !userId) return 0;
+
+  const devices = await models.OperatorDevice.findAll({
+    where: { user_id: userId },
+  });
+  const activeDevices = (devices || []).filter(
+    (d) => (d.status || "ACTIVE") !== "REVOKED" && d.status !== "SUSPENDED",
+  );
+  if (activeDevices.length === 0) return 0;
+
+  for (const device of activeDevices) {
+    if (typeof device.update === "function") {
+      await device.update({ status: "SUSPENDED", briefs_synced_at: null });
+    }
+    if (models.DeviceAuditLog?.create) {
+      await models.DeviceAuditLog.create({
+        operator_device_id: device.operator_device_id,
+        actor_user_id: actorUserId,
+        action: "suspended",
+        detail: { reason },
+      }).catch(() => {});
+    }
+    if (device.push_token) {
+      await sendDataPush(device, { type: "device_suspended" }).catch(() => {});
+    }
+  }
+
+  return activeDevices.length;
+};
+
+/**
+ * Revoke all paired devices belonging to a deleted/archived user (A-03 / B.4):
+ * wipes synced phone contacts, pushes a silent device_revoked command, and
+ * sets status = REVOKED while clearing tokens so cached tokens cannot work.
+ */
+export const revokeUserDevices = async (models, userId, actorUserId = null, reason = "user_deleted") => {
+  if (!models?.OperatorDevice?.findAll || !userId) return 0;
+
+  const devices = await models.OperatorDevice.findAll({
+    where: { user_id: userId },
+  });
+  if (!devices || devices.length === 0) return 0;
+
+  const deviceIds = devices.map((d) => d.operator_device_id).filter(Boolean);
+  if (deviceIds.length > 0 && models.PhoneContact?.destroy) {
+    await models.PhoneContact.destroy({
+      where: { operator_device_id: { [Op.in]: deviceIds } },
+    });
+  }
+
+  for (const device of devices) {
+    if (device.push_token) {
+      await sendDataPush(device, { type: "device_revoked" }).catch(() => {});
+    }
+  }
+
+  const now = new Date();
+  const revokePatch = {
+    status: "REVOKED",
+    revoked_at: now,
+    token_hash: null,
+    prev_token_hash: null,
+    prev_token_expires_at: null,
+    push_token: null,
+    push_token_updated_at: now,
+    contact_sync_enabled: false,
+    contact_sync_mode: "off",
+    briefs_synced_at: null,
+  };
+  if (models.OperatorDevice.update) {
+    await models.OperatorDevice.update(revokePatch, {
+      where: { operator_device_id: { [Op.in]: deviceIds } },
+    });
+  } else {
+    for (const device of devices) {
+      if (typeof device.update === "function") {
+        await device.update(revokePatch);
+      }
+    }
+  }
+
+  if (models.DeviceAuditLog?.create) {
+    for (const deviceId of deviceIds) {
+      await models.DeviceAuditLog.create({
+        operator_device_id: deviceId,
+        actor_user_id: actorUserId,
+        action: "revoked",
+        detail: { reason },
+      }).catch(() => {});
+    }
+  }
+
+  return devices.length;
+};
+
+/**
+ * Send a silent wipe_cache push to all user's devices if calls:view permission is removed (A-04).
+ */
+export const wipeBriefCacheIfCallsViewRemoved = async (models, userId) => {
+  if (!models?.User?.findByPk || !models?.OperatorDevice?.findAll || !userId) return 0;
+  const roleInclude = models.Role
+    ? [
+        {
+          model: models.Role,
+          attributes: ["role_id", "role_name", "hierarchy_level", "is_active"],
+          through: { attributes: [] },
+          ...(models.Permission
+            ? {
+                include: [
+                  {
+                    model: models.Permission,
+                    attributes: ["permission_code"],
+                    through: { attributes: [] },
+                  },
+                ],
+              }
+            : {}),
+        },
+      ]
+    : [];
+  const freshUser = await models.User.findByPk(userId, { include: roleInclude });
+  if (!freshUser || freshUser.is_active === false) {
+    return revokeUserDevices(models, userId);
+  }
+  const canViewCalls = await userHasPermission(models, freshUser, "calls:view");
+  if (canViewCalls) return 0;
+  const devices = await models.OperatorDevice.findAll({ where: { user_id: userId } });
+  let pushed = 0;
+  for (const device of devices || []) {
+    if (device.push_token) {
+      await sendDataPush(device, { type: "wipe_cache" }).catch(() => {});
+      pushed += 1;
+    }
+  }
+  return pushed;
 };
 
 /** Return user_ids of all active administrators in the tenant. */

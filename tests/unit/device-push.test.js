@@ -81,14 +81,15 @@ describe("devicePushService", () => {
     expect(sendMock).toHaveBeenCalledTimes(2);
     expect(sendMock).toHaveBeenNthCalledWith(1, {
       token: "fcm-token-1",
-      notification: {
+      data: {
+        type: "invoice_created",
+        invoice_id: "42",
         title: "New bill #42 · LKR 5,000",
         body: "Nimal · 2 item(s) · by Kasun",
+        channel: "bills",
       },
-      data: { type: "invoice_created", invoice_id: "42" },
       android: {
         priority: "high",
-        notification: { channelId: "bills", sound: "default" },
       },
     });
   });
@@ -115,10 +116,16 @@ describe("devicePushService", () => {
     expect(res).toEqual({ sent: 1, reached: 1 });
     expect(sendMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: { type: "payment_received", invoice_id: "12", silent: "true" },
+        data: {
+          type: "payment_received",
+          invoice_id: "12",
+          title: "Payment received",
+          body: "LKR 2,000",
+          channel: "bills_silent",
+          silent: "true",
+        },
         android: {
           priority: "normal",
-          notification: { channelId: "bills", defaultSound: false },
         },
       }),
     );

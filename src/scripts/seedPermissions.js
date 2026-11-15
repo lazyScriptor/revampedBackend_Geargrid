@@ -123,6 +123,9 @@ const PERMISSION_CATALOG = [
   // Phone Assistant
   { permission_code: "calls:view", module_name: "Phone Assistant", description: "See incoming call briefs and call history" },
   { permission_code: "phone_contacts:view", module_name: "Phone Assistant", description: "Search synced phone contacts when billing" },
+  { permission_code: "devices:manage", module_name: "Phone Assistant", description: "View, approve, suspend, revoke and configure shop phones" },
+  { permission_code: "call_notes:write", module_name: "Phone Assistant", description: "Add after-call notes, outcomes and follow-ups" },
+  { permission_code: "approvals:decide", module_name: "Phone Assistant", description: "Approve or reject staff discount, void and delete requests" },
 
   // Legacy module-level permissions (backward compat)
   { permission_code: "inventory_permission", module_name: "Legacy", description: "Legacy module-level inventory access" },

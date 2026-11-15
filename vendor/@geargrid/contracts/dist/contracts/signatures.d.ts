@@ -278,15 +278,90 @@ export declare const UpdateRentalTermsContract: {
         }, z.core.$strip>;
     }, z.core.$strip>;
 };
+export declare const DeviceStatusEnum: z.ZodEnum<{
+    PENDING: "PENDING";
+    ACTIVE: "ACTIVE";
+    SUSPENDED: "SUSPENDED";
+    REVOKED: "REVOKED";
+}>;
+export type DeviceStatus = z.infer<typeof DeviceStatusEnum>;
+export declare const DeviceCapabilityKeyEnum: z.ZodEnum<{
+    push: "push";
+    signatures: "signatures";
+    photos: "photos";
+    caller_brief: "caller_brief";
+    bill_view: "bill_view";
+    contact_sync: "contact_sync";
+    call_logging: "call_logging";
+    click_to_call: "click_to_call";
+}>;
+export type DeviceCapabilityKey = z.infer<typeof DeviceCapabilityKeyEnum>;
+export declare const DeviceCapabilityMapSchema: z.ZodObject<{
+    signatures: z.ZodOptional<z.ZodBoolean>;
+    photos: z.ZodOptional<z.ZodBoolean>;
+    caller_brief: z.ZodOptional<z.ZodBoolean>;
+    bill_view: z.ZodOptional<z.ZodBoolean>;
+    push: z.ZodOptional<z.ZodBoolean>;
+    contact_sync: z.ZodOptional<z.ZodBoolean>;
+    call_logging: z.ZodOptional<z.ZodBoolean>;
+    click_to_call: z.ZodOptional<z.ZodBoolean>;
+}, z.core.$strip>;
+export type DeviceCapabilityMap = z.infer<typeof DeviceCapabilityMapSchema>;
 export declare const MintPairingCodeContract: {
     readonly path: "/me/devices/pairing-code";
     readonly method: "POST";
+    readonly body: z.ZodOptional<z.ZodObject<{
+        requested_capabilities: z.ZodOptional<z.ZodObject<{
+            signatures: z.ZodOptional<z.ZodBoolean>;
+            photos: z.ZodOptional<z.ZodBoolean>;
+            caller_brief: z.ZodOptional<z.ZodBoolean>;
+            bill_view: z.ZodOptional<z.ZodBoolean>;
+            push: z.ZodOptional<z.ZodBoolean>;
+            contact_sync: z.ZodOptional<z.ZodBoolean>;
+            call_logging: z.ZodOptional<z.ZodBoolean>;
+            click_to_call: z.ZodOptional<z.ZodBoolean>;
+        }, z.core.$strip>>;
+    }, z.core.$strip>>;
     readonly response: z.ZodObject<{
         status: z.ZodLiteral<"success">;
         message: z.ZodOptional<z.ZodString>;
         data: z.ZodObject<{
             code: z.ZodString;
             expires_at: z.ZodString;
+            requested_capabilities: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                signatures: z.ZodOptional<z.ZodBoolean>;
+                photos: z.ZodOptional<z.ZodBoolean>;
+                caller_brief: z.ZodOptional<z.ZodBoolean>;
+                bill_view: z.ZodOptional<z.ZodBoolean>;
+                push: z.ZodOptional<z.ZodBoolean>;
+                contact_sync: z.ZodOptional<z.ZodBoolean>;
+                call_logging: z.ZodOptional<z.ZodBoolean>;
+                click_to_call: z.ZodOptional<z.ZodBoolean>;
+            }, z.core.$strip>>>;
+        }, z.core.$strip>;
+    }, z.core.$strip>;
+};
+export declare const GetPairingCodePreviewContract: {
+    readonly path: "/public/devices/pair/:code";
+    readonly method: "GET";
+    readonly params: z.ZodObject<{
+        code: z.ZodString;
+    }, z.core.$strip>;
+    readonly response: z.ZodObject<{
+        status: z.ZodLiteral<"success">;
+        message: z.ZodOptional<z.ZodString>;
+        data: z.ZodObject<{
+            code: z.ZodString;
+            shop_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            staff_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            expires_at: z.ZodString;
+            requested_capabilities: z.ZodRecord<z.ZodString, z.ZodBoolean>;
+            approval_mode: z.ZodOptional<z.ZodEnum<{
+                admin_approves_all: "admin_approves_all";
+                auto_approve_admin_phones: "auto_approve_admin_phones";
+                auto_approve_all: "auto_approve_all";
+            }>>;
+            will_require_approval: z.ZodOptional<z.ZodBoolean>;
         }, z.core.$strip>;
     }, z.core.$strip>;
 };
@@ -297,6 +372,19 @@ export declare const ClaimPairingCodeContract: {
         code: z.ZodString;
         device_id: z.ZodString;
         device_label: z.ZodOptional<z.ZodString>;
+        device_model: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        os_version: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        app_version: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        consented_capabilities: z.ZodOptional<z.ZodObject<{
+            signatures: z.ZodOptional<z.ZodBoolean>;
+            photos: z.ZodOptional<z.ZodBoolean>;
+            caller_brief: z.ZodOptional<z.ZodBoolean>;
+            bill_view: z.ZodOptional<z.ZodBoolean>;
+            push: z.ZodOptional<z.ZodBoolean>;
+            contact_sync: z.ZodOptional<z.ZodBoolean>;
+            call_logging: z.ZodOptional<z.ZodBoolean>;
+            click_to_call: z.ZodOptional<z.ZodBoolean>;
+        }, z.core.$strip>>;
     }, z.core.$strip>;
     readonly response: z.ZodObject<{
         status: z.ZodLiteral<"success">;
@@ -306,6 +394,13 @@ export declare const ClaimPairingCodeContract: {
             device_id: z.ZodString;
             tenant_db_name: z.ZodOptional<z.ZodString>;
             device_token: z.ZodOptional<z.ZodString>;
+            status: z.ZodOptional<z.ZodEnum<{
+                PENDING: "PENDING";
+                ACTIVE: "ACTIVE";
+                SUSPENDED: "SUSPENDED";
+                REVOKED: "REVOKED";
+            }>>;
+            effective_capabilities: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodBoolean>>;
             operator: z.ZodObject<{
                 user_id: z.ZodCoercedNumber<unknown>;
                 operator_name: z.ZodString;
@@ -332,6 +427,13 @@ export declare const GetDeviceStatusContract: {
         message: z.ZodOptional<z.ZodString>;
         data: z.ZodObject<{
             paired: z.ZodBoolean;
+            shop_inactive: z.ZodOptional<z.ZodBoolean>;
+            device_status: z.ZodOptional<z.ZodEnum<{
+                PENDING: "PENDING";
+                ACTIVE: "ACTIVE";
+                SUSPENDED: "SUSPENDED";
+                REVOKED: "REVOKED";
+            }>>;
             operator: z.ZodNullable<z.ZodObject<{
                 user_id: z.ZodCoercedNumber<unknown>;
                 operator_name: z.ZodString;
@@ -360,6 +462,15 @@ export declare const ListMyDevicesContract: {
                 user_agent: z.ZodNullable<z.ZodString>;
                 paired_at: z.ZodString;
                 last_seen_at: z.ZodNullable<z.ZodString>;
+                status: z.ZodOptional<z.ZodEnum<{
+                    PENDING: "PENDING";
+                    ACTIVE: "ACTIVE";
+                    SUSPENDED: "SUSPENDED";
+                    REVOKED: "REVOKED";
+                }>>;
+                device_model: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                os_version: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                effective_capabilities: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodBoolean>>;
                 is_native_app: z.ZodOptional<z.ZodBoolean>;
                 app_version: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                 contact_sync_enabled: z.ZodOptional<z.ZodBoolean>;

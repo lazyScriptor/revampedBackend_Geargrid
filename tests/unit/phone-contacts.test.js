@@ -236,7 +236,7 @@ describe("searchPhoneContacts & usePhoneContact", () => {
     };
     mockListAdminUserIds.mockResolvedValue([1, 2]); // Actor is admin 1; admin 2 should be notified
 
-    const res = await usePhoneContact(models, 9, { userId: 1 });
+    const res = await usePhoneContact(models, 9, { userId: 1 }, { phone: "0771234567" });
     // Let the unawaited fire-and-forget microtasks flush for assertion
     await new Promise((r) => setTimeout(r, 15));
 

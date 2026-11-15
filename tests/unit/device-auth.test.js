@@ -214,9 +214,11 @@ describe("registerDevice and listAdminUserIds", () => {
     expect(models.PhoneContact.destroy).toHaveBeenCalledWith({
       where: { operator_device_id: 11 },
     });
-    expect(res).toEqual({
+    expect(res).toMatchObject({
       is_admin: true,
       contact_sync_enabled: false,
+      device_status: "ACTIVE",
+      offline_wipe_days: 7,
       features: { phone_assistant: true, messages: true },
     });
   });

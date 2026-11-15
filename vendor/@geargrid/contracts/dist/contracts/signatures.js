@@ -210,13 +210,57 @@ const PairedOperatorInfo = z.object({
     operator_name: z.string(),
     has_saved_signature: z.boolean(),
 });
+export const DeviceStatusEnum = z.enum(["PENDING", "ACTIVE", "SUSPENDED", "REVOKED"]);
+export const DeviceCapabilityKeyEnum = z.enum([
+    "signatures",
+    "photos",
+    "caller_brief",
+    "bill_view",
+    "push",
+    "contact_sync",
+    "call_logging",
+    "click_to_call",
+]);
+export const DeviceCapabilityMapSchema = z.object({
+    signatures: z.boolean().optional(),
+    photos: z.boolean().optional(),
+    caller_brief: z.boolean().optional(),
+    bill_view: z.boolean().optional(),
+    push: z.boolean().optional(),
+    contact_sync: z.boolean().optional(),
+    call_logging: z.boolean().optional(),
+    click_to_call: z.boolean().optional(),
+});
 // POST /api/me/devices/pairing-code  (auth; operator on POS generates code)
 export const MintPairingCodeContract = {
     path: "/me/devices/pairing-code",
     method: "POST",
+    body: z
+        .object({
+        requested_capabilities: DeviceCapabilityMapSchema.optional(),
+    })
+        .optional(),
     response: successEnvelope(z.object({
         code: z.string(),
         expires_at: ISODate,
+        requested_capabilities: DeviceCapabilityMapSchema.nullable().optional(),
+    })),
+};
+// GET /api/public/devices/pair/:code  (public; phone previews requested capabilities & approval status)
+export const GetPairingCodePreviewContract = {
+    path: "/public/devices/pair/:code",
+    method: "GET",
+    params: z.object({ code: z.string().trim().min(4).max(16) }),
+    response: successEnvelope(z.object({
+        code: z.string(),
+        shop_name: z.string().nullable().optional(),
+        staff_name: z.string().nullable().optional(),
+        expires_at: ISODate,
+        requested_capabilities: z.record(z.string(), z.boolean()),
+        approval_mode: z
+            .enum(["admin_approves_all", "auto_approve_admin_phones", "auto_approve_all"])
+            .optional(),
+        will_require_approval: z.boolean().optional(),
     })),
 };
 // POST /api/public/devices/pair  (public; phone claims the code)
@@ -227,12 +271,18 @@ export const ClaimPairingCodeContract = {
         code: z.string().min(4).max(16),
         device_id: z.string().min(8).max(64),
         device_label: z.string().max(100).optional(),
+        device_model: z.string().trim().max(100).nullable().optional(),
+        os_version: z.string().trim().max(20).nullable().optional(),
+        app_version: z.string().trim().max(32).nullable().optional(),
+        consented_capabilities: DeviceCapabilityMapSchema.optional(),
     }),
     response: successEnvelope(z.object({
         operator_device_id: PositiveInt,
         device_id: z.string(),
         tenant_db_name: z.string().optional(),
         device_token: z.string().optional(),
+        status: DeviceStatusEnum.optional(),
+        effective_capabilities: z.record(z.string(), z.boolean()).optional(),
         operator: PairedOperatorInfo,
         tenant: TenantBrandingLite,
         paired_at: ISODate,
@@ -245,6 +295,8 @@ export const GetDeviceStatusContract = {
     params: z.object({ device_id: z.string().min(8).max(64) }),
     response: successEnvelope(z.object({
         paired: z.boolean(),
+        shop_inactive: z.boolean().optional(),
+        device_status: DeviceStatusEnum.optional(),
         operator: PairedOperatorInfo.nullable(),
         tenant: TenantBrandingLite.nullable(),
     })),
@@ -261,6 +313,10 @@ export const ListMyDevicesContract = {
             user_agent: z.string().nullable(),
             paired_at: ISODate,
             last_seen_at: ISODate.nullable(),
+            status: DeviceStatusEnum.optional(),
+            device_model: z.string().nullable().optional(),
+            os_version: z.string().nullable().optional(),
+            effective_capabilities: z.record(z.string(), z.boolean()).optional(),
             is_native_app: z.boolean().optional(),
             app_version: z.string().nullable().optional(),
             contact_sync_enabled: z.boolean().optional(),

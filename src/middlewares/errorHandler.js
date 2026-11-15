@@ -29,6 +29,7 @@ const errorHandler = (err, req, res, next) => {
     status: error.status,
     message: error.message,
     errorCode: error.statusCode,
+    ...(error.code ? { code: error.code } : {}),
     // stack: err.stack // Uncomment this in development to see exactly where it broke!
   });
 };

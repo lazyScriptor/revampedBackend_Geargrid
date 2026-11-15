@@ -49,6 +49,19 @@ export default (sequelize) => {
         type: DataTypes.INTEGER,
         allowNull: true,
       },
+      sim_label: {
+        type: DataTypes.STRING(40),
+        allowNull: true,
+      },
+      number_masked: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+      },
+      callback_handled_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
     },
     {
       tableName: "CALL_LOGS",

@@ -31,6 +31,8 @@ import CustomerPhoneFactory from "./CustomerPhone.js";
 import PhoneContactFactory from "./PhoneContact.js";
 import PushPreferenceFactory from "./PushPreference.js";
 import CallLogFactory from "./CallLog.js";
+import CallNoteFactory from "./CallNote.js";
+import DeviceAuditLogFactory from "./DeviceAuditLog.js";
 
 export const initTenantModels = (tenantConnection) => {
   const User = UserFactory(tenantConnection);
@@ -66,6 +68,8 @@ export const initTenantModels = (tenantConnection) => {
   const PhoneContact = PhoneContactFactory(tenantConnection);
   const PushPreference = PushPreferenceFactory(tenantConnection);
   const CallLog = CallLogFactory(tenantConnection);
+  const CallNote = CallNoteFactory(tenantConnection);
+  const DeviceAuditLog = DeviceAuditLogFactory(tenantConnection);
 
   // ==========================================
   // AUTH & USERS
@@ -228,6 +232,9 @@ export const initTenantModels = (tenantConnection) => {
   // ── Paired-PWA signature-capture devices ──────────────────────────────
   OperatorDevice.belongsTo(User, { foreignKey: "user_id" });
   User.hasMany(OperatorDevice, { foreignKey: "user_id" });
+  OperatorDevice.hasMany(DeviceAuditLog, { foreignKey: "operator_device_id" });
+  DeviceAuditLog.belongsTo(OperatorDevice, { foreignKey: "operator_device_id" });
+  DeviceAuditLog.belongsTo(User, { as: "Actor", foreignKey: "actor_user_id" });
 
   // ── Phone Assistant contacts ──
   OperatorDevice.hasMany(PhoneContact, { foreignKey: "operator_device_id" });
@@ -242,13 +249,21 @@ export const initTenantModels = (tenantConnection) => {
   User.hasMany(PushPreference, { foreignKey: "user_id" });
   PushPreference.belongsTo(User, { foreignKey: "user_id" });
 
-  // ── Phone Assistant call logs ──
+  // ── Phone Assistant call logs & notes ──
   CallLog.belongsTo(OperatorDevice, { foreignKey: "operator_device_id" });
   OperatorDevice.hasMany(CallLog, { foreignKey: "operator_device_id" });
   CallLog.belongsTo(Customer, { foreignKey: "customer_id" });
   Customer.hasMany(CallLog, { foreignKey: "customer_id" });
   CallLog.belongsTo(PhoneContact, { foreignKey: "contact_id" });
   PhoneContact.hasMany(CallLog, { foreignKey: "contact_id" });
+  CallLog.hasMany(CallNote, { foreignKey: "call_id", onDelete: "CASCADE" });
+  CallNote.belongsTo(CallLog, { foreignKey: "call_id" });
+  Customer.hasMany(CallNote, { foreignKey: "customer_id", onDelete: "SET NULL" });
+  CallNote.belongsTo(Customer, { foreignKey: "customer_id" });
+  PhoneContact.hasMany(CallNote, { foreignKey: "contact_id", onDelete: "SET NULL" });
+  CallNote.belongsTo(PhoneContact, { foreignKey: "contact_id" });
+  User.hasMany(CallNote, { foreignKey: "created_by_user_id", onDelete: "SET NULL" });
+  CallNote.belongsTo(User, { as: "Author", foreignKey: "created_by_user_id" });
 
   // ── Cash locker ──
   CashLockerCount.belongsTo(User, { as: "CountedBy", foreignKey: "counted_by_user_id" });
@@ -288,6 +303,8 @@ export const initTenantModels = (tenantConnection) => {
     PhoneContact,
     PushPreference,
     CallLog,
+    CallNote,
+    DeviceAuditLog,
     sequelize: tenantConnection,
   };
 };

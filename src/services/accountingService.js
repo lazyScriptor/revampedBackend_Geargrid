@@ -1,9 +1,9 @@
 import { Op, QueryTypes, fn, col, literal } from "sequelize";
 import {
-  findCustomerIdsByPhoneSearch,
+  findCustomerIdsBySearch,
   idsForSqlIn,
   isWholeNumber,
-} from "../utils/customerPhoneSearch.js";
+} from "../utils/customerSearch.js";
 import { parseTenantDayRange } from "../utils/dateRange.js";
 import { liveTotalExpr } from "../utils/invoiceBalance.js";
 
@@ -91,10 +91,10 @@ export const getFilteredInvoices = async (models, query) => {
     where.customer_id = query.customer_id;
   }
 
-  // Search on the customer's phone number or the invoice ID, never a customer name
+  // Search by customer (name, ID, NIC, phone) or invoice ID
   if (query.search) {
     where[Op.or] = [
-      { customer_id: { [Op.in]: await findCustomerIdsByPhoneSearch(models, query.search) } },
+      { customer_id: { [Op.in]: await findCustomerIdsBySearch(models, query.search) } },
     ];
     if (isWholeNumber(query.search)) {
       where[Op.or].push({ invoice_id: parseInt(query.search) });
@@ -241,7 +241,7 @@ export const getFilteredPayments = async (models, query) => {
 
   if (query.search) {
     invoiceInclude.include[0].where = {
-      customer_id: { [Op.in]: await findCustomerIdsByPhoneSearch(models, query.search) },
+      customer_id: { [Op.in]: await findCustomerIdsBySearch(models, query.search) },
     };
   }
 
@@ -450,10 +450,10 @@ export const getChartData = async (models, query) => {
     dateClauseI += " AND i.issued_date <= :dateTo";
   }
 
-  // Invoice number, or the customer's phone number — never a customer name.
+  // Invoice number or matching customer (name, ID, NIC, phone)
   if (query.search) {
     replacements.searchParam = `%${query.search}%`;
-    replacements.searchCustomerIds = idsForSqlIn(await findCustomerIdsByPhoneSearch(models, query.search));
+    replacements.searchCustomerIds = idsForSqlIn(await findCustomerIdsBySearch(models, query.search));
     searchClauseI = " AND (i.invoice_id LIKE :searchParam OR i.customer_id IN (:searchCustomerIds))";
     searchClauseP = " AND (p.invoice_id LIKE :searchParam OR EXISTS (SELECT 1 FROM INVOICES pi WHERE pi.invoice_id = p.invoice_id AND pi.customer_id IN (:searchCustomerIds)))";
   }

@@ -1,11 +1,11 @@
 import { Op } from "sequelize";
-import { findCustomerIdsByPhoneSearch, isWholeNumber } from "../utils/customerPhoneSearch.js";
+import { findCustomerIdsBySearch, isWholeNumber } from "../utils/customerSearch.js";
 import AppError from "../utils/AppError.js";
 import { liveTotalOf, owedAmount } from "../utils/invoiceBalance.js";
 import { refreshAccruals } from "./accrualService.js";
 import { touchCustomerBrief } from "./customerBriefService.js";
 import { notifyEvent } from "./pushEventService.js";
-import { isUserAdmin } from "./userService.js";
+import { isUserAdmin, userHasPermission } from "./userService.js";
 
 const formatLkr = (n) => {
   const num = Number(n || 0);
@@ -283,6 +283,7 @@ export const createDispatchInvoice = async (models, payload, userId) => {
       await notifyEvent(models, "invoice_created", {
         amount: Number(newInvoice.total_amount || 0),
         actorUserId: userId,
+        customerName,
         title: `New bill #${newInvoice.invoice_id} · LKR ${total}`,
         body: `${customerName} · ${itemCount} item(s) · by ${staffName}`,
         titleNoAmount: `New bill #${newInvoice.invoice_id}`,
@@ -306,11 +307,11 @@ export const getAllInvoices = async (models, queryParams) => {
 
   const whereClause = {};
 
-  // Search finds an invoice number or the customer's phone number, never a customer name.
+  // Search finds an invoice number or a customer matching name, ID, NIC, or phone.
   if (queryParams.search) {
     const searchTerm = String(queryParams.search);
     const matches = [
-      { customer_id: { [Op.in]: await findCustomerIdsByPhoneSearch(models, searchTerm) } },
+      { customer_id: { [Op.in]: await findCustomerIdsBySearch(models, searchTerm) } },
     ];
     if (isWholeNumber(searchTerm)) matches.push({ invoice_id: Number(searchTerm.trim()) });
     whereClause[Op.and] = [{ [Op.or]: matches }];
@@ -686,6 +687,7 @@ export const processReturn = async (models, payload, userId) => {
       await notifyEvent(models, "return_processed", {
         amount,
         actorUserId: userId,
+        customerName,
         title: amount > 0
           ? `Return on #${invoice_id} · LKR ${formatLkr(amount)}`
           : `Return processed on #${invoice_id}`,
@@ -846,6 +848,7 @@ export const addContinuousPayment = async (
       await notifyEvent(models, eventKey, {
         amount: numeric,
         actorUserId: userId,
+        customerName,
         title: `${label} on #${invoiceId} · LKR ${formatLkr(numeric)}`,
         body: `${customerName} · ${method || "Cash"} · by ${staffName}`,
         titleNoAmount: `${label} recorded on #${invoiceId}`,
@@ -1017,14 +1020,26 @@ export const getDeviceInvoiceSummary = async (models, device, invoiceId) => {
                   model: models.Role,
                   attributes: ["role_id", "role_name", "hierarchy_level", "is_active"],
                   through: { attributes: [] },
+                  ...(models.Permission
+                    ? {
+                        include: [
+                          {
+                            model: models.Permission,
+                            attributes: ["permission_code"],
+                            through: { attributes: [] },
+                          },
+                        ],
+                      }
+                    : {}),
                 },
               ]
             : [],
         })
       : null;
 
-  if (!isUserAdmin(user)) {
-    throw new AppError("Only administrators can view bill summaries on a phone.", 403);
+  const canViewBill = isUserAdmin(user) || (await userHasPermission(models, user, "invoice:view"));
+  if (!canViewBill) {
+    throw new AppError("You do not have permission to view bill summaries on a phone.", 403);
   }
 
   try {

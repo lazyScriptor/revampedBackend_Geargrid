@@ -6,7 +6,7 @@
 
 import { parseTenantDayRange } from "../utils/dateRange.js";
 import { liveTotalExpr } from "../utils/invoiceBalance.js";
-import { findCustomerIdsByPhoneSearch, idsForSqlIn } from "../utils/customerPhoneSearch.js";
+import { findCustomerIdsBySearch, idsForSqlIn } from "../utils/customerSearch.js";
 
 // All-customers report. One row per customer, with revenue / paid / balance /
 // overdue figures aggregated across all of their invoices in the period.
@@ -18,9 +18,9 @@ export const getAllCustomersReport = async (models, filters = {}) => {
     filters.tenantTz,
   );
 
-  // Customers are searched by phone number only.
+  // Customers are searched by name, customer ID, NIC, and phone number.
   const search = (filters.search || "").trim();
-  const searchIds = search ? idsForSqlIn(await findCustomerIdsByPhoneSearch(models, search)) : null;
+  const searchIds = search ? idsForSqlIn(await findCustomerIdsBySearch(models, search)) : null;
 
   const rows = await models.sequelize.query(
     `SELECT
