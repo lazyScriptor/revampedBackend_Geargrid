@@ -596,7 +596,6 @@ const formatDigestSummary = (bucket) => {
     invoice_deleted: ["bill deleted", "bills deleted"],
     invoice_restored: ["bill restored", "bills restored"],
     payment_voided: ["payment voided", "payments voided"],
-    contact_used: ["contact used", "contacts used"],
     customer_blacklisted: ["blacklisted", "blacklisted"],
   };
   const parts = [];
