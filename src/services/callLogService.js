@@ -336,6 +336,8 @@ export const recordDeviceCall = async (
       emitToTenant(tenantDbName, "call:incoming", {
         call_id: Number(callRow.call_id),
         started_at: new Date(callRow.started_at).toISOString(),
+        // Shop default size of the desktop popup; each user can override it in their profile.
+        popup_size: policy.desktop_popup?.size || "standard",
       });
       emitted = true;
     } else if (payload.state === "ENDED") {

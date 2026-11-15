@@ -1819,6 +1819,7 @@ export const getDeviceStatus = async (masterModels, device_id) => {
     operator: {
       user_id: row.User?.user_id,
       operator_name: operatorName,
+      username: row.User?.username || null,
       has_saved_signature: !!row.User?.signature_url,
     },
     tenant: {

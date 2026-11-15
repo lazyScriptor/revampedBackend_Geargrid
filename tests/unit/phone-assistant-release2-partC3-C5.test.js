@@ -286,6 +286,7 @@ describe("Release 2 Slice 3 — Contact sync modes, Call logging controls & Devi
       call_logging: true,
       bill_view: true,
       click_to_call: true,
+      full_app: true,
     });
 
     const parsed = GetDevicePolicyContract.response.safeParse({

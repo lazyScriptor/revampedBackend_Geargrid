@@ -405,6 +405,7 @@ export declare const ClaimPairingCodeContract: {
                 user_id: z.ZodCoercedNumber<unknown>;
                 operator_name: z.ZodString;
                 has_saved_signature: z.ZodBoolean;
+                username: z.ZodOptional<z.ZodNullable<z.ZodString>>;
             }, z.core.$strip>;
             tenant: z.ZodObject<{
                 business_display_name: z.ZodString;
@@ -438,6 +439,7 @@ export declare const GetDeviceStatusContract: {
                 user_id: z.ZodCoercedNumber<unknown>;
                 operator_name: z.ZodString;
                 has_saved_signature: z.ZodBoolean;
+                username: z.ZodOptional<z.ZodNullable<z.ZodString>>;
             }, z.core.$strip>>;
             tenant: z.ZodNullable<z.ZodObject<{
                 business_display_name: z.ZodString;

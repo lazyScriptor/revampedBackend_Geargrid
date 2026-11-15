@@ -209,6 +209,7 @@ const PairedOperatorInfo = z.object({
     user_id: PositiveInt,
     operator_name: z.string(),
     has_saved_signature: z.boolean(),
+    username: z.string().nullable().optional(),
 });
 export const DeviceStatusEnum = z.enum(["PENDING", "ACTIVE", "SUSPENDED", "REVOKED"]);
 export const DeviceCapabilityKeyEnum = z.enum([

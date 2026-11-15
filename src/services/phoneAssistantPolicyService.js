@@ -20,6 +20,7 @@ export const DEVICE_CAPABILITY_KEYS = [
   "contact_sync",
   "call_logging",
   "click_to_call",
+  "full_app",
 ];
 
 export const PHONE_ASSISTANT_CAPABILITY_KEYS = new Set([
@@ -29,6 +30,7 @@ export const PHONE_ASSISTANT_CAPABILITY_KEYS = new Set([
   "contact_sync",
   "call_logging",
   "click_to_call",
+  "full_app",
 ]);
 
 export const APPROVAL_MODES = new Set([
@@ -101,6 +103,8 @@ export const DEFAULT_CAPABILITIES_MAP = {
   contact_sync: true,
   call_logging: true,
   click_to_call: true,
+  // Release 3: whether the full GearGrid application may be opened inside the phone app.
+  full_app: true,
 };
 
 export const DEFAULT_PHONE_ASSISTANT_POLICY = {
@@ -1024,6 +1028,11 @@ export const resolveDeviceCapabilities = ({
     if (PHONE_ASSISTANT_CAPABILITY_KEYS.has(cap) && !planHasPhoneAssistant) {
       effective[cap] = false;
       reasons[cap] = "plan";
+      continue;
+    }
+    if (cap === "full_app" && policy?.full_app?.enabled === false) {
+      effective[cap] = false;
+      reasons[cap] = "shop_policy";
       continue;
     }
     if (policy?.capabilities?.[cap] === false) {
