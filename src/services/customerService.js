@@ -1,4 +1,5 @@
 import { Op } from "sequelize";
+import { findCustomerIdsByPhoneSearch } from "../utils/customerPhoneSearch.js";
 import AppError from "../utils/AppError.js";
 import { extractCustomerPhoneEntries, syncCustomerPhones } from "./customerPhoneService.js";
 import { notifyEvent } from "./pushEventService.js";
@@ -99,16 +100,11 @@ export const getAllCustomers = async (models, queryParams) => {
   // 1. Base query: Hide soft-deleted customers
   const whereClause = { customer_delete_status: false };
 
-  // 2. Dynamic Search (Optimized for the POS Search Bar)
+  // 2. Search by phone number only (a name can match the wrong person)
   if (queryParams.search) {
-    const searchTerm = `%${queryParams.search}%`;
-    whereClause[Op.or] = [
-      { first_name: { [Op.like]: searchTerm } },
-      { last_name: { [Op.like]: searchTerm } },
-      { company_name: { [Op.like]: searchTerm } }, // CRITICAL: Search by company name
-      { phone_number: { [Op.like]: searchTerm } },
-      { nic_number: { [Op.like]: searchTerm } }, // CRITICAL: Search by ID card
-    ];
+    whereClause.customer_id = {
+      [Op.in]: await findCustomerIdsByPhoneSearch(models, queryParams.search),
+    };
   }
 
   // 2b. Exact-match filters for the table UI
@@ -385,14 +381,8 @@ export const getParentOptions = async (models, { excludeId, search } = {}) => {
     where.customer_id = { [Op.ne]: excludeId };
   }
   if (search && String(search).trim().length > 0) {
-    const term = `%${String(search).trim()}%`;
-    where[Op.or] = [
-      { first_name: { [Op.like]: term } },
-      { last_name: { [Op.like]: term } },
-      { company_name: { [Op.like]: term } },
-      { phone_number: { [Op.like]: term } },
-      { nic_number: { [Op.like]: term } },
-    ];
+    // Phone number only, like every customer search. excludeId is kept as a separate condition.
+    where[Op.and] = [{ customer_id: { [Op.in]: await findCustomerIdsByPhoneSearch(models, search) } }];
   }
   return models.Customer.findAll({
     where,

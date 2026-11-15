@@ -6,6 +6,7 @@
 
 import { parseTenantDayRange } from "../utils/dateRange.js";
 import { liveTotalExpr } from "../utils/invoiceBalance.js";
+import { findCustomerIdsByPhoneSearch, idsForSqlIn } from "../utils/customerPhoneSearch.js";
 
 // All-customers report. One row per customer, with revenue / paid / balance /
 // overdue figures aggregated across all of their invoices in the period.
@@ -17,8 +18,9 @@ export const getAllCustomersReport = async (models, filters = {}) => {
     filters.tenantTz,
   );
 
+  // Customers are searched by phone number only.
   const search = (filters.search || "").trim();
-  const searchLike = search ? `%${search}%` : null;
+  const searchIds = search ? idsForSqlIn(await findCustomerIdsByPhoneSearch(models, search)) : null;
 
   const rows = await models.sequelize.query(
     `SELECT
@@ -72,20 +74,14 @@ export const getAllCustomersReport = async (models, filters = {}) => {
         GROUP BY customer_id
       ) rv ON rv.customer_id = c.customer_id
       WHERE c.customer_delete_status = FALSE
-        ${searchLike ? `AND (
-          c.first_name LIKE :search
-          OR c.last_name LIKE :search
-          OR c.company_name LIKE :search
-          OR c.phone_number LIKE :search
-          OR c.nic_number LIKE :search
-        )` : ""}
+        ${searchIds ? "AND c.customer_id IN (:searchIds)" : ""}
       GROUP BY c.customer_id
       ORDER BY total_revenue DESC, c.customer_id DESC`,
     {
       replacements: {
         rangeStart: start,
         rangeEnd: end,
-        ...(searchLike ? { search: searchLike } : {}),
+        ...(searchIds ? { searchIds } : {}),
       },
       type: models.sequelize.constructor.QueryTypes.SELECT,
     },

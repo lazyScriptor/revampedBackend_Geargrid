@@ -94,7 +94,9 @@ describe("B6/B11 — journal & chart SQL", () => {
     const { models, sqls } = capture();
     await getChartData(models, { search: "kamal" });
     expect(sqls.join("\n")).not.toMatch(/p\.customer_id/);
-    expect(sqls.join("\n")).toMatch(/JOIN CUSTOMERS c ON c\.customer_id = pi\.customer_id/);
+    expect(sqls.join("\n")).toMatch(/pi\.customer_id IN \(:searchCustomerIds\)/);
+    // Customers are searched by phone only, so no name column is ever matched.
+    expect(sqls.join("\n")).not.toMatch(/first_name|last_name|company_name/);
   });
   it("journal reports refunds as their own type with a positive amount", async () => {
     const { models, sqls } = capture();

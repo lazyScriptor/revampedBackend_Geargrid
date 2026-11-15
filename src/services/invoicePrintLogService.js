@@ -264,12 +264,12 @@ export const getPrintLogs = async (models, query = {}) => {
 
   const where = {};
 
-  // Text search on doc_number, customer_name, customer_phone, or printed_by_name
+  // Text search on doc_number, customer_phone, or printed_by_name (staff). Customers are never
+  // searched by name.
   if (query.search && query.search.trim()) {
     const term = `%${query.search.trim()}%`;
     where[Op.or] = [
       { doc_number: { [Op.like]: term } },
-      { customer_name: { [Op.like]: term } },
       { customer_phone: { [Op.like]: term } },
       { printed_by_name: { [Op.like]: term } },
     ];

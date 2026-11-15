@@ -1,4 +1,5 @@
 import { Op } from "sequelize";
+import { findCustomerIdsByPhoneSearch, isWholeNumber } from "../utils/customerPhoneSearch.js";
 import AppError from "../utils/AppError.js";
 import { liveTotalOf, owedAmount } from "../utils/invoiceBalance.js";
 import { refreshAccruals } from "./accrualService.js";
@@ -304,23 +305,15 @@ export const getAllInvoices = async (models, queryParams) => {
   const offset = (page - 1) * limit;
 
   const whereClause = {};
-  const customerWhereClause = {};
 
+  // Search finds an invoice number or the customer's phone number, never a customer name.
   if (queryParams.search) {
-    const searchTerm = queryParams.search;
-    const searchLike = `%${searchTerm}%`;
-
-    if (!isNaN(searchTerm)) {
-      whereClause.invoice_id = searchTerm;
-    } else {
-      customerWhereClause[Op.or] = [
-        { first_name: { [Op.like]: searchLike } },
-        { last_name: { [Op.like]: searchLike } },
-        { phone_number: { [Op.like]: searchLike } },
-        { nic_number: { [Op.like]: searchLike } },
-        { company_name: { [Op.like]: searchLike } },
-      ];
-    }
+    const searchTerm = String(queryParams.search);
+    const matches = [
+      { customer_id: { [Op.in]: await findCustomerIdsByPhoneSearch(models, searchTerm) } },
+    ];
+    if (isWholeNumber(searchTerm)) matches.push({ invoice_id: Number(searchTerm.trim()) });
+    whereClause[Op.and] = [{ [Op.or]: matches }];
   }
 
   if (queryParams.customer_id) {
@@ -353,10 +346,6 @@ export const getAllInvoices = async (models, queryParams) => {
       include: [
         {
           model: models.Customer,
-          where:
-            Object.keys(customerWhereClause).length > 0
-              ? customerWhereClause
-              : undefined,
           attributes: [
             "customer_id",
             "first_name",
