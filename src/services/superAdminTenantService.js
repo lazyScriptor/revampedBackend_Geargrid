@@ -17,6 +17,7 @@ import { clearTenantStatusCache } from "../utils/tenantStatusCache.js";
 import { issueAdminResetCode } from "./passwordResetService.js";
 import { pickWhatsAppNumber } from "../utils/whatsappPhone.js";
 import { updateCorsOrigins } from "../config/cors-config.js";
+import { revokeUserDevices } from "./userService.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TENANT_MIGRATIONS_DIR = path.resolve(__dirname, "..", "..", "migrations", "tenant");
@@ -836,6 +837,8 @@ export const deleteTenantUser = async (tenantId, userId) => {
 
   const email = user.email;
   const login = await GlobalUser.findOne({ where: { email } });
+
+  await revokeUserDevices(models, user.user_id);
 
   // Anyone with history stays on record, so old invoices and payments keep their name. They just can't log in.
   const where = (field) => ({ where: { [field]: user.user_id } });

@@ -87,7 +87,10 @@ describe("B9 — wallet usage is not cash in the drawer", () => {
 describe("B6/B11 — journal & chart SQL", () => {
   const capture = () => {
     const sqls = [];
-    const models = { sequelize: { query: vi.fn(async (sql) => { sqls.push(sql); return [{ total: 0 }]; }) } };
+    const models = {
+      Customer: { findAll: vi.fn(async () => []) },
+      sequelize: { query: vi.fn(async (sql) => { sqls.push(sql); return [{ total: 0 }]; }) },
+    };
     return { models, sqls };
   };
   it("charts search never references the non-existent PAYMENTS.customer_id", async () => {
@@ -95,8 +98,6 @@ describe("B6/B11 — journal & chart SQL", () => {
     await getChartData(models, { search: "kamal" });
     expect(sqls.join("\n")).not.toMatch(/p\.customer_id/);
     expect(sqls.join("\n")).toMatch(/pi\.customer_id IN \(:searchCustomerIds\)/);
-    // Customers are searched by phone only, so no name column is ever matched.
-    expect(sqls.join("\n")).not.toMatch(/first_name|last_name|company_name/);
   });
   it("journal reports refunds as their own type with a positive amount", async () => {
     const { models, sqls } = capture();

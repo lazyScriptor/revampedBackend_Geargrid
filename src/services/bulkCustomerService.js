@@ -142,6 +142,8 @@ export const importCustomers = async (models, fileBuffer, actorUserId = null) =>
                 : `${item.first_name || ""} ${item.last_name || ""}`.trim() || item.nic_number;
             void notifyEvent(models, "customer_blacklisted", {
               actorUserId,
+              customerName: label,
+              vars: { customer: label, reason: "", staff: "" },
               title: `Customer blacklisted: ${label}`,
               body: `${label}${item.phone_number ? ` · ${item.phone_number}` : ""} was marked Blacklisted.`,
               data: { type: "customer_blacklisted", nic_number: String(item.nic_number || "") },

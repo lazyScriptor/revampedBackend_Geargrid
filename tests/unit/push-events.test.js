@@ -22,7 +22,6 @@ const {
   getUserPushPreferences,
   updateUserPushPreferences,
   notifyEvent,
-  stripCurrencyAmounts,
   isWithinQuietHours,
 } = await import("../../src/services/pushEventService.js");
 
@@ -80,11 +79,6 @@ const makeBaseModels = ({
 };
 
 describe("pushEventService — helpers", () => {
-  it("strips LKR and Rs. amounts cleanly", () => {
-    expect(stripCurrencyAmounts("New bill #42 · LKR 12,500")).toBe("New bill #42");
-    expect(stripCurrencyAmounts("Payment of Rs. 2,500.50 from Nimal")).toBe("Payment of from Nimal");
-  });
-
   it("evaluates overnight and daytime quiet hours in Asia/Colombo", () => {
     const overnight = { enabled: true, from: "21:00", to: "07:00" };
     // 22:30 Asia/Colombo = 17:00 UTC
@@ -106,18 +100,26 @@ describe("pushEventService — settings & preferences", () => {
     mockGetTenantPlan.mockResolvedValue(null);
   });
 
-  it("rejects unknown event keys with 400 in updatePushSettings and updateUserPushPreferences", async () => {
+  it("ignores unknown event keys (such as the removed contact_used) instead of failing the save", async () => {
     const models = makeBaseModels();
 
     await expect(
-      updatePushSettings(models, { events: { bogus_event: { enabled: true, min_amount: 0, recipient_role_ids: [] } } }),
-    ).rejects.toMatchObject({ statusCode: 400 });
+      updatePushSettings(models, {
+        events: { contact_used: { enabled: true, min_amount: 0, recipient_role_ids: [] } },
+      }),
+    ).resolves.toBeDefined();
 
     await expect(
       updateUserPushPreferences(models, 1, {
-        preferences: [{ event_key: "bogus_event", enabled: false, min_amount: null }],
+        preferences: [{ event_key: "contact_used", enabled: false, min_amount: null }],
       }),
-    ).rejects.toMatchObject({ statusCode: 400 });
+    ).resolves.toBeDefined();
+    expect(models.PushPreference.create).not.toHaveBeenCalled();
+  });
+
+  it("no longer offers the contact_used alert", async () => {
+    const { PUSH_EVENT_KEYS } = await import("../../src/config/pushEvents.js");
+    expect(PUSH_EVENT_KEYS).not.toContain("contact_used");
   });
 
   it("persists valid push settings and computes eligibility per role", async () => {
@@ -228,7 +230,7 @@ describe("pushEventService — notifyEvent resolution", () => {
     expect(midRes.recipients).toEqual([3]);
   });
 
-  it("strips LKR figures when include_amounts is false and passes silent=true during quiet hours", async () => {
+  it("renders without amounts when include_amounts is false and passes silent=true during quiet hours", async () => {
     const models = makeBaseModels({
       pushSettings: {
         include_amounts: false,
@@ -240,20 +242,28 @@ describe("pushEventService — notifyEvent resolution", () => {
     // 23:00 Colombo = 17:30 UTC
     const res = await notifyEvent(models, "payment_received", {
       amount: 15000,
-      title: "Payment on #42 · LKR 15,000",
-      body: "Cash from Nimal · LKR 15,000",
+      vars: { invoice_no: "42", amount: 15000, customer: "Nimal", balance: 500 },
       now: new Date("2026-11-15T17:30:00Z"),
     });
 
     expect(res.silent).toBe(true);
-    expect(mockSendToUsers).toHaveBeenCalledWith(
-      models,
-      [1],
-      expect.objectContaining({
-        title: "Payment on #42",
-        body: "Cash from Nimal",
-        silent: true,
-      }),
-    );
+    const sent = mockSendToUsers.mock.calls[0][2];
+    expect(sent.silent).toBe(true);
+    expect(sent.title).toBe("Payment received");
+    expect(sent.body).toBe("Nimal");
+    expect(`${sent.title} ${sent.body}`).not.toMatch(/LKR|15,000|500/);
+  });
+
+  it("still accepts finished title/body from older callers", async () => {
+    const models = makeBaseModels({
+      pushSettings: { events: { payment_received: { enabled: true, min_amount: 0, recipient_role_ids: [] } } },
+    });
+    await notifyEvent(models, "payment_received", {
+      amount: 100,
+      title: "Payment on #42 · LKR 100",
+      body: "Cash from Nimal",
+      now: new Date("2026-11-15T10:00:00Z"),
+    });
+    expect(mockSendToUsers.mock.calls.at(-1)[2]).toMatchObject({ title: "Payment on #42 · LKR 100", silent: false });
   });
 });

@@ -12,7 +12,6 @@ import {
   VaultToggleContract,
   CreateSignatureRequestContract,
   ListInvoiceSignaturesContract,
-  ReviewContactInvoiceContract,
 } from "@geargrid/contracts";
 import * as signatureService from "../services/signatureService.js";
 import { freshAccruals } from "../services/accrualService.js";
@@ -91,17 +90,6 @@ registerContract(router, ListInvoiceSignaturesContract, {
   middlewares: [requirePermission("invoice:signature:view")],
   handler: ({ params, req }) =>
     signatureService.listInvoiceSignatures(resolveTenantModels(req), params.id),
-});
-
-registerContract(router, ReviewContactInvoiceContract, {
-  basePath: "/invoices",
-  middlewares: [requireFeature("phone_assistant"), requirePermission("invoice:edit")],
-  handler: ({ params, req }) =>
-    invoiceService.reviewContactInvoice(
-      resolveTenantModels(req),
-      params.id,
-      req.user?.id || req.user?.userId,
-    ),
 });
 
 export default router;

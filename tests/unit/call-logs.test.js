@@ -119,6 +119,7 @@ describe("callLogService (D1)", () => {
     expect(mockEmitToTenant).toHaveBeenCalledWith("geargrid_shop_a", "call:incoming", {
       call_id: 101,
       started_at: startedIso,
+      popup_size: "standard",
     });
 
     // Follow-up ENDED event with same client_call_id updates row and emits call:ended

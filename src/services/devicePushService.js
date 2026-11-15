@@ -61,13 +61,22 @@ const getMessagingClient = async () => {
   }
 };
 
-const stringifyData = (data, silent) => {
+const stringifyData = (data, { title = "", body = "", channel = null, silent = false } = {}) => {
   const out = {};
   if (data && typeof data === "object") {
     for (const [key, value] of Object.entries(data)) {
       if (value === undefined || value === null) continue;
       out[String(key)] = String(value);
     }
+  }
+  if (title !== undefined && title !== null && String(title) !== "") {
+    out.title = String(title);
+  }
+  if (body !== undefined && body !== null && String(body) !== "") {
+    out.body = String(body);
+  }
+  if (channel) {
+    out.channel = String(channel);
   }
   if (silent) {
     out.silent = "true";
@@ -76,13 +85,88 @@ const stringifyData = (data, silent) => {
 };
 
 /**
- * Dispatch an FCM push notification to all native devices belonging to `userIds`
+ * Send a data-only FCM message to one paired device (A-08).
+ * Omitting top-level `notification` guarantees Android delivers every payload
+ * through `GearGridMessagingService.onMessageReceived` even when backgrounded.
+ */
+export const sendPushToDevice = async (
+  models,
+  device,
+  { title = "", body = "", data = {}, silent = false, channel = null } = {},
+) => {
+  if (!device?.push_token) return { sent: false, reason: "no_token" };
+  const messaging = await getMessagingClient();
+  if (!messaging) return { sent: false, reason: "unconfigured" };
+
+  const resolvedChannel = channel || (silent ? "bills_silent" : "bills");
+  const stringData = stringifyData(data, {
+    title,
+    body,
+    channel: resolvedChannel,
+    silent,
+  });
+
+  try {
+    await messaging.send({
+      token: device.push_token,
+      data: stringData,
+      android: {
+        priority: silent ? "normal" : "high",
+      },
+    });
+    return { sent: true };
+  } catch (err) {
+    const code = err?.code || err?.errorInfo?.code;
+    if (INVALID_TOKEN_CODES.has(code)) {
+      try {
+        if (typeof device.update === "function") {
+          await device.update({
+            push_token: null,
+            push_token_updated_at: new Date(),
+          });
+        } else if (models?.OperatorDevice?.update) {
+          await models.OperatorDevice.update(
+            { push_token: null, push_token_updated_at: new Date() },
+            { where: { operator_device_id: device.operator_device_id } },
+          );
+        }
+      } catch {
+        // Best-effort token cleanup must never abort other device sends
+      }
+    }
+    return { sent: false, reason: code || "send_failed" };
+  }
+};
+
+/**
+ * Send a silent control data message (e.g. device_revoked, wipe_cache) to a device.
+ */
+export const sendDataPush = async (device, data = {}, { priority = "high" } = {}) => {
+  if (!device?.push_token) return { sent: false, reason: "no_token" };
+  const messaging = await getMessagingClient();
+  if (!messaging) return { sent: false, reason: "unconfigured" };
+
+  const stringData = stringifyData(data);
+  try {
+    await messaging.send({
+      token: device.push_token,
+      data: stringData,
+      android: { priority },
+    });
+    return { sent: true };
+  } catch {
+    return { sent: false, reason: "send_failed" };
+  }
+};
+
+/**
+ * Dispatch a data-only FCM notification to all native devices belonging to `userIds`
  * that have registered a push token. Never throws to callers.
  */
 export const sendToUsers = async (
   models,
   userIds,
-  { title = "", body = "", data = {}, silent = false } = {},
+  { title = "", body = "", data = {}, silent = false, channel = null, render = null } = {},
 ) => {
   try {
     const cleanUserIds = [
@@ -111,6 +195,8 @@ export const sendToUsers = async (
         user_id: { [Op.in]: cleanUserIds },
         is_native_app: true,
         push_token: { [Op.ne]: null },
+        status: "ACTIVE",
+        muted: false,
       },
     });
 
@@ -118,48 +204,27 @@ export const sendToUsers = async (
       return { sent: 0, reached: 0 };
     }
 
-    const stringData = stringifyData(data, silent);
     let sent = 0;
-
     for (const device of devices) {
-      if (!device?.push_token) continue;
-      try {
-        await messaging.send({
-          token: device.push_token,
-          notification: {
-            title: String(title || ""),
-            body: String(body || ""),
-          },
-          data: stringData,
-          android: {
-            priority: silent ? "normal" : "high",
-            notification: {
-              channelId: "bills",
-              ...(silent ? { defaultSound: false } : { sound: "default" }),
-            },
-          },
-        });
-        sent += 1;
-      } catch (err) {
-        const code = err?.code || err?.errorInfo?.code;
-        if (INVALID_TOKEN_CODES.has(code)) {
-          try {
-            if (typeof device.update === "function") {
-              await device.update({
-                push_token: null,
-                push_token_updated_at: new Date(),
-              });
-            } else if (models.OperatorDevice.update) {
-              await models.OperatorDevice.update(
-                { push_token: null, push_token_updated_at: new Date() },
-                { where: { operator_device_id: device.operator_device_id } },
-              );
-            }
-          } catch {
-            // Best-effort token cleanup must never abort other device sends
-          }
+      if (device.muted === true) continue;
+      if (device.status && device.status !== "ACTIVE") continue;
+      // `render(device)` lets the caller word the message per phone (language, privacy).
+      let text = { title, body };
+      if (typeof render === "function") {
+        try {
+          text = (await render(device)) || text;
+        } catch {
+          text = { title, body };
         }
       }
+      const res = await sendPushToDevice(models, device, {
+        title: text.title,
+        body: text.body,
+        data,
+        silent,
+        channel,
+      });
+      if (res.sent) sent += 1;
     }
 
     return { sent, reached: sent };

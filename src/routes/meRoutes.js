@@ -69,7 +69,7 @@ registerContract(router, DeleteOperatorSignatureContract, {
 // in the current tenant's OPERATOR_DEVICES.
 registerContract(router, MintPairingCodeContract, {
   basePath: "/me",
-  handler: async ({ req }) => {
+  handler: async ({ body, req }) => {
     const masterModels = getMasterModels();
     // JWT carries tenantDbName; resolve to tenant_id for the master row.
     const tenant = await masterModels.Tenant.findOne({
@@ -83,6 +83,7 @@ registerContract(router, MintPairingCodeContract, {
     return deviceService.mintPairingCode(masterModels, {
       tenant_id: tenant.tenant_id,
       user_id: req.user?.id || req.user?.userId,
+      requested_capabilities: body?.requested_capabilities || null,
     });
   },
 });
@@ -93,6 +94,7 @@ registerContract(router, ListMyDevicesContract, {
     deviceService.listMyDevices(
       resolveTenantModels(req),
       req.user?.id || req.user?.userId,
+      req.user.tenantDbName,
     ),
 });
 
@@ -103,6 +105,7 @@ registerContract(router, UnpairDeviceContract, {
       resolveTenantModels(req),
       params.operator_device_id,
       req.user?.id || req.user?.userId,
+      getMasterModels(),
     ),
 });
 

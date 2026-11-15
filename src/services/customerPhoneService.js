@@ -44,17 +44,32 @@ export const syncCustomerPhones = async (models, customer, { transaction } = {})
   if (!models?.CustomerPhone || !customer?.customer_id) return [];
 
   const customerId = customer.customer_id;
+  const opts = transaction ? { transaction } : {};
   await models.CustomerPhone.destroy({
     where: { customer_id: customerId },
-    ...(transaction ? { transaction } : {}),
+    ...opts,
   });
 
   if (customer.customer_delete_status) {
+    if (models.PhoneContact?.update) {
+      await models.PhoneContact.update(
+        { linked_customer_id: null },
+        { where: { linked_customer_id: customerId }, ...opts },
+      );
+    }
     return [];
   }
 
   const entries = extractCustomerPhoneEntries(customer.phone_number);
-  if (entries.length === 0) return [];
+  if (entries.length === 0) {
+    if (models.PhoneContact?.update) {
+      await models.PhoneContact.update(
+        { linked_customer_id: null },
+        { where: { linked_customer_id: customerId }, ...opts },
+      );
+    }
+    return [];
+  }
 
   const rows = entries.map((entry) => ({
     customer_id: customerId,
@@ -62,9 +77,32 @@ export const syncCustomerPhones = async (models, customer, { transaction } = {})
     is_primary: entry.is_primary,
   }));
 
-  await models.CustomerPhone.bulkCreate(rows, {
-    ...(transaction ? { transaction } : {}),
-  });
+  await models.CustomerPhone.bulkCreate(rows, opts);
+
+  // A-19: Keep PHONE_CONTACTS.linked_customer_id in sync when customer phones change.
+  if (models.PhoneContact?.update) {
+    const e164List = entries.map((entry) => entry.phone_e164);
+    await models.PhoneContact.update(
+      { linked_customer_id: null },
+      {
+        where: {
+          linked_customer_id: customerId,
+          phone_e164: { [Op.notIn]: e164List },
+        },
+        ...opts,
+      },
+    );
+    await models.PhoneContact.update(
+      { linked_customer_id: customerId },
+      {
+        where: {
+          phone_e164: { [Op.in]: e164List },
+          linked_customer_id: null,
+        },
+        ...opts,
+      },
+    );
+  }
 
   return rows;
 };

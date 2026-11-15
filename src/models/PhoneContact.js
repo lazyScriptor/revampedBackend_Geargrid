@@ -11,7 +11,12 @@ export default (sequelize) => {
       },
       operator_device_id: {
         type: DataTypes.INTEGER,
+        allowNull: true,
+      },
+      source: {
+        type: DataTypes.ENUM("phone", "lead"),
         allowNull: false,
+        defaultValue: "phone",
       },
       device_contact_key: {
         type: DataTypes.STRING(64),
@@ -29,7 +34,15 @@ export default (sequelize) => {
         type: DataTypes.STRING(50),
         allowNull: true,
       },
+      notes: {
+        type: DataTypes.STRING(500),
+        allowNull: true,
+      },
       linked_customer_id: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+      },
+      created_by_user_id: {
         type: DataTypes.INTEGER,
         allowNull: true,
       },

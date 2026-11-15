@@ -21,6 +21,7 @@ export default (sequelize) => {
       claimed_device_id: { type: DataTypes.STRING(64), allowNull: true },
       claimed_at: { type: DataTypes.DATE, allowNull: true },
       expires_at: { type: DataTypes.DATE, allowNull: false },
+      requested_capabilities: { type: DataTypes.JSON, allowNull: true },
     },
     {
       tableName: "DEVICE_PAIRING_CODES",

@@ -1,11 +1,11 @@
 import { Op } from "sequelize";
-import { findCustomerIdsByPhoneSearch, isWholeNumber } from "../utils/customerPhoneSearch.js";
+import { findCustomerIdsBySearch, isWholeNumber } from "../utils/customerSearch.js";
 import AppError from "../utils/AppError.js";
 import { liveTotalOf, owedAmount } from "../utils/invoiceBalance.js";
 import { refreshAccruals } from "./accrualService.js";
 import { touchCustomerBrief } from "./customerBriefService.js";
 import { notifyEvent } from "./pushEventService.js";
-import { isUserAdmin } from "./userService.js";
+import { isUserAdmin, userHasPermission } from "./userService.js";
 
 const formatLkr = (n) => {
   const num = Number(n || 0);
@@ -125,30 +125,12 @@ export const createDispatchInvoice = async (models, payload, userId) => {
       }
     }
 
-    // Derive source_contact_id strictly on the server: copy from customer onto their very first invoice only.
-    let sourceContactId = null;
-    if (models.Customer?.findByPk && customer_id) {
-      const rentingCustomer = await models.Customer.findByPk(customer_id, {
-        attributes: ["customer_id", "source_contact_id"],
-        transaction: t,
-      });
-      if (rentingCustomer?.source_contact_id) {
-        const priorCount = models.Invoice.unscoped
-          ? await models.Invoice.unscoped().count({ where: { customer_id }, transaction: t })
-          : await models.Invoice.count({ where: { customer_id }, transaction: t });
-        if (priorCount === 0) {
-          sourceContactId = rentingCustomer.source_contact_id;
-        }
-      }
-    }
-
     const newInvoice = await models.Invoice.create(
       {
         customer_id,
         borrowed_on_behalf_of_customer_id:
           borrowed_on_behalf_of_customer_id || null,
         issued_by_user_id: userId,
-        ...(sourceContactId ? { source_contact_id: sourceContactId } : {}),
         total_amount: grandTotal,
         advance_paid: fees.advance || 0,
         transport_fee: fees.transport || 0,
@@ -283,6 +265,16 @@ export const createDispatchInvoice = async (models, payload, userId) => {
       await notifyEvent(models, "invoice_created", {
         amount: Number(newInvoice.total_amount || 0),
         actorUserId: userId,
+        customerName,
+        vars: {
+          invoice_no: String(newInvoice.invoice_id),
+          amount: Number(newInvoice.total_amount || 0),
+          customer: customerName,
+          items_count: itemCount,
+          staff: staffName,
+          date: new Date(),
+          time: new Date(),
+        },
         title: `New bill #${newInvoice.invoice_id} · LKR ${total}`,
         body: `${customerName} · ${itemCount} item(s) · by ${staffName}`,
         titleNoAmount: `New bill #${newInvoice.invoice_id}`,
@@ -306,11 +298,11 @@ export const getAllInvoices = async (models, queryParams) => {
 
   const whereClause = {};
 
-  // Search finds an invoice number or the customer's phone number, never a customer name.
+  // Search finds an invoice number or a customer matching name, ID, NIC, or phone.
   if (queryParams.search) {
     const searchTerm = String(queryParams.search);
     const matches = [
-      { customer_id: { [Op.in]: await findCustomerIdsByPhoneSearch(models, searchTerm) } },
+      { customer_id: { [Op.in]: await findCustomerIdsBySearch(models, searchTerm) } },
     ];
     if (isWholeNumber(searchTerm)) matches.push({ invoice_id: Number(searchTerm.trim()) });
     whereClause[Op.and] = [{ [Op.or]: matches }];
@@ -328,16 +320,11 @@ export const getAllInvoices = async (models, queryParams) => {
   if (queryParams.status === "Active") whereClause.status = { [Op.in]: OPEN_STATUSES };
   else if (queryParams.status) whereClause.status = queryParams.status;
 
-  if (queryParams.contact_sourced === "true" || queryParams.contact_sourced === true) {
-    whereClause.source_contact_id = { [Op.ne]: null };
-  }
-
   const [countsResult, findResult] = await Promise.all([
     Promise.all([
       models.Invoice.count(),
       models.Invoice.count({ where: { status: { [Op.in]: OPEN_STATUSES } } }),
       models.Invoice.count({ where: { status: "Completed" } }),
-      models.Invoice.count({ where: { source_contact_id: { [Op.ne]: null } } }),
     ]),
     models.Invoice.findAndCountAll({
       distinct: true,
@@ -382,16 +369,6 @@ export const getAllInvoices = async (models, queryParams) => {
           attributes: ["payment_id", "payment_amount", "payment_date", "method"],
         },
         { model: models.InvoiceTrace },
-        ...(models.User
-          ? [
-              {
-                model: models.User,
-                as: "ContactReviewedBy",
-                attributes: ["user_id", "first_name", "last_name", "username"],
-                required: false,
-              },
-            ]
-          : []),
       ],
       limit,
       offset,
@@ -399,7 +376,7 @@ export const getAllInvoices = async (models, queryParams) => {
     }),
   ]);
 
-  const [allCount, activeCount, completedCount, fromContactsCount] = countsResult;
+  const [allCount, activeCount, completedCount] = countsResult;
   const { count, rows } = findResult;
 
   return {
@@ -409,7 +386,6 @@ export const getAllInvoices = async (models, queryParams) => {
       all: allCount,
       active: activeCount,
       completed: completedCount,
-      from_contacts: fromContactsCount ?? 0,
     },
   };
 };
@@ -686,6 +662,14 @@ export const processReturn = async (models, payload, userId) => {
       await notifyEvent(models, "return_processed", {
         amount,
         actorUserId: userId,
+        customerName,
+        vars: {
+          invoice_no: String(invoice_id),
+          amount,
+          customer: customerName,
+          items: returnMeta?.finalStatus || "",
+          staff: staffName,
+        },
         title: amount > 0
           ? `Return on #${invoice_id} · LKR ${formatLkr(amount)}`
           : `Return processed on #${invoice_id}`,
@@ -846,6 +830,15 @@ export const addContinuousPayment = async (
       await notifyEvent(models, eventKey, {
         amount: numeric,
         actorUserId: userId,
+        customerName,
+        vars: {
+          invoice_no: String(invoiceId),
+          amount: numeric,
+          customer: customerName,
+          staff: staffName,
+          date: new Date(),
+          time: new Date(),
+        },
         title: `${label} on #${invoiceId} · LKR ${formatLkr(numeric)}`,
         body: `${customerName} · ${method || "Cash"} · by ${staffName}`,
         titleNoAmount: `${label} recorded on #${invoiceId}`,
@@ -968,43 +961,6 @@ export const updateInvoiceFees = async (models, invoiceId, payload, userId) => {
   });
 };
 
-/** Mark a contact-sourced invoice as reviewed by an authorized staff member. */
-export const reviewContactInvoice = async (models, invoiceId, userId) => {
-  const invoice = await models.Invoice.findByPk(invoiceId);
-  if (!invoice) {
-    throw new AppError("Invoice not found.", 404);
-  }
-  if (!invoice.source_contact_id) {
-    throw new AppError("This invoice was not created from a phone contact.", 400);
-  }
-
-  const reviewedAt = new Date();
-  await invoice.update({
-    contact_reviewed_at: reviewedAt,
-    contact_reviewed_by: userId,
-  });
-
-  let reviewerName = null;
-  if (models.User?.findByPk && userId) {
-    const reviewer = await models.User.findByPk(userId, {
-      attributes: ["user_id", "first_name", "last_name", "username"],
-    });
-    if (reviewer) {
-      reviewerName =
-        `${reviewer.first_name || ""} ${reviewer.last_name || ""}`.trim() ||
-        reviewer.username ||
-        null;
-    }
-  }
-
-  return {
-    invoice_id: invoice.invoice_id,
-    contact_reviewed_at: reviewedAt.toISOString(),
-    contact_reviewed_by: Number(userId),
-    reviewer_name: reviewerName,
-  };
-};
-
 /** Read-only bill summary for an authenticated administrator's paired phone. */
 export const getDeviceInvoiceSummary = async (models, device, invoiceId) => {
   const user =
@@ -1017,14 +973,26 @@ export const getDeviceInvoiceSummary = async (models, device, invoiceId) => {
                   model: models.Role,
                   attributes: ["role_id", "role_name", "hierarchy_level", "is_active"],
                   through: { attributes: [] },
+                  ...(models.Permission
+                    ? {
+                        include: [
+                          {
+                            model: models.Permission,
+                            attributes: ["permission_code"],
+                            through: { attributes: [] },
+                          },
+                        ],
+                      }
+                    : {}),
                 },
               ]
             : [],
         })
       : null;
 
-  if (!isUserAdmin(user)) {
-    throw new AppError("Only administrators can view bill summaries on a phone.", 403);
+  const canViewBill = isUserAdmin(user) || (await userHasPermission(models, user, "invoice:view"));
+  if (!canViewBill) {
+    throw new AppError("You do not have permission to view bill summaries on a phone.", 403);
   }
 
   try {

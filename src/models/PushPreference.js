@@ -26,6 +26,16 @@ export default (sequelize) => {
         type: DataTypes.DECIMAL(12, 2),
         allowNull: true,
       },
+      quiet_from: {
+        type: DataTypes.STRING(5),
+        allowNull: true,
+        defaultValue: null,
+      },
+      quiet_to: {
+        type: DataTypes.STRING(5),
+        allowNull: true,
+        defaultValue: null,
+      },
     },
     {
       tableName: "PUSH_PREFERENCES",

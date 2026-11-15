@@ -7,6 +7,7 @@ import PlatformConfigFactory from "./PlatformConfig.js";
 import ContactInquiryFactory from "./ContactInquiry.js";
 import TranslationPackFactory from "./TranslationPack.js";
 import DevicePairingCodeFactory from "./DevicePairingCode.js";
+import DeviceRegistryFactory from "./DeviceRegistry.js";
 import PasswordResetCodeFactory from "./PasswordResetCode.js";
 
 let masterModels = null;
@@ -23,6 +24,7 @@ export const initMasterModels = (masterSequelize) => {
   const ContactInquiry = ContactInquiryFactory(masterSequelize);
   const TranslationPack = TranslationPackFactory(masterSequelize);
   const DevicePairingCode = DevicePairingCodeFactory(masterSequelize);
+  const DeviceRegistry = DeviceRegistryFactory(masterSequelize);
   const PasswordResetCode = PasswordResetCodeFactory(masterSequelize);
 
   // Associations
@@ -45,6 +47,7 @@ export const initMasterModels = (masterSequelize) => {
     ContactInquiry,
     TranslationPack,
     DevicePairingCode,
+    DeviceRegistry,
     PasswordResetCode,
     sequelize: masterSequelize,
   };

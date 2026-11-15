@@ -1,13 +1,14 @@
-import crypto from "node:crypto";
 import AppError from "../utils/AppError.js";
 import { STATUS_CACHE_TTL, tenantStatusCache } from "../utils/tenantStatusCache.js";
 import { isPaymentLocked } from "../config/paymentNotice.js";
 import { getCachedTenantConnection } from "../config/database.js";
 import { initTenantModels } from "../models/index.js";
 import { getMasterModels } from "../models/master/index.js";
+import { matchesDeviceToken } from "../services/deviceService.js";
 
 const LAST_SEEN_THROTTLE_MS = 60_000;
 const PAIR_AGAIN_MSG = "Device authentication failed. Please pair this phone again.";
+const PENDING_ALLOWED_PATHS = new Set(["/register", "/unpair", "/token/rotate", "/policy"]);
 
 const getActiveTenantStatus = async (tenantDb) => {
   const now = Date.now();
@@ -36,16 +37,6 @@ const getActiveTenantStatus = async (tenantDb) => {
   return entry;
 };
 
-const safeTimingEqualHex = (rawToken, expectedHashHex) => {
-  if (!rawToken || !expectedHashHex || typeof expectedHashHex !== "string") return false;
-  if (!/^[a-f0-9]{64}$/i.test(expectedHashHex)) return false;
-
-  const presentedHex = crypto.createHash("sha256").update(String(rawToken)).digest("hex");
-  const a = Buffer.from(presentedHex.toLowerCase(), "utf8");
-  const b = Buffer.from(expectedHashHex.toLowerCase(), "utf8");
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
-};
-
 /**
  * Authenticate native/paired device requests via:
  *   x-device-id, x-tenant-db, Authorization: Bearer <device_token>.
@@ -59,23 +50,78 @@ export const deviceAuth = async (req, res, next) => {
     const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
 
     if (!deviceId || !tenantDb || !token) {
-      return next(new AppError(PAIR_AGAIN_MSG, 401));
+      return next(new AppError(PAIR_AGAIN_MSG, 401, "device_revoked"));
     }
 
     const tenantInfo = await getActiveTenantStatus(tenantDb);
-    if (!tenantInfo || tenantInfo.status !== "Active") {
-      return next(new AppError(PAIR_AGAIN_MSG, 401));
+    if (!tenantInfo) {
+      return next(new AppError(PAIR_AGAIN_MSG, 401, "device_revoked"));
+    }
+    if (tenantInfo.status !== "Active") {
+      return next(new AppError("Shop subscription is currently inactive.", 403, "shop_inactive"));
     }
     if (isPaymentLocked(tenantInfo.status, tenantInfo.paymentNotice, Date.now())) {
-      return next(new AppError("Subscription payment is overdue. Please settle your account.", 403));
+      return next(
+        new AppError("Subscription payment is overdue. Please settle your account.", 403, "shop_inactive"),
+      );
     }
 
     const tenantConnection = getCachedTenantConnection(tenantDb);
     const tenantModels = initTenantModels(tenantConnection);
     const device = await tenantModels.OperatorDevice.findOne({ where: { device_id: deviceId } });
 
-    if (!device || !safeTimingEqualHex(token, device.token_hash)) {
-      return next(new AppError(PAIR_AGAIN_MSG, 401));
+    if (!device || device.status === "REVOKED" || !matchesDeviceToken(token, device)) {
+      return next(new AppError(PAIR_AGAIN_MSG, 401, "device_revoked"));
+    }
+
+    // Verify paired user still exists and is active (A-03), loading roles/permissions for route checks (A-04)
+    if (tenantModels.User?.findByPk) {
+      const roleInclude = tenantModels.Role
+        ? [
+            {
+              model: tenantModels.Role,
+              attributes: ["role_id", "role_name", "hierarchy_level", "is_active"],
+              through: { attributes: [] },
+              ...(tenantModels.Permission
+                ? {
+                    include: [
+                      {
+                        model: tenantModels.Permission,
+                        attributes: ["permission_code"],
+                        through: { attributes: [] },
+                      },
+                    ],
+                  }
+                : {}),
+            },
+          ]
+        : [];
+      const user = await tenantModels.User.findByPk(device.user_id, {
+        attributes: ["user_id", "is_active"],
+        ...(roleInclude.length > 0 ? { include: roleInclude } : {}),
+      });
+      if (!user || user.is_active === false) {
+        return next(new AppError(PAIR_AGAIN_MSG, 401, "device_revoked"));
+      }
+      req.deviceUser = user;
+    }
+
+    if (device.status === "SUSPENDED") {
+      return next(
+        new AppError("This phone is suspended by your administrator.", 403, "device_suspended"),
+      );
+    }
+    if (device.status === "PENDING") {
+      const subPath = String(req.path || "").replace(/\/+$/, "") || "/";
+      if (!PENDING_ALLOWED_PATHS.has(subPath)) {
+        return next(
+          new AppError(
+            "This phone is waiting for administrator approval.",
+            403,
+            "device_pending",
+          ),
+        );
+      }
     }
 
     req.device = device;

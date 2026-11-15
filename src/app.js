@@ -34,6 +34,7 @@ import deviceAppRoutes from "./routes/deviceAppRoutes.js";
 import phoneContactRoutes from "./routes/phoneContactRoutes.js";
 import phoneAssistantRoutes from "./routes/phoneAssistantRoutes.js";
 import callRoutes from "./routes/callRoutes.js";
+import followUpRoutes from "./routes/followUpRoutes.js";
 import whatsappRoutes from "./routes/whatsappRoutes.js";
 import cashLockerRoutes from "./routes/cashLockerRoutes.js";
 import { corsOrigins } from "./config/cors-config.js";
@@ -97,6 +98,7 @@ app.use("/api/locker", cashLockerRoutes);
 app.use("/api/phone-contacts", phoneContactRoutes);
 app.use("/api/phone-assistant", phoneAssistantRoutes);
 app.use("/api/calls", callRoutes);
+app.use("/api/follow-ups", followUpRoutes);
 
 // Paired-PWA device pairing + pending-request discovery. All endpoints under
 // /api/public/devices/* are UN-AUTHENTICATED — the device_id or short pairing

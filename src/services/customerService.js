@@ -1,5 +1,8 @@
 import { Op } from "sequelize";
-import { findCustomerIdsByPhoneSearch } from "../utils/customerPhoneSearch.js";
+import {
+  customerSearchOrder,
+  findCustomerIdsBySearch,
+} from "../utils/customerSearch.js";
 import AppError from "../utils/AppError.js";
 import { extractCustomerPhoneEntries, syncCustomerPhones } from "./customerPhoneService.js";
 import { notifyEvent } from "./pushEventService.js";
@@ -100,10 +103,10 @@ export const getAllCustomers = async (models, queryParams) => {
   // 1. Base query: Hide soft-deleted customers
   const whereClause = { customer_delete_status: false };
 
-  // 2. Search by phone number only (a name can match the wrong person)
+  // 2. Dynamic Search (name, customer ID, NIC, phone number)
   if (queryParams.search) {
     whereClause.customer_id = {
-      [Op.in]: await findCustomerIdsByPhoneSearch(models, queryParams.search),
+      [Op.in]: await findCustomerIdsBySearch(models, queryParams.search),
     };
   }
 
@@ -125,6 +128,13 @@ export const getAllCustomers = async (models, queryParams) => {
     whereClause.parent_customer_id = wantsParent ? { [Op.ne]: null } : { [Op.is]: null };
   }
 
+  const orderClause = queryParams.search
+    ? customerSearchOrder(queryParams.search)
+    : [
+        ["createdAt", "DESC"],
+        ["customer_id", "DESC"],
+      ];
+
   // 2c. Fast-path: When skip_count is true (e.g. for POS live search / autocompletes),
   // skip the expensive SELECT count(*) table scan completely
   if (queryParams.skip_count === "true" || queryParams.skip_count === true) {
@@ -140,10 +150,7 @@ export const getAllCustomers = async (models, queryParams) => {
       limit,
       offset,
       // customer_id breaks createdAt ties (bulk imports) so OFFSET paging is stable
-      order: [
-        ["createdAt", "DESC"],
-        ["customer_id", "DESC"],
-      ],
+      order: orderClause,
     });
 
     return {
@@ -166,10 +173,7 @@ export const getAllCustomers = async (models, queryParams) => {
     ],
     limit,
     offset,
-    order: [
-      ["createdAt", "DESC"],
-      ["customer_id", "DESC"],
-    ],
+    order: orderClause,
   });
 
   return {
@@ -325,6 +329,8 @@ export const updateCustomer = async (models, customerId, updateData, actorUserId
     const label = formatCustomerLabel({ ...customer.toJSON?.(), ...updateData });
     void notifyEvent(models, "customer_blacklisted", {
       actorUserId,
+      customerName: label,
+      vars: { customer: label, reason: "", staff: "" },
       title: `Customer blacklisted: ${label}`,
       body: `${label}${customer.phone_number ? ` · ${customer.phone_number}` : ""} was marked Blacklisted.`,
       data: { type: "customer_blacklisted", customer_id: String(customerId) },
@@ -381,8 +387,8 @@ export const getParentOptions = async (models, { excludeId, search } = {}) => {
     where.customer_id = { [Op.ne]: excludeId };
   }
   if (search && String(search).trim().length > 0) {
-    // Phone number only, like every customer search. excludeId is kept as a separate condition.
-    where[Op.and] = [{ customer_id: { [Op.in]: await findCustomerIdsByPhoneSearch(models, search) } }];
+    // Match by name, customer ID, NIC, or phone. excludeId is kept as a separate condition.
+    where[Op.and] = [{ customer_id: { [Op.in]: await findCustomerIdsBySearch(models, search) } }];
   }
   return models.Customer.findAll({
     where,
@@ -511,6 +517,8 @@ export const bulkUpdateCustomers = async (models, payload, actorUserId = null) =
   for (const item of newlyBlacklisted) {
     void notifyEvent(models, "customer_blacklisted", {
       actorUserId,
+      customerName: item.label,
+      vars: { customer: item.label, reason: "", staff: "" },
       title: `Customer blacklisted: ${item.label}`,
       body: `${item.label}${item.phone ? ` · ${item.phone}` : ""} was marked Blacklisted.`,
       data: { type: "customer_blacklisted", customer_id: String(item.customer_id) },
