@@ -1,10 +1,16 @@
 import { Op } from "sequelize";
 import AppError from "../utils/AppError.js";
 import { normalizePhone } from "../utils/whatsappPhone.js";
-import { MIN_PHONE_SEARCH_DIGITS, phoneSearchCore } from "../utils/customerPhoneSearch.js";
+import { phoneSearchCore } from "../utils/customerPhoneSearch.js";
 import { notifyEvent } from "./pushEventService.js";
 
 const MAX_UPSERTS_PER_SYNC = 500;
+
+// FUTURE (super admin setting): phone contacts are shown at the POS only after this many digits are
+// typed, so staff cannot browse the shop's synced contacts with a few numbers. The shop owner wants
+// it adjustable per shop from the super admin console; until then it is fixed here and in
+// revampedFrontend/src/lib/phoneSearch.ts (MIN_CONTACT_SEARCH_DIGITS). See docs/FUTURE_SETTINGS.md.
+export const MIN_CONTACT_SEARCH_DIGITS = 9;
 
 /** Format stored phone_e164 ("94771234567") as Sri Lankan local form ("0771234567") for bill forms. */
 export const formatPhoneLocal = (phoneE164, rawFallback = null) => {
@@ -209,14 +215,15 @@ export const syncDeviceContacts = async (
 
 /**
  * Staff search for unlinked synced phone contacts, by phone number only (never by name).
- * Enforces at least 3 phone digits, cap 10 rows, linked_customer_id IS NULL,
+ * Enforces MIN_CONTACT_SEARCH_DIGITS typed digits, cap 10 rows, linked_customer_id IS NULL,
  * and active contact_sync_enabled on the owning device.
  */
 export const searchPhoneContacts = async (models, { search, limit = 10 } = {}) => {
   const core = phoneSearchCore(search);
-  if (!core) {
+  const typedDigits = String(search ?? "").replace(/\D/g, "").length;
+  if (!core || typedDigits < MIN_CONTACT_SEARCH_DIGITS) {
     throw new AppError(
-      `Search by phone number: enter at least ${MIN_PHONE_SEARCH_DIGITS} digits.`,
+      `Enter at least ${MIN_CONTACT_SEARCH_DIGITS} digits of the phone number to see phone contacts.`,
       400,
     );
   }

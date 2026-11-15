@@ -86,6 +86,18 @@ describe("phone contact search", () => {
     );
   });
 
+  it("shows contacts only once 9 digits are typed", async () => {
+    const findAll = vi.fn().mockResolvedValue([]);
+    const models = { PhoneContact: { findAll } };
+
+    await expect(searchPhoneContacts(models, { search: "07712345" })).rejects.toThrow(/at least 9 digits/i);
+    await expect(searchPhoneContacts(models, { search: "077 1234" })).rejects.toMatchObject({ statusCode: 400 });
+    expect(findAll).not.toHaveBeenCalled();
+
+    await searchPhoneContacts(models, { search: "077123456" });
+    expect(findAll).toHaveBeenCalledTimes(1);
+  });
+
   it("matches only the stored phone digits", async () => {
     const findAll = vi.fn().mockResolvedValue([]);
     await searchPhoneContacts({ PhoneContact: { findAll } }, { search: "077 123 4567" });

@@ -183,7 +183,7 @@ describe("searchPhoneContacts & usePhoneContact", () => {
     await expect(searchPhoneContacts({}, { search: "ab" })).rejects.toMatchObject({ statusCode: 400 });
   });
 
-  it("returns unlinked contacts filtered by name or phone digits capped at 10", async () => {
+  it("returns unlinked contacts matching a full phone number, capped at 10", async () => {
     const models = {
       OperatorDevice: {},
       PhoneContact: {
@@ -200,7 +200,7 @@ describe("searchPhoneContacts & usePhoneContact", () => {
       },
     };
 
-    const res = await searchPhoneContacts(models, { search: "077123", limit: 25 });
+    const res = await searchPhoneContacts(models, { search: "0771234567", limit: 25 });
     expect(models.PhoneContact.findAll).toHaveBeenCalledWith(
       expect.objectContaining({ limit: 10 }),
     );
