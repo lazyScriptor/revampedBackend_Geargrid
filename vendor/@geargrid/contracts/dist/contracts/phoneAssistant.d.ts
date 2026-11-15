@@ -301,23 +301,6 @@ export declare const UsePhoneContactContract: {
         }, z.core.$strip>;
     }, z.core.$strip>;
 };
-export declare const ReviewContactInvoiceContract: {
-    readonly path: "/invoices/:id/contact-review";
-    readonly method: "PATCH";
-    readonly params: z.ZodObject<{
-        id: z.ZodCoercedNumber<unknown>;
-    }, z.core.$strip>;
-    readonly response: z.ZodObject<{
-        status: z.ZodLiteral<"success">;
-        message: z.ZodOptional<z.ZodString>;
-        data: z.ZodObject<{
-            invoice_id: z.ZodCoercedNumber<unknown>;
-            contact_reviewed_at: z.ZodString;
-            contact_reviewed_by: z.ZodCoercedNumber<unknown>;
-            reviewer_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        }, z.core.$strip>;
-    }, z.core.$strip>;
-};
 export declare const CallRecordSchema: z.ZodObject<{
     call_id: z.ZodCoercedNumber<unknown>;
     operator_device_id: z.ZodCoercedNumber<unknown>;

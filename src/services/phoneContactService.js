@@ -2,7 +2,6 @@ import { Op } from "sequelize";
 import AppError from "../utils/AppError.js";
 import { normalizePhone } from "../utils/whatsappPhone.js";
 import { MIN_PHONE_SEARCH_DIGITS, phoneSearchCore } from "../utils/customerPhoneSearch.js";
-import { notifyEvent } from "./pushEventService.js";
 
 const MAX_UPSERTS_PER_SYNC = 500;
 
@@ -256,38 +255,7 @@ export const searchPhoneContacts = async (models, { search, limit = 10 } = {}) =
   };
 };
 
-const sendOwnerContactUsedAlert = async (models, contact, localPhone, actorUser) => {
-  try {
-    const actorId = actorUser?.userId ?? actorUser?.id ?? null;
-    let staffName = actorUser?.name || actorUser?.username || "";
-    if (!staffName && actorId && models.User?.findByPk) {
-      const user = await models.User.findByPk(actorId, {
-        attributes: ["user_id", "first_name", "last_name", "username"],
-      });
-      staffName =
-        `${user?.first_name || ""} ${user?.last_name || ""}`.trim() ||
-        user?.username ||
-        "Staff";
-    }
-    if (!staffName) staffName = "Staff";
-
-    await notifyEvent(models, "contact_used", {
-      actorUserId: actorId,
-      title: "Phone contact used for a bill",
-      body: `${staffName} picked "${contact.display_name}" (${localPhone}) from the phone contacts.`,
-      data: { type: "contact_used", contact_id: Number(contact.contact_id) },
-      category: "phone_contact",
-      link: "/invoices?tab=from-contacts",
-    });
-  } catch {
-    // Owner alerts must never fail or reject the staff action
-  }
-};
-
-/**
- * Mark a phone contact as used by staff, notify non-acting administrators,
- * and return prefill values for the new customer dialog.
- */
+/** Mark a phone contact as used by staff and return prefill values for the new customer dialog. */
 export const usePhoneContact = async (models, contactId, actorUser) => {
   const contact = await models.PhoneContact.findByPk(contactId);
   if (!contact) {
@@ -302,9 +270,6 @@ export const usePhoneContact = async (models, contactId, actorUser) => {
 
   const { first_name, last_name } = splitDisplayName(contact.display_name);
   const phone_number = formatPhoneLocal(contact.phone_e164, contact.raw_phone);
-
-  // Fire-and-forget after commit/update; never awaited in the request path
-  void sendOwnerContactUsedAlert(models, contact, phone_number, actorUser);
 
   return {
     contact_id: contact.contact_id,

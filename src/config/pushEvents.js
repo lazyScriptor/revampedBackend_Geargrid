@@ -5,7 +5,6 @@ export const PUSH_EVENTS = [
   { key: "invoice_deleted", default_enabled: true, has_amount: true },
   { key: "invoice_restored", default_enabled: false, has_amount: true },
   { key: "payment_voided", default_enabled: true, has_amount: true },
-  { key: "contact_used", default_enabled: true, has_amount: false },
   { key: "customer_blacklisted", default_enabled: false, has_amount: false },
 ];
 

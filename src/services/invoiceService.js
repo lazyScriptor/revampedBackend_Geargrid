@@ -125,30 +125,12 @@ export const createDispatchInvoice = async (models, payload, userId) => {
       }
     }
 
-    // Derive source_contact_id strictly on the server: copy from customer onto their very first invoice only.
-    let sourceContactId = null;
-    if (models.Customer?.findByPk && customer_id) {
-      const rentingCustomer = await models.Customer.findByPk(customer_id, {
-        attributes: ["customer_id", "source_contact_id"],
-        transaction: t,
-      });
-      if (rentingCustomer?.source_contact_id) {
-        const priorCount = models.Invoice.unscoped
-          ? await models.Invoice.unscoped().count({ where: { customer_id }, transaction: t })
-          : await models.Invoice.count({ where: { customer_id }, transaction: t });
-        if (priorCount === 0) {
-          sourceContactId = rentingCustomer.source_contact_id;
-        }
-      }
-    }
-
     const newInvoice = await models.Invoice.create(
       {
         customer_id,
         borrowed_on_behalf_of_customer_id:
           borrowed_on_behalf_of_customer_id || null,
         issued_by_user_id: userId,
-        ...(sourceContactId ? { source_contact_id: sourceContactId } : {}),
         total_amount: grandTotal,
         advance_paid: fees.advance || 0,
         transport_fee: fees.transport || 0,
@@ -328,16 +310,11 @@ export const getAllInvoices = async (models, queryParams) => {
   if (queryParams.status === "Active") whereClause.status = { [Op.in]: OPEN_STATUSES };
   else if (queryParams.status) whereClause.status = queryParams.status;
 
-  if (queryParams.contact_sourced === "true" || queryParams.contact_sourced === true) {
-    whereClause.source_contact_id = { [Op.ne]: null };
-  }
-
   const [countsResult, findResult] = await Promise.all([
     Promise.all([
       models.Invoice.count(),
       models.Invoice.count({ where: { status: { [Op.in]: OPEN_STATUSES } } }),
       models.Invoice.count({ where: { status: "Completed" } }),
-      models.Invoice.count({ where: { source_contact_id: { [Op.ne]: null } } }),
     ]),
     models.Invoice.findAndCountAll({
       distinct: true,
@@ -399,7 +376,7 @@ export const getAllInvoices = async (models, queryParams) => {
     }),
   ]);
 
-  const [allCount, activeCount, completedCount, fromContactsCount] = countsResult;
+  const [allCount, activeCount, completedCount] = countsResult;
   const { count, rows } = findResult;
 
   return {
@@ -409,7 +386,6 @@ export const getAllInvoices = async (models, queryParams) => {
       all: allCount,
       active: activeCount,
       completed: completedCount,
-      from_contacts: fromContactsCount ?? 0,
     },
   };
 };
@@ -966,43 +942,6 @@ export const updateInvoiceFees = async (models, invoiceId, payload, userId) => {
 
     return invoice;
   });
-};
-
-/** Mark a contact-sourced invoice as reviewed by an authorized staff member. */
-export const reviewContactInvoice = async (models, invoiceId, userId) => {
-  const invoice = await models.Invoice.findByPk(invoiceId);
-  if (!invoice) {
-    throw new AppError("Invoice not found.", 404);
-  }
-  if (!invoice.source_contact_id) {
-    throw new AppError("This invoice was not created from a phone contact.", 400);
-  }
-
-  const reviewedAt = new Date();
-  await invoice.update({
-    contact_reviewed_at: reviewedAt,
-    contact_reviewed_by: userId,
-  });
-
-  let reviewerName = null;
-  if (models.User?.findByPk && userId) {
-    const reviewer = await models.User.findByPk(userId, {
-      attributes: ["user_id", "first_name", "last_name", "username"],
-    });
-    if (reviewer) {
-      reviewerName =
-        `${reviewer.first_name || ""} ${reviewer.last_name || ""}`.trim() ||
-        reviewer.username ||
-        null;
-    }
-  }
-
-  return {
-    invoice_id: invoice.invoice_id,
-    contact_reviewed_at: reviewedAt.toISOString(),
-    contact_reviewed_by: Number(userId),
-    reviewer_name: reviewerName,
-  };
 };
 
 /** Read-only bill summary for an authenticated administrator's paired phone. */

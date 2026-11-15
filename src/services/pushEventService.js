@@ -135,9 +135,9 @@ export const getPushSettings = async (models) => {
 export const updatePushSettings = async (models, payload = {}) => {
   if (payload.events && typeof payload.events === "object") {
     for (const key of Object.keys(payload.events)) {
-      if (!PUSH_EVENTS_BY_KEY[key]) {
-        throw new AppError(`Unknown push event key: ${key}`, 400);
-      }
+      // An event removed from the catalog (contact_used) may still come from a page opened before the
+      // update. mergePushSettings keeps catalog events only, so it is skipped rather than refused.
+      if (!PUSH_EVENTS_BY_KEY[key]) continue;
       const rule = payload.events[key];
       if (rule && rule.min_amount !== undefined && rule.min_amount !== null) {
         const num = Number(rule.min_amount);
@@ -274,13 +274,12 @@ export const getUserPushPreferences = async (models, userId) => {
 };
 
 export const updateUserPushPreferences = async (models, userId, payload = {}) => {
-  const items = Array.isArray(payload.preferences) ? payload.preferences : [];
+  // Events no longer in the catalog (contact_used) may come from a page opened before the update.
+  const items = (Array.isArray(payload.preferences) ? payload.preferences : []).filter(
+    (item) => PUSH_EVENTS_BY_KEY[item?.event_key],
+  );
 
   for (const item of items) {
-    const meta = PUSH_EVENTS_BY_KEY[item?.event_key];
-    if (!meta) {
-      throw new AppError(`Unknown push event key: ${item?.event_key}`, 400);
-    }
     if (item.min_amount !== undefined && item.min_amount !== null) {
       const num = Number(item.min_amount);
       if (!Number.isFinite(num) || num < 0) {
