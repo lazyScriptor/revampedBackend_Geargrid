@@ -36,7 +36,8 @@ describe("Customer Invoices, Live Counts & Vault Toggle Unit Tests", () => {
         count: vi.fn()
           .mockResolvedValueOnce(59) // all
           .mockResolvedValueOnce(19) // active
-          .mockResolvedValueOnce(40), // completed
+          .mockResolvedValueOnce(40) // completed
+          .mockResolvedValueOnce(4), // from_contacts
         findAndCountAll: vi.fn().mockResolvedValue({
           count: 59,
           rows: [{ invoice_id: 101, status: "Active" }],
@@ -56,6 +57,7 @@ describe("Customer Invoices, Live Counts & Vault Toggle Unit Tests", () => {
       all: 59,
       active: 19,
       completed: 40,
+      from_contacts: 4,
     });
   });
 

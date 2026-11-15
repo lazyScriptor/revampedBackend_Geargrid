@@ -7,9 +7,9 @@ import AppError from "../utils/AppError.js";
 
 const refuse = (plan) => new AppError(`This isn't included in your ${plan.tier} plan. Contact GearGrid to upgrade.`, 403);
 
-/** Run after protect. Passes when the shop's plan includes any of the keys. */
+/** Run after protect or deviceAuth. Passes when the shop's plan includes any of the keys. */
 export const requireFeature = (...keys) => async (req, res, next) => {
-  const plan = await getTenantPlan(req.user?.tenantDbName);
+  const plan = await getTenantPlan(req.user?.tenantDbName ?? req.tenantDbName);
   if (!plan || keys.some((k) => plan.features[k] !== false)) return next();
   next(refuse(plan));
 };

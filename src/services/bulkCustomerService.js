@@ -1,6 +1,9 @@
 import { Readable } from "stream";
+import { Op } from "sequelize";
 import csvParser from "csv-parser";
 import { Parser } from "json2csv";
+import { syncCustomerPhones } from "./customerPhoneService.js";
+import { notifyEvent } from "./pushEventService.js";
 
 const CSV_FIELDS = [
   "nic_number", // Used as unique identifier
@@ -30,7 +33,7 @@ export const exportCustomers = async (models) => {
   return json2csvParser.parse(customers);
 };
 
-export const importCustomers = async (models, fileBuffer) => {
+export const importCustomers = async (models, fileBuffer, actorUserId = null) => {
   return new Promise((resolve, reject) => {
     const results = [];
     const errors = [];
@@ -64,6 +67,7 @@ export const importCustomers = async (models, fileBuffer) => {
             address_line2: data.address_line2 || null,
             deposit_balance: parseFloat(data.deposit_balance) || 0,
             status: data.status === "Blacklisted" ? "Blacklisted" : "Active",
+            brief_changed_at: new Date(),
           };
           results.push(cleanRow);
         } catch (err) {
@@ -72,19 +76,76 @@ export const importCustomers = async (models, fileBuffer) => {
       })
       .on("end", async () => {
         try {
+          const newlyBlacklisted = [];
           if (results.length > 0) {
-            await models.Customer.bulkCreate(results, {
-              updateOnDuplicate: [
-                "customer_type",
-                "company_name",
-                "first_name",
-                "last_name",
-                "phone_number",
-                "address_line1",
-                "address_line2",
-                "deposit_balance",
-                "status",
-              ],
+            const blacklistedRows = results.filter((r) => r.status === "Blacklisted");
+            let alreadyBlacklistedNics = new Set();
+            if (blacklistedRows.length > 0 && models.Customer?.findAll) {
+              const existing = await models.Customer.findAll({
+                where: {
+                  nic_number: { [Op.in]: blacklistedRows.map((r) => r.nic_number) },
+                  status: "Blacklisted",
+                },
+                attributes: ["nic_number"],
+              });
+              alreadyBlacklistedNics = new Set((existing || []).map((c) => c.nic_number));
+            }
+            for (const row of blacklistedRows) {
+              if (!alreadyBlacklistedNics.has(row.nic_number)) {
+                newlyBlacklisted.push(row);
+              }
+            }
+
+            const runSync = async (t) => {
+              const opts = t ? { transaction: t } : {};
+              await models.Customer.bulkCreate(results, {
+                updateOnDuplicate: [
+                  "customer_type",
+                  "company_name",
+                  "first_name",
+                  "last_name",
+                  "phone_number",
+                  "address_line1",
+                  "address_line2",
+                  "deposit_balance",
+                  "status",
+                  "brief_changed_at",
+                ],
+                ...opts,
+              });
+
+              if (models.CustomerPhone) {
+                const nics = results.map((r) => r.nic_number).filter(Boolean);
+                if (nics.length > 0) {
+                  const syncedCustomers = await models.Customer.findAll({
+                    where: { nic_number: { [Op.in]: nics } },
+                    attributes: ["customer_id", "phone_number", "customer_delete_status"],
+                    ...opts,
+                  });
+                  for (const cust of syncedCustomers) {
+                    await syncCustomerPhones(models, cust, opts);
+                  }
+                }
+              }
+            };
+
+            if (models.sequelize?.transaction) {
+              await models.sequelize.transaction(runSync);
+            } else {
+              await runSync(undefined);
+            }
+          }
+          for (const item of newlyBlacklisted) {
+            const label =
+              item.customer_type === "Business" && item.company_name
+                ? item.company_name
+                : `${item.first_name || ""} ${item.last_name || ""}`.trim() || item.nic_number;
+            void notifyEvent(models, "customer_blacklisted", {
+              actorUserId,
+              title: `Customer blacklisted: ${label}`,
+              body: `${label}${item.phone_number ? ` · ${item.phone_number}` : ""} was marked Blacklisted.`,
+              data: { type: "customer_blacklisted", nic_number: String(item.nic_number || "") },
+              link: "/customers",
             });
           }
           resolve({ successCount: results.length, errors });

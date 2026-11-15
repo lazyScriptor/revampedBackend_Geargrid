@@ -29,7 +29,8 @@ export const getCustomerInvoices = catchAsync(async (req, res, next) => {
 });
 
 export const updateCustomer = catchAsync(async (req, res, next) => {
-  const updatedCustomer = await customerService.updateCustomer(getModels(req), req.params.id, req.body);
+  const actorUserId = req.user?.userId || req.user?.id || null;
+  const updatedCustomer = await customerService.updateCustomer(getModels(req), req.params.id, req.body, actorUserId);
   res.status(200).json({ status: 'success', data: { customer: updatedCustomer } });
 });
 
@@ -53,9 +54,11 @@ export const getParentCustomerOptions = catchAsync(async (req, res, next) => {
 });
 
 export const bulkUpdateCustomers = catchAsync(async (req, res, next) => {
+  const actorUserId = req.user?.userId || req.user?.id || null;
   const result = await customerService.bulkUpdateCustomers(
     getModels(req),
     req.body,
+    actorUserId,
   );
   res.status(200).json({
     status: 'success',

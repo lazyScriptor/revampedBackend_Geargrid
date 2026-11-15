@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { successEnvelope } from "../envelope.js";
-import { PositiveInt, Money, ISODate, SignatureCheckpoint, SignatureRole, SignatureSource, SignatureStatus, } from "../primitives.js";
+import { PositiveInt, NonNegativeInt, Money, ISODate, SignatureCheckpoint, SignatureRole, SignatureSource, SignatureStatus, } from "../primitives.js";
 // ─────────────────────────────────────────────────────────────────────────
 // Signature capture subsystem
 //
@@ -231,6 +231,8 @@ export const ClaimPairingCodeContract = {
     response: successEnvelope(z.object({
         operator_device_id: PositiveInt,
         device_id: z.string(),
+        tenant_db_name: z.string().optional(),
+        device_token: z.string().optional(),
         operator: PairedOperatorInfo,
         tenant: TenantBrandingLite,
         paired_at: ISODate,
@@ -259,6 +261,12 @@ export const ListMyDevicesContract = {
             user_agent: z.string().nullable(),
             paired_at: ISODate,
             last_seen_at: ISODate.nullable(),
+            is_native_app: z.boolean().optional(),
+            app_version: z.string().nullable().optional(),
+            contact_sync_enabled: z.boolean().optional(),
+            contact_count: NonNegativeInt.optional(),
+            contacts_synced_at: ISODate.nullable().optional(),
+            briefs_synced_at: ISODate.nullable().optional(),
         })),
     })),
 };

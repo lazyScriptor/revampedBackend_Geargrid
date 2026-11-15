@@ -3,6 +3,8 @@ import { Op } from "sequelize";
 import AppError from "../utils/AppError.js";
 import { getCachedTenantConnection } from "../config/database.js";
 import { initTenantModels } from "../models/index.js";
+import { getTenantPlan } from "./planService.js";
+import { isUserAdmin } from "./userService.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Paired-PWA device subsystem (POS-mints-code variant)
@@ -85,6 +87,27 @@ export const listMyDevices = async (tenantModels, userId) => {
     where: { user_id: userId },
     order: [["paired_at", "DESC"]],
   });
+
+  const contactCountByDevice = new Map();
+  if (tenantModels.PhoneContact && rows.length > 0 && tenantModels.sequelize?.fn) {
+    try {
+      const counts = await tenantModels.PhoneContact.findAll({
+        where: { operator_device_id: { [Op.in]: rows.map((r) => r.operator_device_id) } },
+        attributes: [
+          "operator_device_id",
+          [tenantModels.sequelize.fn("COUNT", tenantModels.sequelize.col("contact_id")), "cnt"],
+        ],
+        group: ["operator_device_id"],
+        raw: true,
+      });
+      for (const c of counts || []) {
+        contactCountByDevice.set(Number(c.operator_device_id), Number(c.cnt) || 0);
+      }
+    } catch {
+      // Optional enrichment if PhoneContact table isn't initialized in unit mock
+    }
+  }
+
   return {
     devices: rows.map((r) => ({
       operator_device_id: r.operator_device_id,
@@ -93,6 +116,12 @@ export const listMyDevices = async (tenantModels, userId) => {
       user_agent: r.user_agent,
       paired_at: r.paired_at,
       last_seen_at: r.last_seen_at,
+      is_native_app: Boolean(r.is_native_app),
+      app_version: r.app_version ?? null,
+      contact_sync_enabled: Boolean(r.contact_sync_enabled),
+      contact_count: contactCountByDevice.get(Number(r.operator_device_id)) ?? 0,
+      contacts_synced_at: r.contacts_synced_at ?? null,
+      briefs_synced_at: r.briefs_synced_at ?? null,
     })),
   };
 };
@@ -102,9 +131,17 @@ export const unpairDevice = async (tenantModels, operatorDeviceId, userId) => {
     where: { operator_device_id: operatorDeviceId, user_id: userId },
   });
   if (!row) return { unpaired: false };
+  if (tenantModels.PhoneContact) {
+    await tenantModels.PhoneContact.destroy({
+      where: { operator_device_id: row.operator_device_id },
+    });
+  }
   await row.destroy();
   return { unpaired: true };
 };
+
+export const hashDeviceToken = (rawToken) =>
+  crypto.createHash("sha256").update(String(rawToken)).digest("hex");
 
 // ── Public side (phone) ─────────────────────────────────────────────────
 
@@ -133,6 +170,11 @@ export const claimPairingCode = async (masterModels, { code, device_id, device_l
   const tenantConnection = getCachedTenantConnection(tenant.db_name);
   const tenantModels = initTenantModels(tenantConnection);
 
+  // Generate 32-byte credential for native/PWA authenticated endpoints; store only its SHA-256 hash.
+  const deviceToken = crypto.randomBytes(32).toString("hex");
+  const tokenHash = hashDeviceToken(deviceToken);
+  const now = nowUtc();
+
   // If this device_id was previously paired (e.g. same phone re-pairing),
   // flip it to the new operator rather than erroring out.
   const existing = await tenantModels.OperatorDevice.findOne({ where: { device_id } });
@@ -142,8 +184,10 @@ export const claimPairingCode = async (masterModels, { code, device_id, device_l
       user_id: row.user_id,
       device_label: device_label?.slice(0, 100) || existing.device_label,
       user_agent: user_agent?.slice(0, 500) || existing.user_agent,
-      paired_at: nowUtc(),
-      last_seen_at: nowUtc(),
+      token_hash: tokenHash,
+      token_issued_at: now,
+      paired_at: now,
+      last_seen_at: now,
     });
     devicePaired = existing;
   } else {
@@ -152,8 +196,10 @@ export const claimPairingCode = async (masterModels, { code, device_id, device_l
       device_id,
       device_label: device_label?.slice(0, 100) || null,
       user_agent: user_agent?.slice(0, 500) || null,
-      paired_at: nowUtc(),
-      last_seen_at: nowUtc(),
+      token_hash: tokenHash,
+      token_issued_at: now,
+      paired_at: now,
+      last_seen_at: now,
     });
   }
 
@@ -178,6 +224,7 @@ export const claimPairingCode = async (masterModels, { code, device_id, device_l
     operator_device_id: devicePaired.operator_device_id,
     device_id,
     tenant_db_name: tenant.db_name,
+    device_token: deviceToken,
     operator: {
       user_id: user?.user_id,
       operator_name: operatorName,
@@ -190,6 +237,72 @@ export const claimPairingCode = async (masterModels, { code, device_id, device_l
       secondary_color: tenantConfig?.secondary_color || "#9c27b0",
     },
     paired_at: devicePaired.paired_at,
+  };
+};
+
+/**
+ * Native app start / push token / contact-sync switch heartbeat.
+ * Sets is_native_app=true, updates app_version/push_token/contact_sync_enabled,
+ * deletes PHONE_CONTACTS when contact_sync_enabled is switched off, and returns
+ * role & plan capabilities.
+ */
+export const registerDevice = async (
+  tenantModels,
+  tenantDbName,
+  device,
+  { app_version, push_token, contact_sync_enabled } = {},
+) => {
+  const now = nowUtc();
+  const patch = {
+    is_native_app: true,
+    last_seen_at: now,
+  };
+  if (app_version !== undefined && app_version !== null) {
+    patch.app_version = String(app_version).slice(0, 20);
+  }
+  if (push_token !== undefined) {
+    patch.push_token = push_token ? String(push_token).slice(0, 255) : null;
+    patch.push_token_updated_at = push_token ? now : null;
+  }
+  if (typeof contact_sync_enabled === "boolean") {
+    patch.contact_sync_enabled = contact_sync_enabled;
+  }
+
+  await device.update(patch);
+
+  if (contact_sync_enabled === false && tenantModels.PhoneContact) {
+    await tenantModels.PhoneContact.destroy({
+      where: { operator_device_id: device.operator_device_id },
+    });
+  }
+
+  let isAdmin = false;
+  if (tenantModels.User) {
+    const user = await tenantModels.User.findByPk(device.user_id, {
+      attributes: ["user_id", "is_active"],
+      include: tenantModels.Role
+        ? [
+            {
+              model: tenantModels.Role,
+              attributes: ["role_id", "role_name", "hierarchy_level", "is_active"],
+              through: { attributes: [] },
+            },
+          ]
+        : [],
+    });
+    isAdmin = isUserAdmin(user);
+  }
+
+  const plan = await getTenantPlan(tenantDbName);
+  const features = {
+    ...(plan?.features || {}),
+    phone_assistant: plan?.features?.phone_assistant !== false,
+  };
+
+  return {
+    is_admin: isAdmin,
+    contact_sync_enabled: Boolean(device.contact_sync_enabled),
+    features,
   };
 };
 

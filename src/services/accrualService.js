@@ -11,6 +11,7 @@
 import { Op } from "sequelize";
 import { getCachedTenantConnection } from "../config/database.js";
 import { initTenantModels } from "../models/index.js";
+import { touchCustomerBrief } from "./customerBriefService.js";
 import {
   chargeableLateDays,
   dayInShopTz,
@@ -55,12 +56,13 @@ export const refreshAccruals = async (models, { invoiceIds, now = new Date(), tr
     : { [Op.or]: [{ status: "Active" }, { accrued_charges: { [Op.gt]: 0 } }] };
   const invoices = await models.Invoice.findAll({
     where,
-    attributes: ["invoice_id", "issued_date", "status", "accrued_charges", "accrued_rental"],
+    attributes: ["invoice_id", "customer_id", "issued_date", "status", "accrued_charges", "accrued_rental"],
     include: [{ model: models.InvoiceLine, required: false }],
     transaction,
   });
 
   let changed = 0;
+  const touchedCustomerIds = new Set();
   for (const invoice of invoices) {
     let total = 0;
     let rental = 0;
@@ -77,7 +79,11 @@ export const refreshAccruals = async (models, { invoiceIds, now = new Date(), tr
     if (money(invoice.accrued_charges) !== total || money(invoice.accrued_rental) !== rental) {
       await invoice.update({ accrued_charges: total, accrued_rental: rental, accrued_at: now }, { transaction });
       changed++;
+      if (invoice.customer_id) touchedCustomerIds.add(invoice.customer_id);
     }
+  }
+  if (touchedCustomerIds.size > 0) {
+    await touchCustomerBrief(models, [...touchedCustomerIds], { transaction, now });
   }
   return { invoices: invoices.length, changed };
 };

@@ -332,3 +332,31 @@ export const getUserForAdminReset = async (models, userId, actor) => {
   }
   return user;
 };
+
+/** Determine if a User instance (with Roles loaded) is a tenant administrator (hierarchy_level >= 100). */
+export const isUserAdmin = (user) => {
+  if (!user || user.is_active === false) return false;
+  const roles = Array.isArray(user.Roles) ? user.Roles : [];
+  return roles.some(
+    (role) => role && role.is_active !== false && Number(role.hierarchy_level) >= 100,
+  );
+};
+
+/** Return user_ids of all active administrators in the tenant. */
+export const listAdminUserIds = async (models) => {
+  if (!models?.User) return [];
+  const users = await models.User.findAll({
+    where: { is_active: true },
+    attributes: ["user_id", "is_active"],
+    include: models.Role
+      ? [
+          {
+            model: models.Role,
+            attributes: ["role_id", "role_name", "hierarchy_level", "is_active"],
+            through: { attributes: [] },
+          },
+        ]
+      : [],
+  });
+  return users.filter(isUserAdmin).map((u) => u.user_id);
+};

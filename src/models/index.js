@@ -27,6 +27,10 @@ import WhatsappMessageLogFactory from "./WhatsappMessageLog.js";
 import WhatsappTemplateFactory from "./WhatsappTemplate.js";
 import PhotoRequestFactory from "./PhotoRequest.js";
 import CashLockerCountFactory from "./CashLockerCount.js";
+import CustomerPhoneFactory from "./CustomerPhone.js";
+import PhoneContactFactory from "./PhoneContact.js";
+import PushPreferenceFactory from "./PushPreference.js";
+import CallLogFactory from "./CallLog.js";
 
 export const initTenantModels = (tenantConnection) => {
   const User = UserFactory(tenantConnection);
@@ -58,6 +62,10 @@ export const initTenantModels = (tenantConnection) => {
   const WhatsappTemplate = WhatsappTemplateFactory(tenantConnection);
   const PhotoRequest = PhotoRequestFactory(tenantConnection);
   const CashLockerCount = CashLockerCountFactory(tenantConnection);
+  const CustomerPhone = CustomerPhoneFactory(tenantConnection);
+  const PhoneContact = PhoneContactFactory(tenantConnection);
+  const PushPreference = PushPreferenceFactory(tenantConnection);
+  const CallLog = CallLogFactory(tenantConnection);
 
   // ==========================================
   // AUTH & USERS
@@ -105,6 +113,8 @@ export const initTenantModels = (tenantConnection) => {
     as: "Workers",
     foreignKey: "parent_customer_id",
   });
+  Customer.hasMany(CustomerPhone, { foreignKey: "customer_id" });
+  CustomerPhone.belongsTo(Customer, { foreignKey: "customer_id" });
 
   // INVOICES & BILLING
   Invoice.belongsTo(Customer, { foreignKey: "customer_id" });
@@ -219,6 +229,27 @@ export const initTenantModels = (tenantConnection) => {
   OperatorDevice.belongsTo(User, { foreignKey: "user_id" });
   User.hasMany(OperatorDevice, { foreignKey: "user_id" });
 
+  // ── Phone Assistant contacts ──
+  OperatorDevice.hasMany(PhoneContact, { foreignKey: "operator_device_id" });
+  PhoneContact.belongsTo(OperatorDevice, { foreignKey: "operator_device_id" });
+  PhoneContact.belongsTo(Customer, { as: "LinkedCustomer", foreignKey: "linked_customer_id" });
+  PhoneContact.belongsTo(User, { as: "LastUsedBy", foreignKey: "last_used_by_user_id" });
+  Customer.belongsTo(PhoneContact, { as: "SourceContact", foreignKey: "source_contact_id" });
+  Invoice.belongsTo(PhoneContact, { as: "SourceContact", foreignKey: "source_contact_id" });
+  Invoice.belongsTo(User, { as: "ContactReviewedBy", foreignKey: "contact_reviewed_by" });
+
+  // ── Phone Assistant push preferences ──
+  User.hasMany(PushPreference, { foreignKey: "user_id" });
+  PushPreference.belongsTo(User, { foreignKey: "user_id" });
+
+  // ── Phone Assistant call logs ──
+  CallLog.belongsTo(OperatorDevice, { foreignKey: "operator_device_id" });
+  OperatorDevice.hasMany(CallLog, { foreignKey: "operator_device_id" });
+  CallLog.belongsTo(Customer, { foreignKey: "customer_id" });
+  Customer.hasMany(CallLog, { foreignKey: "customer_id" });
+  CallLog.belongsTo(PhoneContact, { foreignKey: "contact_id" });
+  PhoneContact.hasMany(CallLog, { foreignKey: "contact_id" });
+
   // ── Cash locker ──
   CashLockerCount.belongsTo(User, { as: "CountedBy", foreignKey: "counted_by_user_id" });
   CashLockerCount.belongsTo(User, { as: "ReviewedBy", foreignKey: "reviewed_by_user_id" });
@@ -253,6 +284,10 @@ export const initTenantModels = (tenantConnection) => {
     WhatsappTemplate,
     PhotoRequest,
     CashLockerCount,
+    CustomerPhone,
+    PhoneContact,
+    PushPreference,
+    CallLog,
     sequelize: tenantConnection,
   };
 };

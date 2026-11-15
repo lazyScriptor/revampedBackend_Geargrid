@@ -53,16 +53,26 @@ export const normalizePhone = (raw) => {
 };
 
 /**
+ * Splits a multi-number phone string (e.g. "0771234567 / 011 2345678") into trimmed parts.
+ */
+export const splitPhones = (raw) => {
+  if (raw === null || raw === undefined) return [];
+  const text = String(raw).trim();
+  if (!text) return [];
+  return text
+    .split(/[\/,;|\n]+|\s+(?:and|or)\s+/i)
+    .map((p) => p.trim())
+    .filter(Boolean);
+};
+
+/**
  * A customer's phone field often holds several numbers ("0771234567 / 011 2345678").
  * Returns the first number that can take WhatsApp; otherwise the first parseable one
  * (so the UI can say *why* there is no usable number); otherwise an invalid result.
  */
 export const pickWhatsAppNumber = (raw) => {
   if (raw === null || raw === undefined) return normalizePhone(null);
-  const parts = String(raw)
-    .split(/[\/,;|\n]+|\s+(?:and|or)\s+/i)
-    .map((p) => p.trim())
-    .filter(Boolean);
+  const parts = splitPhones(raw);
   const parsed = (parts.length ? parts : [String(raw)]).map(normalizePhone);
   return parsed.find((p) => p.valid) || parsed.find((p) => p.digits) || parsed[0] || normalizePhone(null);
 };
