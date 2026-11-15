@@ -36,6 +36,7 @@ export const CustomerBriefSchema = z.object({
     parent_company: z.string().nullable().optional(),
     phones: z.array(z.string()),
     rating: z.number().nullable().optional(),
+    nic_number: z.string().nullable().optional(),
     status: z.string(),
     blacklist_reason: z.string().nullable().optional(),
     balance_due: z.coerce.number().nullable().optional(),

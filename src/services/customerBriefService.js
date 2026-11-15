@@ -155,6 +155,10 @@ export const applyProfileToBrief = (rawBrief, profile) => {
   if (hasField("rating")) {
     out.rating = rawBrief.rating ?? null;
   }
+  // Offline search by NIC on the phone: only profiles that name "nic" (or "*") receive it.
+  if (hasField("nic")) {
+    out.nic_number = rawBrief.nic_number ?? null;
+  }
 
   const rawBalance = Number(rawBrief.balance_due || 0);
   const rawDeposit = Number(rawBrief.deposit_balance || 0);
@@ -583,6 +587,7 @@ export const buildBriefs = async (models, customerIds, { now = new Date(), profi
       customer_id: cid,
       display_name: formatDisplayName(customer),
       company_name: customer.company_name ? String(customer.company_name).trim() || null : null,
+      nic_number: customer.nic_number ? String(customer.nic_number).replace(/\s+/g, "").toUpperCase() || null : null,
       parent_company: formatParentCompany(customer),
       phones,
       rating,

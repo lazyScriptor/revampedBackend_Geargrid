@@ -25,6 +25,7 @@ export declare const CustomerBriefSchema: z.ZodObject<{
     parent_company: z.ZodOptional<z.ZodNullable<z.ZodString>>;
     phones: z.ZodArray<z.ZodString>;
     rating: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+    nic_number: z.ZodOptional<z.ZodNullable<z.ZodString>>;
     status: z.ZodString;
     blacklist_reason: z.ZodOptional<z.ZodNullable<z.ZodString>>;
     balance_due: z.ZodOptional<z.ZodNullable<z.ZodCoercedNumber<unknown>>>;
@@ -254,6 +255,7 @@ export declare const GetDeviceBriefsContract: {
                 parent_company: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                 phones: z.ZodArray<z.ZodString>;
                 rating: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+                nic_number: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                 status: z.ZodString;
                 blacklist_reason: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                 balance_due: z.ZodOptional<z.ZodNullable<z.ZodCoercedNumber<unknown>>>;
@@ -317,6 +319,7 @@ export declare const LookupDeviceBriefContract: {
                 parent_company: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                 phones: z.ZodArray<z.ZodString>;
                 rating: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+                nic_number: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                 status: z.ZodString;
                 blacklist_reason: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                 balance_due: z.ZodOptional<z.ZodNullable<z.ZodCoercedNumber<unknown>>>;
@@ -359,6 +362,7 @@ export declare const LookupDeviceBriefContract: {
                 parent_company: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                 phones: z.ZodArray<z.ZodString>;
                 rating: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+                nic_number: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                 status: z.ZodString;
                 blacklist_reason: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                 balance_due: z.ZodOptional<z.ZodNullable<z.ZodCoercedNumber<unknown>>>;
@@ -590,6 +594,7 @@ export declare const MissedCallItemSchema: z.ZodObject<{
         parent_company: z.ZodOptional<z.ZodNullable<z.ZodString>>;
         phones: z.ZodArray<z.ZodString>;
         rating: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+        nic_number: z.ZodOptional<z.ZodNullable<z.ZodString>>;
         status: z.ZodString;
         blacklist_reason: z.ZodOptional<z.ZodNullable<z.ZodString>>;
         balance_due: z.ZodOptional<z.ZodNullable<z.ZodCoercedNumber<unknown>>>;
@@ -715,6 +720,7 @@ export declare const GetCallByIdContract: {
                 parent_company: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                 phones: z.ZodArray<z.ZodString>;
                 rating: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+                nic_number: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                 status: z.ZodString;
                 blacklist_reason: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                 balance_due: z.ZodOptional<z.ZodNullable<z.ZodCoercedNumber<unknown>>>;
@@ -3232,6 +3238,7 @@ export declare const ListMissedCallsContract: {
                     parent_company: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                     phones: z.ZodArray<z.ZodString>;
                     rating: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+                    nic_number: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                     status: z.ZodString;
                     blacklist_reason: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                     balance_due: z.ZodOptional<z.ZodNullable<z.ZodCoercedNumber<unknown>>>;
@@ -3323,6 +3330,7 @@ export declare const ListDeviceMissedCallsContract: {
                     parent_company: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                     phones: z.ZodArray<z.ZodString>;
                     rating: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+                    nic_number: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                     status: z.ZodString;
                     blacklist_reason: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                     balance_due: z.ZodOptional<z.ZodNullable<z.ZodCoercedNumber<unknown>>>;

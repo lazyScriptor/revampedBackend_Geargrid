@@ -362,3 +362,13 @@ describe("stale sync warning", () => {
     expect(computeDeviceHealthWarnings(stale, now, 96)).not.toContain("brief_sync_stale");
   });
 });
+
+describe("brief NIC field for offline search (D8)", () => {
+  it("is sent only to profiles that allow it", async () => {
+    const { applyProfileToBrief } = await import("../../src/services/customerBriefService.js");
+    const raw = { customer_id: 1, display_name: "A", phones: [], status: "Active", updated_at: "x", nic_number: "900000000V", invoice_count: 0, active_items: [] };
+    expect(applyProfileToBrief(raw, { fields: ["name"], amounts: "hidden" }).nic_number).toBeUndefined();
+    expect(applyProfileToBrief(raw, { fields: ["name", "nic"], amounts: "hidden" }).nic_number).toBe("900000000V");
+    expect(applyProfileToBrief(raw, { fields: ["*"], amounts: "hidden" }).nic_number).toBe("900000000V");
+  });
+});

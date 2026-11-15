@@ -13,6 +13,8 @@ export const BRIEF_FIELD_KEYS = [
   "last_payment",
   "last_review_comment",
   "recent_call_notes",
+  // Not shown on the call screen. Lets the phone find a customer by NIC while offline.
+  "nic",
 ];
 
 export const BRIEF_FIELD_KEY_SET = new Set(BRIEF_FIELD_KEYS);
