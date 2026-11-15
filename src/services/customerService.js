@@ -1,5 +1,20 @@
 import { Op } from "sequelize";
 import AppError from "../utils/AppError.js";
+import { extractCustomerPhoneEntries, syncCustomerPhones } from "./customerPhoneService.js";
+import { notifyEvent } from "./pushEventService.js";
+
+const formatCustomerLabel = (c) => {
+  if (!c) return "Customer";
+  if (c.customer_type === "Business" && c.company_name) return c.company_name;
+  return `${c.first_name || ""} ${c.last_name || ""}`.trim() || c.nic_number || "Customer";
+};
+
+const runInTransaction = async (models, fn) => {
+  if (models?.sequelize?.transaction) {
+    return await models.sequelize.transaction(fn);
+  }
+  return await fn(undefined);
+};
 
 export const createCustomer = async (models, data) => {
   // 1. Uniqueness Check: Ensure NIC/Passport doesn't already exist
@@ -31,8 +46,49 @@ export const createCustomer = async (models, data) => {
     }
   }
 
-  // 3. Create the customer
-  return await models.Customer.create(data);
+  // 3. Create the customer and sync normalised phone index in one transaction
+  const sourceContactId = data.source_contact_id ? Number(data.source_contact_id) : null;
+  const createPayload = {
+    ...data,
+    ...(sourceContactId ? { source_contact_id: sourceContactId } : {}),
+    brief_changed_at: new Date(),
+  };
+
+  return await runInTransaction(models, async (t) => {
+    const opts = t ? { transaction: t } : {};
+    const customer = await models.Customer.create(createPayload, opts);
+    await syncCustomerPhones(models, customer, opts);
+
+    if (sourceContactId && models.PhoneContact) {
+      const sourceContact = models.PhoneContact.findByPk
+        ? await models.PhoneContact.findByPk(sourceContactId, opts)
+        : null;
+      const numbers = new Set(
+        extractCustomerPhoneEntries(customer.phone_number).map((e) => e.phone_e164),
+      );
+      if (sourceContact?.phone_e164) numbers.add(sourceContact.phone_e164);
+
+      const orConditions = [{ contact_id: sourceContactId }];
+      if (sourceContact?.operator_device_id && sourceContact?.device_contact_key) {
+        orConditions.push({
+          operator_device_id: sourceContact.operator_device_id,
+          device_contact_key: sourceContact.device_contact_key,
+        });
+      }
+      if (numbers.size > 0) {
+        orConditions.push({ phone_e164: { [Op.in]: [...numbers] } });
+      }
+
+      if (models.PhoneContact.update) {
+        await models.PhoneContact.update(
+          { linked_customer_id: customer.customer_id },
+          { where: { [Op.or]: orConditions }, ...opts },
+        );
+      }
+    }
+
+    return customer;
+  });
 };
 
 export const getAllCustomers = async (models, queryParams) => {
@@ -241,12 +297,13 @@ export const getCustomerInvoices = async (models, customerId) => {
   };
 };
 
-export const updateCustomer = async (models, customerId, updateData) => {
+export const updateCustomer = async (models, customerId, updateData, actorUserId = null) => {
   // We use the basic findByPk here to avoid pulling in all the relations just to update
   const customer = await models.Customer.findByPk(customerId);
   if (!customer || customer.customer_delete_status) {
     throw new AppError("Customer not found.", 404);
   }
+  const previousStatus = customer.status;
 
   // If they are updating the NIC, ensure it doesn't belong to someone else
   if (updateData.nic_number && updateData.nic_number !== customer.nic_number) {
@@ -260,7 +317,24 @@ export const updateCustomer = async (models, customerId, updateData) => {
       );
   }
 
-  await customer.update(updateData);
+  await runInTransaction(models, async (t) => {
+    const opts = t ? { transaction: t } : {};
+    await customer.update({ ...updateData, brief_changed_at: new Date() }, opts);
+    if ("phone_number" in updateData || "customer_delete_status" in updateData) {
+      await syncCustomerPhones(models, customer, opts);
+    }
+  });
+
+  if (previousStatus !== "Blacklisted" && updateData.status === "Blacklisted") {
+    const label = formatCustomerLabel({ ...customer.toJSON?.(), ...updateData });
+    void notifyEvent(models, "customer_blacklisted", {
+      actorUserId,
+      title: `Customer blacklisted: ${label}`,
+      body: `${label}${customer.phone_number ? ` · ${customer.phone_number}` : ""} was marked Blacklisted.`,
+      data: { type: "customer_blacklisted", customer_id: String(customerId) },
+      link: "/customers",
+    });
+  }
 
   // Return the updated customer with full relational data
   return await getCustomerById(models, customerId);
@@ -287,8 +361,12 @@ export const deleteCustomer = async (models, customerId) => {
     }
   }
 
-  // Soft-delete the record
-  await customer.update({ customer_delete_status: true });
+  // Soft-delete the record and drop indexed phone lookup rows
+  await runInTransaction(models, async (t) => {
+    const opts = t ? { transaction: t } : {};
+    await customer.update({ customer_delete_status: true, brief_changed_at: new Date() }, opts);
+    await syncCustomerPhones(models, customer, opts);
+  });
   return true;
 };
 
@@ -333,7 +411,7 @@ export const getParentOptions = async (models, { excludeId, search } = {}) => {
   });
 };
 
-export const bulkUpdateCustomers = async (models, payload) => {
+export const bulkUpdateCustomers = async (models, payload, actorUserId = null) => {
   const { ids, updates } = payload;
   if (!Array.isArray(ids) || ids.length === 0) {
     throw new AppError("No customer IDs provided for bulk update.", 400);
@@ -343,7 +421,9 @@ export const bulkUpdateCustomers = async (models, payload) => {
     throw new AppError("No update fields provided.", 400);
   }
 
-  return await models.sequelize.transaction(async (t) => {
+  const newlyBlacklisted = [];
+
+  const result = await models.sequelize.transaction(async (t) => {
     const customers = await models.Customer.findAll({
       where: {
         customer_id: { [Op.in]: ids },
@@ -415,7 +495,19 @@ export const bulkUpdateCustomers = async (models, payload) => {
       }
 
       if (Object.keys(custPatch).length > 0) {
+        const wasBlacklisted = cust.status === "Blacklisted";
+        custPatch.brief_changed_at = new Date();
         await cust.update(custPatch, { transaction: t });
+        if ("phone_number" in custPatch || "customer_delete_status" in custPatch) {
+          await syncCustomerPhones(models, cust, { transaction: t });
+        }
+        if (!wasBlacklisted && custPatch.status === "Blacklisted") {
+          newlyBlacklisted.push({
+            customer_id: cust.customer_id,
+            label: formatCustomerLabel(cust),
+            phone: cust.phone_number || "",
+          });
+        }
         updatedIds.push(cust.customer_id);
       }
     }
@@ -425,6 +517,18 @@ export const bulkUpdateCustomers = async (models, payload) => {
       ids: updatedIds,
     };
   });
+
+  for (const item of newlyBlacklisted) {
+    void notifyEvent(models, "customer_blacklisted", {
+      actorUserId,
+      title: `Customer blacklisted: ${item.label}`,
+      body: `${item.label}${item.phone ? ` · ${item.phone}` : ""} was marked Blacklisted.`,
+      data: { type: "customer_blacklisted", customer_id: String(item.customer_id) },
+      link: "/customers",
+    });
+  }
+
+  return result;
 };
 
 export const getCustomerStats = async (models) => {

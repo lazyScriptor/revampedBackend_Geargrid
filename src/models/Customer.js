@@ -56,11 +56,16 @@ export default (sequelize) => {
         type: DataTypes.ENUM("Active", "Blacklisted"),
         defaultValue: "Active", // Allows you to ban a bad contractor
       },
+      source_contact_id: { type: DataTypes.INTEGER, allowNull: true },
+      brief_changed_at: { type: DataTypes.DATE, allowNull: true },
       customer_delete_status: { type: DataTypes.BOOLEAN, defaultValue: false },
     },
     {
       tableName: "CUSTOMERS",
       timestamps: true, // CRITICAL FOR REPORTING: Adds createdAt and updatedAt
+      indexes: [
+        { fields: ["brief_changed_at"], name: "idx_customers_brief_changed_at" },
+      ],
     },
   );
 

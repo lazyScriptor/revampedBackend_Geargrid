@@ -1,6 +1,37 @@
 import { Op } from "sequelize";
 import AppError from "../utils/AppError.js";
+import { liveTotalOf, owedAmount } from "../utils/invoiceBalance.js";
 import { refreshAccruals } from "./accrualService.js";
+import { touchCustomerBrief } from "./customerBriefService.js";
+import { notifyEvent } from "./pushEventService.js";
+import { isUserAdmin } from "./userService.js";
+
+const formatLkr = (n) => {
+  const num = Number(n || 0);
+  return Number.isInteger(num)
+    ? num.toLocaleString("en-US")
+    : num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
+const formatCustomerDisplay = (customer) => {
+  if (!customer) return "Customer";
+  if (customer.customer_type === "Business" && customer.company_name) {
+    return customer.company_name;
+  }
+  return `${customer.first_name || ""} ${customer.last_name || ""}`.trim() || "Customer";
+};
+
+const lookupStaffName = async (models, userId) => {
+  try {
+    if (!userId || !models?.User?.findByPk) return "Staff";
+    const u = await models.User.findByPk(userId, {
+      attributes: ["user_id", "first_name", "last_name", "username"],
+    });
+    return `${u?.first_name || ""} ${u?.last_name || ""}`.trim() || u?.username || "Staff";
+  } catch {
+    return "Staff";
+  }
+};
 
 // Counter clocks drift a little; anything later than this is a typo, not a bill.
 const ISSUED_DATE_FUTURE_SLACK_MS = 5 * 60 * 1000;
@@ -28,7 +59,7 @@ export const createDispatchInvoice = async (models, payload, userId) => {
   const { customer_id, items, fees, borrowed_on_behalf_of_customer_id } = payload;
   const issuedDate = resolveIssuedDate(payload.issued_date);
 
-  return await models.sequelize.transaction(async (t) => {
+  const newInvoice = await models.sequelize.transaction(async (t) => {
     let subTotal = 0;
 
     // Validate basics
@@ -93,12 +124,30 @@ export const createDispatchInvoice = async (models, payload, userId) => {
       }
     }
 
+    // Derive source_contact_id strictly on the server: copy from customer onto their very first invoice only.
+    let sourceContactId = null;
+    if (models.Customer?.findByPk && customer_id) {
+      const rentingCustomer = await models.Customer.findByPk(customer_id, {
+        attributes: ["customer_id", "source_contact_id"],
+        transaction: t,
+      });
+      if (rentingCustomer?.source_contact_id) {
+        const priorCount = models.Invoice.unscoped
+          ? await models.Invoice.unscoped().count({ where: { customer_id }, transaction: t })
+          : await models.Invoice.count({ where: { customer_id }, transaction: t });
+        if (priorCount === 0) {
+          sourceContactId = rentingCustomer.source_contact_id;
+        }
+      }
+    }
+
     const newInvoice = await models.Invoice.create(
       {
         customer_id,
         borrowed_on_behalf_of_customer_id:
           borrowed_on_behalf_of_customer_id || null,
         issued_by_user_id: userId,
+        ...(sourceContactId ? { source_contact_id: sourceContactId } : {}),
         total_amount: grandTotal,
         advance_paid: fees.advance || 0,
         transport_fee: fees.transport || 0,
@@ -211,9 +260,41 @@ export const createDispatchInvoice = async (models, payload, userId) => {
 
     // A bill entered for an earlier date may already be running extra days.
     await refreshAccruals(models, { invoiceIds: [newInvoice.invoice_id], transaction: t });
+    await touchCustomerBrief(models, customer_id, { transaction: t });
 
     return newInvoice;
   });
+
+  // Fire-and-forget post-commit notification
+  void (async () => {
+    try {
+      const [customer, staffName] = await Promise.all([
+        models.Customer?.findByPk
+          ? models.Customer.findByPk(customer_id, {
+              attributes: ["customer_id", "first_name", "last_name", "company_name", "customer_type"],
+            })
+          : null,
+        lookupStaffName(models, userId),
+      ]);
+      const customerName = formatCustomerDisplay(customer);
+      const total = formatLkr(newInvoice.total_amount);
+      const itemCount = items.length;
+      await notifyEvent(models, "invoice_created", {
+        amount: Number(newInvoice.total_amount || 0),
+        actorUserId: userId,
+        title: `New bill #${newInvoice.invoice_id} · LKR ${total}`,
+        body: `${customerName} · ${itemCount} item(s) · by ${staffName}`,
+        titleNoAmount: `New bill #${newInvoice.invoice_id}`,
+        bodyNoAmount: `${customerName} · ${itemCount} item(s) · by ${staffName}`,
+        data: { type: "invoice_created", invoice_id: String(newInvoice.invoice_id) },
+        link: "/invoices?mode=manage",
+      });
+    } catch {
+      // Push failures must never affect bill creation
+    }
+  })();
+
+  return newInvoice;
 };
 
 // --- 2. GLOBAL SEARCH ENGINE ---
@@ -254,11 +335,16 @@ export const getAllInvoices = async (models, queryParams) => {
   if (queryParams.status === "Active") whereClause.status = { [Op.in]: OPEN_STATUSES };
   else if (queryParams.status) whereClause.status = queryParams.status;
 
+  if (queryParams.contact_sourced === "true" || queryParams.contact_sourced === true) {
+    whereClause.source_contact_id = { [Op.ne]: null };
+  }
+
   const [countsResult, findResult] = await Promise.all([
     Promise.all([
       models.Invoice.count(),
       models.Invoice.count({ where: { status: { [Op.in]: OPEN_STATUSES } } }),
       models.Invoice.count({ where: { status: "Completed" } }),
+      models.Invoice.count({ where: { source_contact_id: { [Op.ne]: null } } }),
     ]),
     models.Invoice.findAndCountAll({
       distinct: true,
@@ -307,6 +393,16 @@ export const getAllInvoices = async (models, queryParams) => {
           attributes: ["payment_id", "payment_amount", "payment_date", "method"],
         },
         { model: models.InvoiceTrace },
+        ...(models.User
+          ? [
+              {
+                model: models.User,
+                as: "ContactReviewedBy",
+                attributes: ["user_id", "first_name", "last_name", "username"],
+                required: false,
+              },
+            ]
+          : []),
       ],
       limit,
       offset,
@@ -314,7 +410,7 @@ export const getAllInvoices = async (models, queryParams) => {
     }),
   ]);
 
-  const [allCount, activeCount, completedCount] = countsResult;
+  const [allCount, activeCount, completedCount, fromContactsCount] = countsResult;
   const { count, rows } = findResult;
 
   return {
@@ -324,6 +420,7 @@ export const getAllInvoices = async (models, queryParams) => {
       all: allCount,
       active: activeCount,
       completed: completedCount,
+      from_contacts: fromContactsCount ?? 0,
     },
   };
 };
@@ -378,7 +475,7 @@ export const processReturn = async (models, payload, userId) => {
     customer_rating,
   } = payload;
 
-  return await models.sequelize.transaction(async (t) => {
+  const returnMeta = await models.sequelize.transaction(async (t) => {
     const invoice = await models.Invoice.findByPk(invoice_id, {
       transaction: t,
     });
@@ -575,8 +672,46 @@ export const processReturn = async (models, payload, userId) => {
       { transaction: t },
     );
 
-    return true;
+    await touchCustomerBrief(models, invoice.customer_id, { transaction: t });
+
+    return {
+      customer_id: invoice.customer_id,
+      totalLateFees: Number(totalLateFees || 0),
+      finalPayment: Number(final_payment_amount || 0),
+      finalStatus,
+    };
   });
+
+  void (async () => {
+    try {
+      const [customer, staffName] = await Promise.all([
+        models.Customer?.findByPk && returnMeta?.customer_id
+          ? models.Customer.findByPk(returnMeta.customer_id, {
+              attributes: ["customer_id", "first_name", "last_name", "company_name", "customer_type"],
+            })
+          : null,
+        lookupStaffName(models, userId),
+      ]);
+      const customerName = formatCustomerDisplay(customer);
+      const amount = Number(returnMeta?.finalPayment || 0) + Number(returnMeta?.totalLateFees || 0);
+      await notifyEvent(models, "return_processed", {
+        amount,
+        actorUserId: userId,
+        title: amount > 0
+          ? `Return on #${invoice_id} · LKR ${formatLkr(amount)}`
+          : `Return processed on #${invoice_id}`,
+        body: `${customerName} · ${returnMeta?.finalStatus || "Updated"} · by ${staffName}`,
+        titleNoAmount: `Return processed on #${invoice_id}`,
+        bodyNoAmount: `${customerName} · ${returnMeta?.finalStatus || "Updated"} · by ${staffName}`,
+        data: { type: "return_processed", invoice_id: String(invoice_id) },
+        link: "/invoices?mode=manage",
+      });
+    } catch {
+      // Push failures must never affect return processing
+    }
+  })();
+
+  return true;
 };
 
 const assertNotCompleted = (invoice, action) => {
@@ -620,6 +755,7 @@ export const completeInvoice = async (models, invoiceId, { release_id_card } = {
       { invoice_id: invoiceId, actor_user_id: userId, event_category: "SETTLEMENT", event_action: "INVOICE_COMPLETED", comments: "Invoice completed and closed by staff." },
       { transaction: t },
     );
+    await touchCustomerBrief(models, invoice.customer_id, { transaction: t });
     return invoice;
   });
 
@@ -637,6 +773,7 @@ export const reopenInvoice = async (models, invoiceId, userId) =>
       { invoice_id: invoiceId, actor_user_id: userId, event_category: "SETTLEMENT", event_action: "INVOICE_REOPENED", comments: "Invoice reopened for further settlement." },
       { transaction: t },
     );
+    await touchCustomerBrief(models, invoice.customer_id, { transaction: t });
     return invoice;
   });
 
@@ -654,7 +791,7 @@ export const addContinuousPayment = async (
   }
   const actualAmount = is_refund ? -numeric : numeric;
 
-  return await models.sequelize.transaction(async (t) => {
+  const { payment, customerId } = await models.sequelize.transaction(async (t) => {
     const invoice = await models.Invoice.findByPk(invoiceId, {
       transaction: t,
     });
@@ -699,8 +836,40 @@ export const addContinuousPayment = async (
       { transaction: t },
     );
 
-    return payment;
+    await touchCustomerBrief(models, invoice.customer_id, { transaction: t });
+
+    return { payment, customerId: invoice.customer_id };
   });
+
+  void (async () => {
+    try {
+      const [customer, staffName] = await Promise.all([
+        models.Customer?.findByPk && customerId
+          ? models.Customer.findByPk(customerId, {
+              attributes: ["customer_id", "first_name", "last_name", "company_name", "customer_type"],
+            })
+          : null,
+        lookupStaffName(models, userId),
+      ]);
+      const customerName = formatCustomerDisplay(customer);
+      const eventKey = is_refund ? "payment_voided" : "payment_received";
+      const label = is_refund ? "Refund" : "Payment";
+      await notifyEvent(models, eventKey, {
+        amount: numeric,
+        actorUserId: userId,
+        title: `${label} on #${invoiceId} · LKR ${formatLkr(numeric)}`,
+        body: `${customerName} · ${method || "Cash"} · by ${staffName}`,
+        titleNoAmount: `${label} recorded on #${invoiceId}`,
+        bodyNoAmount: `${customerName} · ${method || "Cash"} · by ${staffName}`,
+        data: { type: eventKey, invoice_id: String(invoiceId) },
+        link: "/invoices?mode=manage",
+      });
+    } catch {
+      // Push failures must never affect payment recording
+    }
+  })();
+
+  return payment;
 };
 
 // --- 6. VAULT STATUS TOGGLE ---
@@ -737,6 +906,8 @@ export const toggleVaultStatus = async (models, invoiceId, userId) => {
       },
       { transaction: t },
     );
+
+    await touchCustomerBrief(models, invoice.customer_id, { transaction: t });
 
     return {
       is_id_retained_currently: newStatus,
@@ -802,6 +973,141 @@ export const updateInvoiceFees = async (models, invoiceId, payload, userId) => {
       { transaction: t },
     );
 
+    await touchCustomerBrief(models, invoice.customer_id, { transaction: t });
+
     return invoice;
   });
+};
+
+/** Mark a contact-sourced invoice as reviewed by an authorized staff member. */
+export const reviewContactInvoice = async (models, invoiceId, userId) => {
+  const invoice = await models.Invoice.findByPk(invoiceId);
+  if (!invoice) {
+    throw new AppError("Invoice not found.", 404);
+  }
+  if (!invoice.source_contact_id) {
+    throw new AppError("This invoice was not created from a phone contact.", 400);
+  }
+
+  const reviewedAt = new Date();
+  await invoice.update({
+    contact_reviewed_at: reviewedAt,
+    contact_reviewed_by: userId,
+  });
+
+  let reviewerName = null;
+  if (models.User?.findByPk && userId) {
+    const reviewer = await models.User.findByPk(userId, {
+      attributes: ["user_id", "first_name", "last_name", "username"],
+    });
+    if (reviewer) {
+      reviewerName =
+        `${reviewer.first_name || ""} ${reviewer.last_name || ""}`.trim() ||
+        reviewer.username ||
+        null;
+    }
+  }
+
+  return {
+    invoice_id: invoice.invoice_id,
+    contact_reviewed_at: reviewedAt.toISOString(),
+    contact_reviewed_by: Number(userId),
+    reviewer_name: reviewerName,
+  };
+};
+
+/** Read-only bill summary for an authenticated administrator's paired phone. */
+export const getDeviceInvoiceSummary = async (models, device, invoiceId) => {
+  const user =
+    device?.user_id && models?.User?.findByPk
+      ? await models.User.findByPk(device.user_id, {
+          attributes: ["user_id", "is_active"],
+          include: models.Role
+            ? [
+                {
+                  model: models.Role,
+                  attributes: ["role_id", "role_name", "hierarchy_level", "is_active"],
+                  through: { attributes: [] },
+                },
+              ]
+            : [],
+        })
+      : null;
+
+  if (!isUserAdmin(user)) {
+    throw new AppError("Only administrators can view bill summaries on a phone.", 403);
+  }
+
+  try {
+    await refreshAccruals(models, { invoiceIds: [invoiceId] });
+  } catch {
+    // Non-fatal in minimal mock environments
+  }
+
+  const invoice = await models.Invoice.findByPk(invoiceId, {
+    include: [
+      ...(models.Customer ? [{ model: models.Customer }] : []),
+      ...(models.InvoiceLine
+        ? [
+            {
+              model: models.InvoiceLine,
+              include: models.Equipment
+                ? [{ model: models.Equipment, attributes: ["equipment_name"] }]
+                : [],
+            },
+          ]
+        : []),
+      ...(models.Payment ? [{ model: models.Payment }] : []),
+      ...(models.User
+        ? [
+            {
+              model: models.User,
+              attributes: ["user_id", "first_name", "last_name", "username"],
+              required: false,
+            },
+          ]
+        : []),
+    ],
+  });
+
+  if (!invoice) {
+    throw new AppError("Invoice not found.", 404);
+  }
+
+  const total_amount = liveTotalOf(invoice);
+  const activePayments = (invoice.Payments || []).filter((p) => !p.is_voided);
+  const paid_amount = Math.max(
+    0,
+    Math.round(activePayments.reduce((s, p) => s + Number(p.payment_amount || 0), 0) * 100) / 100,
+  );
+  const balance_due = owedAmount(total_amount, activePayments);
+
+  const issuer = invoice.User || null;
+  const issued_by = issuer
+    ? `${issuer.first_name || ""} ${issuer.last_name || ""}`.trim() || issuer.username || null
+    : null;
+
+  return {
+    invoice_id: Number(invoice.invoice_id),
+    invoice_number: `INV-${invoice.invoice_id}`,
+    status: String(invoice.status || ""),
+    issued_at: new Date(invoice.issued_date || invoice.createdAt || Date.now()).toISOString(),
+    customer: {
+      customer_id: invoice.Customer?.customer_id ?? invoice.customer_id ?? null,
+      name: formatCustomerDisplay(invoice.Customer),
+      phone: invoice.Customer?.phone_number ?? null,
+    },
+    items: (invoice.InvoiceLines || []).map((line) => ({
+      name: line.Equipment?.equipment_name || `Equipment #${line.equipment_id}`,
+      quantity: Number(line.borrow_quantity || 0),
+      line_total:
+        Math.round(
+          (Number(line.line_total_amount || 0) + Number(line.accrued_charge || 0)) * 100,
+        ) / 100,
+    })),
+    total_amount,
+    paid_amount,
+    balance_due,
+    issued_by,
+  };
 };

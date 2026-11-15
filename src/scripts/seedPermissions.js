@@ -120,6 +120,10 @@ const PERMISSION_CATALOG = [
   // Rental History
   { permission_code: "rental_history:view", module_name: "Rental History", description: "View rental history" },
 
+  // Phone Assistant
+  { permission_code: "calls:view", module_name: "Phone Assistant", description: "See incoming call briefs and call history" },
+  { permission_code: "phone_contacts:view", module_name: "Phone Assistant", description: "Search synced phone contacts when billing" },
+
   // Legacy module-level permissions (backward compat)
   { permission_code: "inventory_permission", module_name: "Legacy", description: "Legacy module-level inventory access" },
 ];

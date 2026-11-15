@@ -30,6 +30,10 @@ import meRoutes from "./routes/meRoutes.js";
 import i18nRoutes from "./routes/i18nRoutes.js";
 import signatureRoutes from "./routes/signatureRoutes.js";
 import deviceRoutes from "./routes/deviceRoutes.js";
+import deviceAppRoutes from "./routes/deviceAppRoutes.js";
+import phoneContactRoutes from "./routes/phoneContactRoutes.js";
+import phoneAssistantRoutes from "./routes/phoneAssistantRoutes.js";
+import callRoutes from "./routes/callRoutes.js";
 import whatsappRoutes from "./routes/whatsappRoutes.js";
 import cashLockerRoutes from "./routes/cashLockerRoutes.js";
 import { corsOrigins } from "./config/cors-config.js";
@@ -90,11 +94,17 @@ app.use("/api/i18n", i18nRoutes);
 app.use("/api/signatures", signatureRoutes);
 app.use("/api/whatsapp", whatsappRoutes);
 app.use("/api/locker", cashLockerRoutes);
+app.use("/api/phone-contacts", phoneContactRoutes);
+app.use("/api/phone-assistant", phoneAssistantRoutes);
+app.use("/api/calls", callRoutes);
 
 // Paired-PWA device pairing + pending-request discovery. All endpoints under
 // /api/public/devices/* are UN-AUTHENTICATED — the device_id or short pairing
 // code is the authorization. Claim/list/unpair stay under /api/me (authed).
 app.use("/api/public/devices", deviceRoutes);
+
+// Native Phone Assistant endpoints behind bearer device_token authentication.
+app.use("/api/device", deviceAppRoutes);
 
 app.use((req, res, next) => {
   next(new AppError(`Can't find ${req.originalUrl} on this server!`, 404));

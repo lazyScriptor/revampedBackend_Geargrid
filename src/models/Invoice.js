@@ -75,11 +75,17 @@ export default (sequelize) => {
       delete_flagged: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
       restored_at: { type: DataTypes.DATE, allowNull: true },
       restored_by: { type: DataTypes.INTEGER, allowNull: true },
+      source_contact_id: { type: DataTypes.INTEGER, allowNull: true },
+      contact_reviewed_at: { type: DataTypes.DATE, allowNull: true },
+      contact_reviewed_by: { type: DataTypes.INTEGER, allowNull: true },
     },
     {
       tableName: "INVOICES",
       timestamps: false,
       defaultScope: { where: { is_deleted: false } },
+      indexes: [
+        { fields: ["source_contact_id"], name: "idx_invoices_source_contact_id" },
+      ],
     },
   );
   // What the API sends: `total_amount` is what the customer owes for so far (billed + charges so

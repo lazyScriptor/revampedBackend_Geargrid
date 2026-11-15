@@ -3,7 +3,9 @@ import multer from "multer";
 import * as meController from "../controllers/meController.js";
 import * as signatureService from "../services/signatureService.js";
 import * as deviceService from "../services/deviceService.js";
+import * as pushEventService from "../services/pushEventService.js";
 import { protect } from "../middlewares/authMiddleware.js";
+import { requireFeature } from "../middlewares/planMiddleware.js";
 import { registerContract } from "../utils/contractAdapter.js";
 import { getCachedTenantConnection } from "../config/database.js";
 import { initTenantModels } from "../models/index.js";
@@ -13,6 +15,8 @@ import {
   MintPairingCodeContract,
   ListMyDevicesContract,
   UnpairDeviceContract,
+  GetMyPushPreferencesContract,
+  UpdateMyPushPreferencesContract,
 } from "@geargrid/contracts";
 import { getMasterModels } from "../models/master/index.js";
 
@@ -99,6 +103,27 @@ registerContract(router, UnpairDeviceContract, {
       resolveTenantModels(req),
       params.operator_device_id,
       req.user?.id || req.user?.userId,
+    ),
+});
+
+registerContract(router, GetMyPushPreferencesContract, {
+  basePath: "/me",
+  middlewares: [requireFeature("phone_assistant")],
+  handler: ({ req }) =>
+    pushEventService.getUserPushPreferences(
+      resolveTenantModels(req),
+      req.user?.userId || req.user?.id,
+    ),
+});
+
+registerContract(router, UpdateMyPushPreferencesContract, {
+  basePath: "/me",
+  middlewares: [requireFeature("phone_assistant")],
+  handler: ({ body, req }) =>
+    pushEventService.updateUserPushPreferences(
+      resolveTenantModels(req),
+      req.user?.userId || req.user?.id,
+      body,
     ),
 });
 

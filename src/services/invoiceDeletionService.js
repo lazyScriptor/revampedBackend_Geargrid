@@ -1,6 +1,15 @@
 import { Op } from "sequelize";
 import AppError from "../utils/AppError.js";
 import { createNotification } from "./notificationService.js";
+import { notifyEvent } from "./pushEventService.js";
+import { touchCustomerBrief } from "./customerBriefService.js";
+
+const formatLkr = (n) => {
+  const num = Number(n || 0);
+  return Number.isInteger(num)
+    ? num.toLocaleString("en-US")
+    : num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
 
 /**
  * Invoice soft-delete / restore.
@@ -75,11 +84,13 @@ export const deleteInvoice = async (models, invoiceId, actor, { reason, note } =
 
   const canAny = can(actor.permissions, "invoice:delete:any");
   const { name: actorName, roles } = await describeActor(models, actor.userId);
+  let deletedInvoiceTotal = 0;
 
   const result = await models.sequelize.transaction(async (t) => {
     const invoice = await models.Invoice.unscoped().findByPk(invoiceId, { transaction: t, lock: t.LOCK.UPDATE });
     if (!invoice) throw new AppError("Invoice not found.", 404);
     if (invoice.is_deleted) throw new AppError("This invoice is already deleted.", 409);
+    deletedInvoiceTotal = Number(invoice.total_amount || 0);
 
     const payments = await models.Payment.findAll({ where: { invoice_id: invoiceId, is_voided: false }, transaction: t });
     const paidTotal = payments.reduce((s, p) => s + Number(p.payment_amount || 0), 0);
@@ -151,6 +162,8 @@ export const deleteInvoice = async (models, invoiceId, actor, { reason, note } =
       { transaction: t },
     );
 
+    await touchCustomerBrief(models, invoice.customer_id, { transaction: t });
+
     return { invoice_id: invoiceId, flagged: !canAny, paidTotal, voidedPayments: payments.length, unitsRestored, walletRefunded: walletTotal };
   });
 
@@ -164,16 +177,43 @@ export const deleteInvoice = async (models, invoiceId, actor, { reason, note } =
       link: "/reports?category=invoices&report=deleted",
     });
   }
+
+  void notifyEvent(models, "invoice_deleted", {
+    amount: deletedInvoiceTotal,
+    actorUserId: actor.userId,
+    title: `Bill #${invoiceId} deleted · LKR ${formatLkr(deletedInvoiceTotal)}`,
+    body: `${reason}${cleanNote ? ` — ${cleanNote}` : ""} · by ${actorName}`,
+    titleNoAmount: `Bill #${invoiceId} deleted`,
+    bodyNoAmount: `${reason}${cleanNote ? ` — ${cleanNote}` : ""} · by ${actorName}`,
+    data: { type: "invoice_deleted", invoice_id: String(invoiceId) },
+    link: "/reports?category=invoices&report=deleted",
+  });
+
+  if (result.voidedPayments > 0 && result.paidTotal > 0) {
+    void notifyEvent(models, "payment_voided", {
+      amount: Number(result.paidTotal || 0),
+      actorUserId: actor.userId,
+      title: `Payments voided on #${invoiceId} · LKR ${formatLkr(result.paidTotal)}`,
+      body: `${result.voidedPayments} payment(s) voided when bill #${invoiceId} was deleted by ${actorName}`,
+      titleNoAmount: `Payments voided on #${invoiceId}`,
+      bodyNoAmount: `${result.voidedPayments} payment(s) voided when bill #${invoiceId} was deleted by ${actorName}`,
+      data: { type: "payment_voided", invoice_id: String(invoiceId) },
+      link: "/reports?category=invoices&report=deleted",
+    });
+  }
+
   return result;
 };
 
 export const restoreInvoice = async (models, invoiceId, actor) => {
   const { name: actorName, roles } = await describeActor(models, actor.userId);
+  let restoredInvoiceTotal = 0;
 
-  return models.sequelize.transaction(async (t) => {
+  const result = await models.sequelize.transaction(async (t) => {
     const invoice = await models.Invoice.unscoped().findByPk(invoiceId, { transaction: t, lock: t.LOCK.UPDATE });
     if (!invoice) throw new AppError("Invoice not found.", 404);
     if (!invoice.is_deleted) throw new AppError("This invoice is not deleted.", 409);
+    restoredInvoiceTotal = Number(invoice.total_amount || 0);
 
     const lines = await models.InvoiceLine.findAll({ where: { invoice_id: invoiceId }, transaction: t });
 
@@ -227,8 +267,22 @@ export const restoreInvoice = async (models, invoiceId, actor) => {
       },
       { transaction: t },
     );
+    await touchCustomerBrief(models, invoice.customer_id, { transaction: t });
     return { invoice_id: invoiceId, paymentsRestored: voided.length };
   });
+
+  void notifyEvent(models, "invoice_restored", {
+    amount: restoredInvoiceTotal,
+    actorUserId: actor.userId,
+    title: `Bill #${invoiceId} restored · LKR ${formatLkr(restoredInvoiceTotal)}`,
+    body: `Restored by ${actorName}${result.paymentsRestored ? ` · ${result.paymentsRestored} payment(s) restored` : ""}`,
+    titleNoAmount: `Bill #${invoiceId} restored`,
+    bodyNoAmount: `Restored by ${actorName}${result.paymentsRestored ? ` · ${result.paymentsRestored} payment(s) restored` : ""}`,
+    data: { type: "invoice_restored", invoice_id: String(invoiceId) },
+    link: "/invoices?mode=manage",
+  });
+
+  return result;
 };
 
 export const listDeletedInvoices = async (models, query = {}) => {

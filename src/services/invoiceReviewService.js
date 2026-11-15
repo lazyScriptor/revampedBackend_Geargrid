@@ -28,7 +28,7 @@ export const recomputeCustomerRating = async (models, customerId, transaction) =
   const next = Number.isFinite(avg) ? Math.max(1, Math.round(avg)) : 5;
 
   await models.Customer.update(
-    { rating: next },
+    { rating: next, brief_changed_at: new Date() },
     { where: { customer_id: customerId }, transaction },
   );
   return next;

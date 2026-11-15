@@ -8,6 +8,7 @@ import setupCronJobs from "./utils/cronJobs.js";
 import { recomputeCorsOrigins } from "./services/superAdminTenantService.js";
 import { initSocketServer } from "./sockets/index.js";
 import { startBulkJobWorker } from "./workers/bulkJobWorker.js";
+import { warnIfFirebaseUnconfigured } from "./services/devicePushService.js";
 
 const PORT = process.env.PORT || 8086;
 
@@ -81,6 +82,7 @@ const startServer = async () => {
     httpServer.listen(PORT, () => {
       console.log(`Revamped Production Backend is running on port ${PORT}`);
       console.log(`🔌 socket.io listening on the same port`);
+      warnIfFirebaseUnconfigured();
       setupCronJobs();
       startBulkJobWorker();
     });

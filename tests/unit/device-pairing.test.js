@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import crypto from "node:crypto";
 import {
   mintPairingCode,
   claimPairingCode,
@@ -151,6 +152,8 @@ describe("Device pairing — POS-mints-code flow", () => {
 
     expect(result.operator_device_id).toBe(1);
     expect(result.tenant_db_name).toBe("geargrid_demo");
+    expect(result.device_token).toMatch(/^[a-f0-9]{64}$/);
+    const expectedHash = crypto.createHash("sha256").update(result.device_token).digest("hex");
     expect(result.operator.operator_name).toBe("Jane Doe");
     expect(result.operator.has_saved_signature).toBe(false);
     expect(result.tenant.business_display_name).toBe("ABC Rentals");
@@ -158,7 +161,7 @@ describe("Device pairing — POS-mints-code flow", () => {
       expect.objectContaining({ status: "CLAIMED", claimed_device_id: "device-uuid-aaaaaaaa" }),
     );
     expect(tenantModels.OperatorDevice.create).toHaveBeenCalledWith(
-      expect.objectContaining({ user_id: 42, device_id: "device-uuid-aaaaaaaa" }),
+      expect.objectContaining({ user_id: 42, device_id: "device-uuid-aaaaaaaa", token_hash: expectedHash }),
     );
   });
 
@@ -254,10 +257,16 @@ describe("Device pairing — POS-mints-code flow", () => {
       OperatorDevice: {
         findOne: vi.fn().mockResolvedValueOnce(device).mockResolvedValueOnce(null),
       },
+      PhoneContact: {
+        destroy: vi.fn().mockResolvedValue(3),
+      },
     };
 
     const first = await unpairDevice(tenantModels, 1, 42);
     expect(first.unpaired).toBe(true);
+    expect(tenantModels.PhoneContact.destroy).toHaveBeenCalledWith({
+      where: { operator_device_id: 1 },
+    });
     expect(device.destroy).toHaveBeenCalled();
 
     const second = await unpairDevice(tenantModels, 1, 42);
