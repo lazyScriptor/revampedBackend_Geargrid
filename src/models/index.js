@@ -244,8 +244,6 @@ export const initTenantModels = (tenantConnection) => {
   PhoneContact.belongsTo(Customer, { as: "LinkedCustomer", foreignKey: "linked_customer_id" });
   PhoneContact.belongsTo(User, { as: "LastUsedBy", foreignKey: "last_used_by_user_id" });
   Customer.belongsTo(PhoneContact, { as: "SourceContact", foreignKey: "source_contact_id" });
-  Invoice.belongsTo(PhoneContact, { as: "SourceContact", foreignKey: "source_contact_id" });
-  Invoice.belongsTo(User, { as: "ContactReviewedBy", foreignKey: "contact_reviewed_by" });
 
   // ── Phone Assistant push preferences ──
   User.hasMany(PushPreference, { foreignKey: "user_id" });

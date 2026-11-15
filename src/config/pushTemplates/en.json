@@ -1,12 +1,38 @@
 {
-  "invoice_created": { "title": "New bill #{invoice_no}", "body": "{customer}[ · {amount}]" },
-  "payment_received": { "title": "Payment received", "body": "{customer}[ · {amount}][ · balance {balance}]" },
-  "return_processed": { "title": "Return processed", "body": "{customer}[ · {invoice_no}]" },
-  "invoice_deleted": { "title": "Bill deleted", "body": "{customer}[ · {reason}]" },
-  "invoice_restored": { "title": "Bill restored", "body": "{customer}[ · {invoice_no}]" },
-  "payment_voided": { "title": "Payment voided", "body": "{customer}[ · {amount}][ · {reason}]" },
-  "contact_used": { "title": "Phone contact used", "body": "{contact}[ · {phone}]" },
-  "customer_blacklisted": { "title": "Customer blacklisted", "body": "{customer}[ · {reason}]" },
-  "follow_up_due": { "title": "Follow-up due", "body": "{customer}[ · {date}]" },
-  "daily_summary": { "title": "Daily summary", "body": "{date}[ · {shop}]" }
+  "invoice_created": {
+    "title": "New bill #{invoice_no}",
+    "body": "{customer}[ · {amount}]"
+  },
+  "payment_received": {
+    "title": "Payment received",
+    "body": "{customer}[ · {amount}][ · balance {balance}]"
+  },
+  "return_processed": {
+    "title": "Return processed",
+    "body": "{customer}[ · {invoice_no}]"
+  },
+  "invoice_deleted": {
+    "title": "Bill deleted",
+    "body": "{customer}[ · {reason}]"
+  },
+  "invoice_restored": {
+    "title": "Bill restored",
+    "body": "{customer}[ · {invoice_no}]"
+  },
+  "payment_voided": {
+    "title": "Payment voided",
+    "body": "{customer}[ · {amount}][ · {reason}]"
+  },
+  "customer_blacklisted": {
+    "title": "Customer blacklisted",
+    "body": "{customer}[ · {reason}]"
+  },
+  "follow_up_due": {
+    "title": "Follow-up due",
+    "body": "{customer}[ · {date}]"
+  },
+  "daily_summary": {
+    "title": "Daily summary",
+    "body": "{date}[ · {shop}]"
+  }
 }

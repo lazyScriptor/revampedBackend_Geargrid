@@ -1,3 +1,38 @@
 {
-  "invoice_created": { "title": "නව බිල්පත #{invoice_no}", "body": "{customer}[ · {amount}]" }, "payment_received": { "title": "ගෙවීම ලැබුණි", "body": "{customer}[ · {amount}]" }, "return_processed": { "title": "ආපසු භාරදීම සම්පූර්ණයි", "body": "{customer}" }, "invoice_deleted": { "title": "බිල්පත මකා ඇත", "body": "{customer}[ · {reason}]" }, "invoice_restored": { "title": "බිල්පත නැවත සකසා ඇත", "body": "{customer}" }, "payment_voided": { "title": "ගෙවීම අවලංගුයි", "body": "{customer}[ · {amount}]" }, "contact_used": { "title": "දුරකථන සම්බන්ධතාව භාවිතා කළා", "body": "{contact}[ · {phone}]" }, "customer_blacklisted": { "title": "පාරිභෝගිකයා අවහිර කර ඇත", "body": "{customer}[ · {reason}]" }, "follow_up_due": { "title": "පසු විපරම අදයි", "body": "{customer}[ · {date}]" }, "daily_summary": { "title": "දෛනික සාරාංශය", "body": "{date}[ · {shop}]" }
+  "invoice_created": {
+    "title": "නව බිල්පත #{invoice_no}",
+    "body": "{customer}[ · {amount}]"
+  },
+  "payment_received": {
+    "title": "ගෙවීම ලැබුණි",
+    "body": "{customer}[ · {amount}]"
+  },
+  "return_processed": {
+    "title": "ආපසු භාරදීම සම්පූර්ණයි",
+    "body": "{customer}"
+  },
+  "invoice_deleted": {
+    "title": "බිල්පත මකා ඇත",
+    "body": "{customer}[ · {reason}]"
+  },
+  "invoice_restored": {
+    "title": "බිල්පත නැවත සකසා ඇත",
+    "body": "{customer}"
+  },
+  "payment_voided": {
+    "title": "ගෙවීම අවලංගුයි",
+    "body": "{customer}[ · {amount}]"
+  },
+  "customer_blacklisted": {
+    "title": "පාරිභෝගිකයා අවහිර කර ඇත",
+    "body": "{customer}[ · {reason}]"
+  },
+  "follow_up_due": {
+    "title": "පසු විපරම අදයි",
+    "body": "{customer}[ · {date}]"
+  },
+  "daily_summary": {
+    "title": "දෛනික සාරාංශය",
+    "body": "{date}[ · {shop}]"
+  }
 }

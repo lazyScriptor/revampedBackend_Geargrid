@@ -1,13 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { Op } from "sequelize";
 import { createCustomer } from "../../src/services/customerService.js";
-import {
-  createDispatchInvoice,
-  getAllInvoices,
-  reviewContactInvoice,
-} from "../../src/services/invoiceService.js";
+import { createDispatchInvoice } from "../../src/services/invoiceService.js";
 
-describe("contact-sourced customer & invoice lineage (A6)", () => {
+describe("contact-sourced customers (A6)", () => {
   it("stores source_contact_id on customer create and links PHONE_CONTACTS matching its numbers", async () => {
     const tx = { id: "tx-cust-link" };
     const createdCustomer = {
@@ -64,7 +60,7 @@ describe("contact-sourced customer & invoice lineage (A6)", () => {
     );
   });
 
-  it("derives INVOICES.source_contact_id on the customer's first bill only and ignores client override", async () => {
+  it("never tags a bill with source_contact_id, even a contact-sourced customer's first bill", async () => {
     const buildModels = (priorInvoiceCount) => {
       const tx = { LOCK: { UPDATE: "UPDATE" } };
       const eq = {
@@ -115,78 +111,9 @@ describe("contact-sourced customer & invoice lineage (A6)", () => {
       fees: { transport: 0, discount: 0, advance: 0 },
     };
 
-    // First bill -> copies customer.source_contact_id = 9 (never client 999)
-    const firstModels = buildModels(0);
-    await createDispatchInvoice(firstModels, payload, 1);
-    expect(firstModels.Invoice.create).toHaveBeenCalledWith(
-      expect.objectContaining({ source_contact_id: 9 }),
-      expect.anything(),
-    );
-
-    // Second bill -> no source_contact_id copied
-    const secondModels = buildModels(1);
-    await createDispatchInvoice(secondModels, payload, 1);
-    const secondArg = secondModels.Invoice.create.mock.calls[0][0];
-    expect(secondArg.source_contact_id).toBeUndefined();
-  });
-
-  it("filters getAllInvoices by contact_sourced=true while keeping distinct: true", async () => {
-    const models = {
-      Invoice: {
-        count: vi.fn().mockResolvedValue(3),
-        findAndCountAll: vi.fn().mockResolvedValue({ count: 3, rows: [] }),
-      },
-      Customer: {},
-      InvoiceLine: {},
-      Equipment: {},
-      Payment: {},
-      InvoiceTrace: {},
-      User: {},
-    };
-
-    const res = await getAllInvoices(models, { contact_sourced: "true" });
-    expect(models.Invoice.findAndCountAll).toHaveBeenCalledWith(
-      expect.objectContaining({
-        distinct: true,
-        col: "invoice_id",
-        where: expect.objectContaining({ source_contact_id: { [Op.ne]: null } }),
-      }),
-    );
-    expect(res.counts.from_contacts).toBe(3);
-  });
-
-  it("marks contact-sourced invoices reviewed and rejects regular invoices with 400", async () => {
-    const regularInvoice = { invoice_id: 10, source_contact_id: null };
-    const contactInvoice = {
-      invoice_id: 11,
-      source_contact_id: 9,
-      update: vi.fn().mockResolvedValue({}),
-    };
-    const models = {
-      Invoice: {
-        findByPk: vi.fn().mockImplementation(async (id) =>
-          id === 10 ? regularInvoice : contactInvoice,
-        ),
-      },
-      User: {
-        findByPk: vi.fn().mockResolvedValue({
-          user_id: 1,
-          first_name: "Owner",
-          last_name: "Admin",
-        }),
-      },
-    };
-
-    await expect(reviewContactInvoice(models, 10, 1)).rejects.toMatchObject({ statusCode: 400 });
-
-    const reviewed = await reviewContactInvoice(models, 11, 1);
-    expect(contactInvoice.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        contact_reviewed_by: 1,
-        contact_reviewed_at: expect.any(Date),
-      }),
-    );
-    expect(reviewed.reviewer_name).toBe("Owner Admin");
-    expect(reviewed.contact_reviewed_by).toBe(1);
+    // The "From contacts" tab was removed, so bills are no longer tagged at all.
+    const models = buildModels(0);
+    await createDispatchInvoice(models, payload, 1);
+    expect(models.Invoice.create.mock.calls[0][0].source_contact_id).toBeUndefined();
   });
 });

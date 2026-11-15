@@ -1,3 +1,38 @@
 {
-  "invoice_created": { "title": "Aluth bill eka #{invoice_no}", "body": "{customer}[ · {amount}]" }, "payment_received": { "title": "Gewima laba una", "body": "{customer}[ · {amount}]" }, "return_processed": { "title": "Awasan karapu return eka", "body": "{customer}" }, "invoice_deleted": { "title": "Bill eka makala", "body": "{customer}[ · {reason}]" }, "invoice_restored": { "title": "Bill eka nawatha hada", "body": "{customer}" }, "payment_voided": { "title": "Gewima awalangui", "body": "{customer}[ · {amount}]" }, "contact_used": { "title": "Phone contact eka bhawitha kala", "body": "{contact}[ · {phone}]" }, "customer_blacklisted": { "title": "Customer block kala", "body": "{customer}[ · {reason}]" }, "follow_up_due": { "title": "Follow-up eka ada", "body": "{customer}[ · {date}]" }, "daily_summary": { "title": "Dawase saranshaya", "body": "{date}[ · {shop}]" }
+  "invoice_created": {
+    "title": "Aluth bill eka #{invoice_no}",
+    "body": "{customer}[ · {amount}]"
+  },
+  "payment_received": {
+    "title": "Gewima laba una",
+    "body": "{customer}[ · {amount}]"
+  },
+  "return_processed": {
+    "title": "Awasan karapu return eka",
+    "body": "{customer}"
+  },
+  "invoice_deleted": {
+    "title": "Bill eka makala",
+    "body": "{customer}[ · {reason}]"
+  },
+  "invoice_restored": {
+    "title": "Bill eka nawatha hada",
+    "body": "{customer}"
+  },
+  "payment_voided": {
+    "title": "Gewima awalangui",
+    "body": "{customer}[ · {amount}]"
+  },
+  "customer_blacklisted": {
+    "title": "Customer block kala",
+    "body": "{customer}[ · {reason}]"
+  },
+  "follow_up_due": {
+    "title": "Follow-up eka ada",
+    "body": "{customer}[ · {date}]"
+  },
+  "daily_summary": {
+    "title": "Dawase saranshaya",
+    "body": "{date}[ · {shop}]"
+  }
 }

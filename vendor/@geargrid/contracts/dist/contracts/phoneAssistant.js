@@ -269,17 +269,6 @@ export const UsePhoneContactContract = {
         phone_number: z.string(),
     })),
 };
-export const ReviewContactInvoiceContract = {
-    path: "/invoices/:id/contact-review",
-    method: "PATCH",
-    params: z.object({ id: PositiveInt }),
-    response: successEnvelope(z.object({
-        invoice_id: PositiveInt,
-        contact_reviewed_at: ISODate,
-        contact_reviewed_by: PositiveInt,
-        reviewer_name: z.string().nullable().optional(),
-    })),
-};
 // ── 3. Calls (staff) ───────────────────────────────────────────────────────
 export const CallNoteSchema = z.object({
     note_id: PositiveInt,

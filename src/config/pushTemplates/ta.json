@@ -1,3 +1,38 @@
 {
-  "invoice_created": { "title": "புதிய பில் #{invoice_no}", "body": "{customer}[ · {amount}]" }, "payment_received": { "title": "பணம் பெறப்பட்டது", "body": "{customer}[ · {amount}]" }, "return_processed": { "title": "திரும்பப் பெறுதல் முடிந்தது", "body": "{customer}" }, "invoice_deleted": { "title": "பில் நீக்கப்பட்டது", "body": "{customer}[ · {reason}]" }, "invoice_restored": { "title": "பில் மீட்டமைக்கப்பட்டது", "body": "{customer}" }, "payment_voided": { "title": "பணம் ரத்து செய்யப்பட்டது", "body": "{customer}[ · {amount}]" }, "contact_used": { "title": "தொலைபேசி தொடர்பு பயன்படுத்தப்பட்டது", "body": "{contact}[ · {phone}]" }, "customer_blacklisted": { "title": "வாடிக்கையாளர் தடைசெய்யப்பட்டார்", "body": "{customer}[ · {reason}]" }, "follow_up_due": { "title": "தொடர்பு இன்று", "body": "{customer}[ · {date}]" }, "daily_summary": { "title": "தினசரி சுருக்கம்", "body": "{date}[ · {shop}]" }
+  "invoice_created": {
+    "title": "புதிய பில் #{invoice_no}",
+    "body": "{customer}[ · {amount}]"
+  },
+  "payment_received": {
+    "title": "பணம் பெறப்பட்டது",
+    "body": "{customer}[ · {amount}]"
+  },
+  "return_processed": {
+    "title": "திரும்பப் பெறுதல் முடிந்தது",
+    "body": "{customer}"
+  },
+  "invoice_deleted": {
+    "title": "பில் நீக்கப்பட்டது",
+    "body": "{customer}[ · {reason}]"
+  },
+  "invoice_restored": {
+    "title": "பில் மீட்டமைக்கப்பட்டது",
+    "body": "{customer}"
+  },
+  "payment_voided": {
+    "title": "பணம் ரத்து செய்யப்பட்டது",
+    "body": "{customer}[ · {amount}]"
+  },
+  "customer_blacklisted": {
+    "title": "வாடிக்கையாளர் தடைசெய்யப்பட்டார்",
+    "body": "{customer}[ · {reason}]"
+  },
+  "follow_up_due": {
+    "title": "தொடர்பு இன்று",
+    "body": "{customer}[ · {date}]"
+  },
+  "daily_summary": {
+    "title": "தினசரி சுருக்கம்",
+    "body": "{date}[ · {shop}]"
+  }
 }

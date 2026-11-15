@@ -106,18 +106,26 @@ describe("pushEventService — settings & preferences", () => {
     mockGetTenantPlan.mockResolvedValue(null);
   });
 
-  it("rejects unknown event keys with 400 in updatePushSettings and updateUserPushPreferences", async () => {
+  it("ignores unknown event keys (such as the removed contact_used) instead of failing the save", async () => {
     const models = makeBaseModels();
 
     await expect(
-      updatePushSettings(models, { events: { bogus_event: { enabled: true, min_amount: 0, recipient_role_ids: [] } } }),
-    ).rejects.toMatchObject({ statusCode: 400 });
+      updatePushSettings(models, {
+        events: { contact_used: { enabled: true, min_amount: 0, recipient_role_ids: [] } },
+      }),
+    ).resolves.toBeDefined();
 
     await expect(
       updateUserPushPreferences(models, 1, {
-        preferences: [{ event_key: "bogus_event", enabled: false, min_amount: null }],
+        preferences: [{ event_key: "contact_used", enabled: false, min_amount: null }],
       }),
-    ).rejects.toMatchObject({ statusCode: 400 });
+    ).resolves.toBeDefined();
+    expect(models.PushPreference.create).not.toHaveBeenCalled();
+  });
+
+  it("no longer offers the contact_used alert", async () => {
+    const { PUSH_EVENT_KEYS } = await import("../../src/config/pushEvents.js");
+    expect(PUSH_EVENT_KEYS).not.toContain("contact_used");
   });
 
   it("persists valid push settings and computes eligibility per role", async () => {

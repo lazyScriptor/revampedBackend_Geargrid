@@ -216,7 +216,7 @@ describe("searchPhoneContacts & usePhoneContact", () => {
     ]);
   });
 
-  it("records last_used, splits name, formats local phone, and notifies other admins (skipping acting admin)", async () => {
+  it("records last_used, splits name, formats local phone, and sends no owner alert", async () => {
     const contact = {
       contact_id: 9,
       display_name: "Nimal Perera",
@@ -224,20 +224,10 @@ describe("searchPhoneContacts & usePhoneContact", () => {
       raw_phone: "+94771234567",
       update: vi.fn().mockResolvedValue({}),
     };
-    const models = {
-      PhoneContact: { findByPk: vi.fn().mockResolvedValue(contact) },
-      User: {
-        findByPk: vi.fn().mockResolvedValue({
-          user_id: 1,
-          first_name: "Kamal",
-          last_name: "Silva",
-        }),
-      },
-    };
-    mockListAdminUserIds.mockResolvedValue([1, 2]); // Actor is admin 1; admin 2 should be notified
+    const models = { PhoneContact: { findByPk: vi.fn().mockResolvedValue(contact) } };
+    mockListAdminUserIds.mockResolvedValue([1, 2]);
 
     const res = await usePhoneContact(models, 9, { userId: 1 }, { phone: "0771234567" });
-    // Let the unawaited fire-and-forget microtasks flush for assertion
     await new Promise((r) => setTimeout(r, 15));
 
     expect(contact.update).toHaveBeenCalledWith(
@@ -249,22 +239,8 @@ describe("searchPhoneContacts & usePhoneContact", () => {
       last_name: "Perera",
       phone_number: "0771234567",
     });
-
-    expect(mockCreateNotification).toHaveBeenCalledTimes(1);
-    expect(mockCreateNotification).toHaveBeenCalledWith(
-      models,
-      expect.objectContaining({
-        userId: 2,
-        category: "phone_contact",
-        title: "Phone contact used for a bill",
-        message: 'Kamal Silva picked "Nimal Perera" (0771234567) from the phone contacts.',
-        link: "/invoices?tab=from-contacts",
-      }),
-    );
-    expect(mockSendToUsers).toHaveBeenCalledWith(
-      models,
-      [2],
-      expect.objectContaining({ title: "Phone contact used for a bill" }),
-    );
+    // The "phone contact used" owner alert was removed at the shop owner's request.
+    expect(mockCreateNotification).not.toHaveBeenCalled();
+    expect(mockSendToUsers).not.toHaveBeenCalled();
   });
 });
