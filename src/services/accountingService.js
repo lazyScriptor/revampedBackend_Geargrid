@@ -1,4 +1,9 @@
 import { Op, QueryTypes, fn, col, literal } from "sequelize";
+import {
+  findCustomerIdsByPhoneSearch,
+  idsForSqlIn,
+  isWholeNumber,
+} from "../utils/customerPhoneSearch.js";
 import { parseTenantDayRange } from "../utils/dateRange.js";
 import { liveTotalExpr } from "../utils/invoiceBalance.js";
 
@@ -86,16 +91,12 @@ export const getFilteredInvoices = async (models, query) => {
     where.customer_id = query.customer_id;
   }
 
-  // Fuzzy search on customer name or invoice ID
+  // Search on the customer's phone number or the invoice ID, never a customer name
   if (query.search) {
-    const term = `%${query.search}%`;
     where[Op.or] = [
-      { "$Customer.first_name$": { [Op.like]: term } },
-      { "$Customer.last_name$": { [Op.like]: term } },
-      { "$Customer.company_name$": { [Op.like]: term } },
+      { customer_id: { [Op.in]: await findCustomerIdsByPhoneSearch(models, query.search) } },
     ];
-    // Also try to match invoice_id if the search looks like a number
-    if (!isNaN(query.search)) {
+    if (isWholeNumber(query.search)) {
       where[Op.or].push({ invoice_id: parseInt(query.search) });
     }
   }
@@ -239,13 +240,8 @@ export const getFilteredPayments = async (models, query) => {
   }
 
   if (query.search) {
-    const term = `%${query.search}%`;
     invoiceInclude.include[0].where = {
-      [Op.or]: [
-        { first_name: { [Op.like]: term } },
-        { last_name: { [Op.like]: term } },
-        { company_name: { [Op.like]: term } },
-      ],
+      customer_id: { [Op.in]: await findCustomerIdsByPhoneSearch(models, query.search) },
     };
   }
 
@@ -454,11 +450,12 @@ export const getChartData = async (models, query) => {
     dateClauseI += " AND i.issued_date <= :dateTo";
   }
 
+  // Invoice number, or the customer's phone number — never a customer name.
   if (query.search) {
-    const searchParam = `%${query.search}%`;
-    replacements.searchParam = searchParam;
-    searchClauseI = " AND (i.invoice_id LIKE :searchParam OR EXISTS (SELECT 1 FROM CUSTOMERS c WHERE c.customer_id = i.customer_id AND (c.first_name LIKE :searchParam OR c.last_name LIKE :searchParam OR c.company_name LIKE :searchParam)))";
-    searchClauseP = " AND (p.invoice_id LIKE :searchParam OR EXISTS (SELECT 1 FROM INVOICES pi JOIN CUSTOMERS c ON c.customer_id = pi.customer_id WHERE pi.invoice_id = p.invoice_id AND (c.first_name LIKE :searchParam OR c.last_name LIKE :searchParam OR c.company_name LIKE :searchParam)))";
+    replacements.searchParam = `%${query.search}%`;
+    replacements.searchCustomerIds = idsForSqlIn(await findCustomerIdsByPhoneSearch(models, query.search));
+    searchClauseI = " AND (i.invoice_id LIKE :searchParam OR i.customer_id IN (:searchCustomerIds))";
+    searchClauseP = " AND (p.invoice_id LIKE :searchParam OR EXISTS (SELECT 1 FROM INVOICES pi WHERE pi.invoice_id = p.invoice_id AND pi.customer_id IN (:searchCustomerIds)))";
   }
 
   if (query.minAmount) {

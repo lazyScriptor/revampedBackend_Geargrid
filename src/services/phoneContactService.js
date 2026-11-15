@@ -1,6 +1,7 @@
 import { Op } from "sequelize";
 import AppError from "../utils/AppError.js";
 import { normalizePhone } from "../utils/whatsappPhone.js";
+import { MIN_PHONE_SEARCH_DIGITS, phoneSearchCore } from "../utils/customerPhoneSearch.js";
 import { notifyEvent } from "./pushEventService.js";
 
 const MAX_UPSERTS_PER_SYNC = 500;
@@ -207,27 +208,22 @@ export const syncDeviceContacts = async (
 };
 
 /**
- * Staff search for unlinked synced phone contacts.
- * Enforces minimum 3 characters, cap 10 rows, linked_customer_id IS NULL,
+ * Staff search for unlinked synced phone contacts, by phone number only (never by name).
+ * Enforces at least 3 phone digits, cap 10 rows, linked_customer_id IS NULL,
  * and active contact_sync_enabled on the owning device.
  */
 export const searchPhoneContacts = async (models, { search, limit = 10 } = {}) => {
-  const term = String(search || "").trim();
-  if (term.length < 3) {
-    throw new AppError("Search term must be at least 3 characters.", 400);
+  const core = phoneSearchCore(search);
+  if (!core) {
+    throw new AppError(
+      `Search by phone number: enter at least ${MIN_PHONE_SEARCH_DIGITS} digits.`,
+      400,
+    );
   }
 
   const safeLimit = Math.min(Math.max(1, Number(limit) || 10), 10);
-  const orFilters = [{ display_name: { [Op.like]: `%${term}%` } }];
-
-  const rawDigits = term.replace(/\D/g, "");
-  if (rawDigits.length >= 3) {
-    orFilters.push({ phone_e164: { [Op.like]: `%${rawDigits}%` } });
-  }
-  const normalized = normalizePhone(term);
-  if (normalized.digits && normalized.digits !== rawDigits) {
-    orFilters.push({ phone_e164: { [Op.like]: `%${normalized.digits}%` } });
-  }
+  // phone_e164 is stored as digits like 94771234567, so the core digits match inside it.
+  const orFilters = [{ phone_e164: { [Op.like]: `%${core}%` } }];
 
   const rows = await models.PhoneContact.findAll({
     where: {
