@@ -355,8 +355,26 @@ const revokeDeviceRow = async (
     detail,
   });
 
+  // The same phone may already be paired again under a new device id with the same push token.
+  // Telling it "device_revoked" then would wipe that new pairing, so only push when no other live
+  // pairing uses this token.
   if (savedPushToken) {
-    await sendDataPush({ push_token: savedPushToken }, { type: "device_revoked" }).catch(() => {});
+    const sharedWithLivePairing = tenantModels?.OperatorDevice?.findOne
+      ? await tenantModels.OperatorDevice.findOne({
+          where: {
+            push_token: savedPushToken,
+            operator_device_id: { [Op.ne]: device.operator_device_id },
+            status: { [Op.ne]: "REVOKED" },
+          },
+          attributes: ["operator_device_id"],
+        }).catch(() => null)
+      : null;
+    if (!sharedWithLivePairing) {
+      await sendDataPush(
+        { push_token: savedPushToken, device_id: savedDeviceId },
+        { type: "device_revoked" },
+      ).catch(() => {});
+    }
   }
 };
 

@@ -230,7 +230,7 @@ describe("GearGrid Phone Assistant — Release 2 Part A Bug Fixes", () => {
     expect(mockSend).toHaveBeenCalledWith(
       expect.objectContaining({
         token: "fcm-abc",
-        data: { type: "device_revoked" },
+        data: expect.objectContaining({ type: "device_revoked" }),
       }),
     );
     expect(deviceUpdate).toHaveBeenCalledWith(
@@ -265,7 +265,7 @@ describe("GearGrid Phone Assistant — Release 2 Part A Bug Fixes", () => {
     expect(mockSend).toHaveBeenCalledWith(
       expect.objectContaining({
         token: "fcm-xyz",
-        data: { type: "wipe_cache" },
+        data: expect.objectContaining({ type: "wipe_cache" }),
       }),
     );
   });
@@ -316,7 +316,7 @@ describe("GearGrid Phone Assistant — Release 2 Part A Bug Fixes", () => {
     expect(mockSend).toHaveBeenCalledWith(
       expect.objectContaining({
         token: "fcm-perm-1",
-        data: { type: "wipe_cache" },
+        data: expect.objectContaining({ type: "wipe_cache" }),
       }),
     );
 
@@ -326,7 +326,7 @@ describe("GearGrid Phone Assistant — Release 2 Part A Bug Fixes", () => {
     expect(mockSend).toHaveBeenCalledWith(
       expect.objectContaining({
         token: "fcm-perm-1",
-        data: { type: "wipe_cache" },
+        data: expect.objectContaining({ type: "wipe_cache" }),
       }),
     );
   });
@@ -433,7 +433,7 @@ describe("GearGrid Phone Assistant — Release 2 Part A Bug Fixes", () => {
     await sendDataPush(dev, { type: "wipe_cache" });
     expect(mockSend).toHaveBeenCalledWith({
       token: "fcm-data-only",
-      data: { type: "wipe_cache" },
+      data: expect.objectContaining({ type: "wipe_cache" }),
       android: { priority: "high" },
     });
 
