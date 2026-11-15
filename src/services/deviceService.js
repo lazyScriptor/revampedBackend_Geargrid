@@ -727,6 +727,7 @@ export const registerDevice = async (
     reported_state,
     click_to_call_enabled,
     cached_briefs,
+    brief_format,
     outbox_pending,
     last_brief_sync_at,
     last_contact_sync_at,
@@ -771,13 +772,22 @@ export const registerDevice = async (
   if (os_version !== undefined && os_version !== null) {
     patch.os_version = String(os_version).trim().slice(0, 20) || null;
   }
-  if (reported_state !== undefined || typeof click_to_call_enabled === "boolean") {
+  if (
+    reported_state !== undefined ||
+    typeof click_to_call_enabled === "boolean" ||
+    cached_briefs !== undefined ||
+    outbox_pending !== undefined ||
+    last_brief_sync_at !== undefined ||
+    last_contact_sync_at !== undefined ||
+    brief_format !== undefined
+  ) {
     const prevState = parseJsonField(device.reported_state, {});
     const mergedState = {
       ...(prevState && typeof prevState === "object" ? prevState : {}),
       ...(reported_state && typeof reported_state === "object" ? reported_state : {}),
       ...(typeof click_to_call_enabled === "boolean" ? { click_to_call_enabled } : {}),
       ...(Number.isInteger(cached_briefs) && cached_briefs >= 0 ? { cached_briefs } : {}),
+      ...(Number.isInteger(brief_format) && brief_format >= 1 ? { brief_format } : {}),
       ...(Number.isInteger(outbox_pending) && outbox_pending >= 0 ? { outbox_pending } : {}),
       ...(last_brief_sync_at ? { last_brief_sync_at: String(last_brief_sync_at) } : {}),
       ...(last_contact_sync_at ? { last_contact_sync_at: String(last_contact_sync_at) } : {}),
@@ -917,7 +927,9 @@ const formatShopDevice = async (
     latest_app_version: DEFAULT_LATEST_APP_VERSION,
   };
   const versionStatus = evaluateDeviceAppVersion(device.app_version, resolvedVersionConfig);
-  const healthWarnings = [...computeDeviceHealthWarnings(device)];
+  const healthWarnings = [
+    ...computeDeviceHealthWarnings(device, Date.now(), policy?.sync?.warn_after_hours),
+  ];
   if (
     (versionStatus === "update_required" || versionStatus === "update_available") &&
     !healthWarnings.includes(versionStatus)
@@ -962,6 +974,7 @@ const formatShopDevice = async (
     capabilities: granted,
     effective_capabilities: effective,
     capability_reasons: reasons,
+    briefs_synced_at: device.briefs_synced_at ? new Date(device.briefs_synced_at).toISOString() : null,
     reported_state: parseJsonField(device.reported_state, null),
     health_warnings: healthWarnings,
     version_status: versionStatus,
@@ -1374,6 +1387,14 @@ export const getDevicePolicy = async (
     sync: policy.sync,
     notification_languages: policy.notifications?.allowed_languages || ["en"],
     full_app: policy.full_app,
+    call_screen_policy: policy.call_screen,
+    desktop_popup: policy.desktop_popup,
+    ...deviceLanguageAndTextFields(device),
+    locked_by_policy: [
+      ...(policy.call_screen?.allow_phone_text_scale === false ? ["call_text_scale"] : []),
+      ...(policy.full_app?.require_app_lock ? ["app_lock"] : []),
+      ...((policy.notifications?.allowed_languages || []).length <= 1 ? ["notification_language"] : []),
+    ],
     min_app_version: versionConfig.min_app_version,
     latest_app_version: versionConfig.latest_app_version,
   };
@@ -1426,6 +1447,17 @@ export const openCustomerOnDesktop = async (
     customer_id: Number(customer.customer_id),
   };
 };
+
+const deviceLanguageAndTextFields = (device) => ({
+  notification_language: device.notification_language ?? null,
+  app_language: device.app_language ?? null,
+  call_text_scale:
+    device.call_text_scale === null || device.call_text_scale === undefined
+      ? null
+      : Number(device.call_text_scale),
+  app_text_size: device.app_text_size ?? null,
+  app_lock_enabled: Boolean(device.app_lock_enabled),
+});
 
 export const updateDeviceSettings = async (
   tenantModels,
@@ -1481,15 +1513,33 @@ export const updateDeviceSettings = async (
   if (body.sim_filter !== undefined) {
     updates.sim_filter = body.sim_filter ? String(body.sim_filter).trim().slice(0, 64) : null;
   }
-  if (body.notification_language !== undefined) updates.notification_language = body.notification_language || null;
+  if (body.notification_language !== undefined) {
+    const lang = body.notification_language || null;
+    if (lang && !(policy.notifications?.allowed_languages || ["en"]).includes(lang)) {
+      throw new AppError("That notification language is not allowed by your shop.", 400, "policy_disallowed");
+    }
+    updates.notification_language = lang;
+  }
   if (body.app_language !== undefined) updates.app_language = body.app_language || null;
   if (body.call_text_scale !== undefined) {
     const value = body.call_text_scale === null ? null : Number(body.call_text_scale);
-    if (value !== null && (!Number.isFinite(value) || value < policy.call_screen.min || value > policy.call_screen.max)) throw new AppError("Call text size is outside your shop's allowed range.", 400, "policy_disallowed");
+    if (value !== null) {
+      if (policy.call_screen?.allow_phone_text_scale === false) {
+        throw new AppError("Your shop does not allow changing the call screen text size on a phone.", 400, "policy_disallowed");
+      }
+      if (!Number.isFinite(value) || value < policy.call_screen.min || value > policy.call_screen.max) {
+        throw new AppError("Call text size is outside your shop's allowed range.", 400, "policy_disallowed");
+      }
+    }
     updates.call_text_scale = value;
   }
   if (body.app_text_size !== undefined) updates.app_text_size = body.app_text_size || null;
-  if (body.app_lock_enabled !== undefined) updates.app_lock_enabled = Boolean(body.app_lock_enabled);
+  if (body.app_lock_enabled !== undefined) {
+    if (body.app_lock_enabled === false && policy.full_app?.require_app_lock) {
+      throw new AppError("Your shop requires the app lock.", 400, "policy_disallowed");
+    }
+    updates.app_lock_enabled = Boolean(body.app_lock_enabled);
+  }
 
   if (Object.keys(updates).length > 0 && device.update) {
     await device.update(updates);
@@ -1527,6 +1577,7 @@ export const updateDeviceSettings = async (
     sim_filter: device.sim_filter ?? null,
     effective_capabilities: effective,
     capability_reasons: reasons,
+    ...deviceLanguageAndTextFields(device),
   };
 };
 

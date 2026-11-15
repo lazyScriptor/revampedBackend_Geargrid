@@ -9,7 +9,7 @@ import { getTenantPlan } from "./planService.js";
 import { dayInShopTz } from "../utils/rentalDays.js";
 import { liveTotalOf, owedAmount } from "../utils/invoiceBalance.js";
 import { getPhoneAssistantPolicy } from "./phoneAssistantPolicyService.js";
-import { renderForRecipient } from "./pushTemplateService.js";
+import { renderForRecipient, resolveNotificationLanguage } from "./pushTemplateService.js";
 
 const DEFAULT_TIMEZONE = "Asia/Colombo";
 const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -30,6 +30,7 @@ export const buildDefaultPushSettings = () => {
       min_amount: 0,
       recipient_role_ids: [],
       hide_customer_name: false,
+      hide_amount: false,
       delivery: "instant",
     };
   }
@@ -81,6 +82,7 @@ export const mergePushSettings = (raw) => {
         typeof entry.hide_customer_name === "boolean"
           ? entry.hide_customer_name
           : base.hide_customer_name,
+      hide_amount: typeof entry.hide_amount === "boolean" ? entry.hide_amount : base.hide_amount,
       delivery: entry.delivery === "digest" ? "digest" : "instant",
     };
   }
@@ -197,17 +199,6 @@ export const isWithinQuietHours = (quietHours, now = new Date(), timezone = DEFA
     return currentMin >= fromMin && currentMin < toMin;
   }
   return currentMin >= fromMin || currentMin < toMin;
-};
-
-export const stripCurrencyAmounts = (text) => {
-  if (!text) return "";
-  return String(text)
-    .replace(/\s*·\s*(?:LKR|Rs\.?)\s*-?[\d,]+(?:\.\d+)?/gi, "")
-    .replace(/(?:LKR|Rs\.?)\s*-?[\d,]+(?:\.\d+)?\s*·\s*/gi, "")
-    .replace(/(?:LKR|Rs\.?)\s*-?[\d,]+(?:\.\d+)?/gi, "")
-    .replace(/\s{2,}/g, " ")
-    .replace(/^\s*·\s*|\s*·\s*$/g, "")
-    .trim();
 };
 
 const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -905,28 +896,53 @@ export const notifyEvent = async (
       return { sent: 0, reached: 0, recipients: [], skipped: "user_preferences" };
     }
 
-    // 6. New callers provide structured vars. Older callers retain their rendered copy for one release.
-    let pushTitle = title;
-    let pushBody = body;
-    if (vars && typeof vars === "object") {
-      const rendered = await renderForRecipient(models, eventKey, vars, {
-        language: policy.notifications?.default_language || "en",
-        hideAmounts: settings.include_amounts === false,
-        hideCustomer: rule.hide_customer_name === true,
-        policy,
-      });
-      pushTitle = rendered.title;
-      pushBody = rendered.body;
-    } else {
-      if (settings.include_amounts === false) {
-        pushTitle = titleNoAmount != null ? titleNoAmount : stripCurrencyAmounts(pushTitle);
-        pushBody = bodyNoAmount != null ? bodyNoAmount : stripCurrencyAmounts(pushBody);
-      }
-      if (rule.hide_customer_name === true) {
-        pushTitle = titleNoCustomerName != null ? titleNoCustomerName : redactCustomerName(pushTitle, customerName);
-        pushBody = bodyNoCustomerName != null ? bodyNoCustomerName : redactCustomerName(pushBody, customerName);
+    // 6. Wording. Callers pass structured `vars`; each recipient gets their own language and privacy.
+    // Older callers that still pass finished title/body keep working for one release (no automatic amount stripping).
+    const hideAmounts = settings.include_amounts === false || rule.hide_amount === true;
+    const hideCustomer = rule.hide_customer_name === true;
+    const useTemplates = Boolean(vars && typeof vars === "object");
+    const legacyText = {
+      title: hideAmounts && titleNoAmount != null ? titleNoAmount : title,
+      body: hideAmounts && bodyNoAmount != null ? bodyNoAmount : body,
+    };
+    if (hideCustomer && !useTemplates) {
+      legacyText.title = titleNoCustomerName != null ? titleNoCustomerName : redactCustomerName(legacyText.title, customerName);
+      legacyText.body = bodyNoCustomerName != null ? bodyNoCustomerName : redactCustomerName(legacyText.body, customerName);
+    }
+    const userLanguageById = new Map();
+    if (useTemplates && models?.User?.findAll) {
+      try {
+        const rows = await models.User.findAll({
+          where: { user_id: { [Op.in]: finalRecipients } },
+          attributes: ["user_id", "language"],
+        });
+        for (const row of rows || []) userLanguageById.set(Number(row.user_id), row.language || null);
+      } catch {
+        // Fall back to the shop default language
       }
     }
+    const renderCache = new Map();
+    // One render per distinct language (privacy flags are fixed per event), so a group is rendered once.
+    const renderInLanguage = async (language) => {
+      if (!useTemplates) return legacyText;
+      const key = language;
+      if (!renderCache.has(key)) {
+        renderCache.set(
+          key,
+          renderForRecipient(models, eventKey, vars, { language, hideAmounts, hideCustomer, policy }).catch(() => legacyText),
+        );
+      }
+      return renderCache.get(key);
+    };
+    const languageFor = (userId, device = null) =>
+      resolveNotificationLanguage({
+        deviceLanguage: device?.notification_language || null,
+        userLanguage: userLanguageById.get(Number(userId)) || null,
+        policy,
+      });
+    const defaultText = await renderInLanguage(languageFor(null));
+    const pushTitle = defaultText.title;
+    const pushBody = defaultText.body;
 
     // 7. Quiet hours check per recipient (shop OR personal)
     const tenantTz = config?.timezone || DEFAULT_TIMEZONE;
@@ -945,13 +961,14 @@ export const notifyEvent = async (
     // 8. Persist in-app notifications for all recipients
     for (const recipientId of finalRecipients) {
       try {
+        const inApp = await renderInLanguage(languageFor(recipientId));
         await createNotification(models, {
           userId: recipientId,
           type,
           category,
-          title: title || pushTitle,
-          message: body || pushBody,
-          payload: data,
+          title: inApp.title || title || pushTitle,
+          message: inApp.body || body || pushBody,
+          payload: useTemplates ? { ...data, event_key: eventKey, vars } : data,
           link,
         });
       } catch {
@@ -992,6 +1009,7 @@ export const notifyEvent = async (
         data,
         silent: false,
         channel: groupChannel,
+        render: (device) => renderInLanguage(languageFor(device.user_id, device)),
       });
       totalSent += Number(pushRes?.sent ?? 0);
       totalReached += Number(pushRes?.reached ?? 0);
@@ -1004,6 +1022,7 @@ export const notifyEvent = async (
         data,
         silent: true,
         channel: "bills_silent",
+        render: (device) => renderInLanguage(languageFor(device.user_id, device)),
       });
       totalSent += Number(pushRes?.sent ?? 0);
       totalReached += Number(pushRes?.reached ?? 0);

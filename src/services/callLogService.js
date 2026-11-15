@@ -1014,7 +1014,9 @@ export const sendDueFollowUpPushes = async (models, tenantDbName, { now = new Da
       note.CallLog?.phone_e164 ||
       "Customer";
     const summary = note.note || parseJsonField(note.tags, []).join(", ") || "Scheduled follow-up";
-    await notifyEvent(models, tenantDbName, "follow_up_due", {
+    await notifyEvent(models, "follow_up_due", {
+      tenantDbName,
+      vars: { customer: targetName, reason: summary, date: new Date() },
       title: `Follow-up due: ${targetName}`,
       body: summary,
       data: {

@@ -412,7 +412,7 @@ describe("Phone Assistant Release 2 — Part D1, D2, D3, D6", () => {
     });
     expect(pushRes.sent_count).toBe(1);
     expect(state.notifyCalls).toHaveLength(1);
-    expect(state.notifyCalls[0][2]).toBe("follow_up_due");
+    expect(state.notifyCalls[0][1]).toBe("follow_up_due");
 
     const doneRes = await updateFollowUp(
       models,

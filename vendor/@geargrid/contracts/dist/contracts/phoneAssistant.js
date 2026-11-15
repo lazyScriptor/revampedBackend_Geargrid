@@ -84,6 +84,11 @@ export const ReportedStateSchema = z
     call_log_permission: z.boolean().optional(),
     battery_optimization_exempt: z.boolean().optional(),
     sim_count: z.number().int().min(0).max(4).optional(),
+    cached_briefs: z.number().int().nonnegative().optional(),
+    outbox_pending: z.number().int().nonnegative().optional(),
+    last_brief_sync_at: z.string().optional(),
+    last_contact_sync_at: z.string().optional(),
+    call_screen_unsupported: z.boolean().optional(),
 })
     .passthrough();
 export const PhoneAssistantApprovalModeEnum = z.enum([
@@ -103,6 +108,7 @@ export const RegisterDeviceContract = {
         reported_state: ReportedStateSchema.nullable().optional(),
         click_to_call_enabled: z.boolean().optional(),
         cached_briefs: z.number().int().nonnegative().optional(),
+        brief_format: z.number().int().min(1).max(10).optional(),
         outbox_pending: z.number().int().nonnegative().optional(),
         last_brief_sync_at: ISODate.optional(),
         last_contact_sync_at: ISODate.optional(),
@@ -370,6 +376,7 @@ export const PushEventRuleSchema = z.object({
     min_amount: z.coerce.number().nonnegative().default(0),
     recipient_role_ids: z.array(PositiveInt).default([]),
     hide_customer_name: z.boolean().optional(),
+    hide_amount: z.boolean().optional(),
     delivery: PushDeliveryModeEnum.optional(),
 });
 export const DailySummarySectionsSchema = z.object({
@@ -530,6 +537,7 @@ export const ShopDeviceItemSchema = z.object({
     capabilities: z.record(z.string(), z.boolean()),
     effective_capabilities: z.record(z.string(), z.boolean()),
     capability_reasons: z.record(z.string(), z.string().nullable()),
+    briefs_synced_at: ISODate.nullable().optional(),
     reported_state: ReportedStateSchema.nullable(),
     health_warnings: z.array(z.string()),
     version_status: z
@@ -724,7 +732,7 @@ export const PhoneAssistantPolicySchema = z.object({
     overlay: OverlayPolicySchema.optional(),
     unknown_caller: UnknownCallerModeEnum.optional(),
     shared_number: SharedNumberModeEnum.optional(),
-    desktop_popup: z.object({ roles: z.array(PositiveInt) }).optional(),
+    desktop_popup: z.object({ roles: z.array(PositiveInt), size: z.enum(["compact", "standard", "large"]).optional() }).optional(),
     sync: SyncPolicySchema.optional(),
     call_screen: CallScreenPolicySchema.optional(),
     notifications: NotificationsLanguagePolicySchema.optional(),
@@ -780,6 +788,14 @@ export const DevicePolicyResponseSchema = z.object({
     sync: SyncPolicySchema.optional(),
     notification_languages: z.array(z.string()).optional(),
     full_app: FullAppPolicySchema.optional(),
+    call_screen_policy: CallScreenPolicySchema.optional(),
+    desktop_popup: z.object({ roles: z.array(PositiveInt), size: z.enum(["compact", "standard", "large"]).optional() }).optional(),
+    notification_language: z.string().nullable().optional(),
+    app_language: z.string().nullable().optional(),
+    call_text_scale: z.number().nullable().optional(),
+    app_text_size: z.string().nullable().optional(),
+    app_lock_enabled: z.boolean().optional(),
+    locked_by_policy: z.array(z.string()).optional(),
     min_app_version: z.string().optional(),
     latest_app_version: z.string().optional(),
 });
@@ -796,6 +812,11 @@ export const UpdateDeviceSettingsContract = {
         contact_sync_mode: ContactSyncModeEnum.optional(),
         call_logging_scope: CallLoggingScopeEnum.optional(),
         sim_filter: z.string().trim().max(64).nullable().optional(),
+        notification_language: z.enum(["en", "si", "ta", "si-Latn"]).nullable().optional(),
+        app_language: z.enum(["en", "si", "ta"]).nullable().optional(),
+        call_text_scale: z.number().min(0.8).max(2).nullable().optional(),
+        app_text_size: z.enum(["small", "default", "large", "extra_large"]).nullable().optional(),
+        app_lock_enabled: z.boolean().optional(),
     }),
     response: successEnvelope(z.object({
         muted: z.boolean(),
@@ -992,5 +1013,11 @@ export const PreviewPushTemplateContract = {
     path: "/phone-assistant/templates/preview", method: "POST",
     body: z.object({ event_key: z.string(), language: z.enum(["en", "si", "ta", "si-Latn"]), title: z.string().max(160), body: z.string().max(500), title_private: z.string().max(160).nullable().optional(), body_private: z.string().max(500).nullable().optional() }),
     response: successEnvelope(z.object({ normal: z.object({ title: z.string(), body: z.string() }), private: z.object({ title: z.string(), body: z.string() }) })),
+};
+export const SendCallScreenSampleContract = {
+    path: "/phone-assistant/call-screen/sample",
+    method: "POST",
+    body: z.object({ profile_id: z.string().max(40).optional() }).optional(),
+    response: successEnvelope(z.object({ reached: NonNegativeInt })),
 };
 //# sourceMappingURL=phoneAssistant.js.map

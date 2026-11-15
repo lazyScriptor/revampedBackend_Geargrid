@@ -330,6 +330,7 @@ export const updateCustomer = async (models, customerId, updateData, actorUserId
     void notifyEvent(models, "customer_blacklisted", {
       actorUserId,
       customerName: label,
+      vars: { customer: label, reason: "", staff: "" },
       title: `Customer blacklisted: ${label}`,
       body: `${label}${customer.phone_number ? ` · ${customer.phone_number}` : ""} was marked Blacklisted.`,
       data: { type: "customer_blacklisted", customer_id: String(customerId) },
@@ -517,6 +518,7 @@ export const bulkUpdateCustomers = async (models, payload, actorUserId = null) =
     void notifyEvent(models, "customer_blacklisted", {
       actorUserId,
       customerName: item.label,
+      vars: { customer: item.label, reason: "", staff: "" },
       title: `Customer blacklisted: ${item.label}`,
       body: `${item.label}${item.phone ? ` · ${item.phone}` : ""} was marked Blacklisted.`,
       data: { type: "customer_blacklisted", customer_id: String(item.customer_id) },

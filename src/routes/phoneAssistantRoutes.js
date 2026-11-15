@@ -1,4 +1,5 @@
 import express from "express";
+import { Op } from "sequelize";
 import {
   GetPushSettingsContract,
   UpdatePushSettingsContract,
@@ -16,6 +17,7 @@ import {
   PutPushTemplateContract,
   DeletePushTemplateContract,
   PreviewPushTemplateContract,
+  SendCallScreenSampleContract,
 } from "@geargrid/contracts";
 import { protect } from "../middlewares/authMiddleware.js";
 import { requireFeature } from "../middlewares/planMiddleware.js";
@@ -212,14 +214,20 @@ registerContract(router, PreviewPushTemplateContract, {
   },
 });
 
-router.post("/phone-assistant/call-screen/sample", requireAdmin, async (req, res, next) => {
-  try {
+registerContract(router, SendCallScreenSampleContract, {
+  basePath: "/phone-assistant",
+  middlewares: [requireAdmin],
+  handler: async ({ req }) => {
     const models = resolveTenantModels(req);
     const userId = req.user?.userId || req.user?.id;
-    const devices = await models.OperatorDevice.findAll({ where: { user_id: userId, is_native_app: true, status: "ACTIVE" } });
-    const results = await Promise.all((devices || []).map((device) => sendDataPush(device, { type: "sample_call" }).catch(() => null)));
-    res.json({ status: "success", data: { reached: results.filter(Boolean).length } });
-  } catch (error) { next(error); }
+    const devices = await models.OperatorDevice.findAll({
+      where: { user_id: userId, is_native_app: true, status: "ACTIVE", push_token: { [Op.ne]: null } },
+    });
+    const results = await Promise.all(
+      (devices || []).map((device) => sendDataPush(device, { type: "sample_call" }).catch(() => null)),
+    );
+    return { reached: results.filter((r) => r && r.sent).length };
+  },
 });
 
 export default router;

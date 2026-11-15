@@ -166,7 +166,7 @@ export const sendDataPush = async (device, data = {}, { priority = "high" } = {}
 export const sendToUsers = async (
   models,
   userIds,
-  { title = "", body = "", data = {}, silent = false, channel = null } = {},
+  { title = "", body = "", data = {}, silent = false, channel = null, render = null } = {},
 ) => {
   try {
     const cleanUserIds = [
@@ -208,9 +208,18 @@ export const sendToUsers = async (
     for (const device of devices) {
       if (device.muted === true) continue;
       if (device.status && device.status !== "ACTIVE") continue;
+      // `render(device)` lets the caller word the message per phone (language, privacy).
+      let text = { title, body };
+      if (typeof render === "function") {
+        try {
+          text = (await render(device)) || text;
+        } catch {
+          text = { title, body };
+        }
+      }
       const res = await sendPushToDevice(models, device, {
-        title,
-        body,
+        title: text.title,
+        body: text.body,
         data,
         silent,
         channel,

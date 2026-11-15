@@ -97,6 +97,11 @@ export declare const ReportedStateSchema: z.ZodObject<{
     call_log_permission: z.ZodOptional<z.ZodBoolean>;
     battery_optimization_exempt: z.ZodOptional<z.ZodBoolean>;
     sim_count: z.ZodOptional<z.ZodNumber>;
+    cached_briefs: z.ZodOptional<z.ZodNumber>;
+    outbox_pending: z.ZodOptional<z.ZodNumber>;
+    last_brief_sync_at: z.ZodOptional<z.ZodString>;
+    last_contact_sync_at: z.ZodOptional<z.ZodString>;
+    call_screen_unsupported: z.ZodOptional<z.ZodBoolean>;
 }, z.core.$loose>;
 export type ReportedState = z.infer<typeof ReportedStateSchema>;
 export declare const PhoneAssistantApprovalModeEnum: z.ZodEnum<{
@@ -122,9 +127,15 @@ export declare const RegisterDeviceContract: {
             call_log_permission: z.ZodOptional<z.ZodBoolean>;
             battery_optimization_exempt: z.ZodOptional<z.ZodBoolean>;
             sim_count: z.ZodOptional<z.ZodNumber>;
+            cached_briefs: z.ZodOptional<z.ZodNumber>;
+            outbox_pending: z.ZodOptional<z.ZodNumber>;
+            last_brief_sync_at: z.ZodOptional<z.ZodString>;
+            last_contact_sync_at: z.ZodOptional<z.ZodString>;
+            call_screen_unsupported: z.ZodOptional<z.ZodBoolean>;
         }, z.core.$loose>>>;
         click_to_call_enabled: z.ZodOptional<z.ZodBoolean>;
         cached_briefs: z.ZodOptional<z.ZodNumber>;
+        brief_format: z.ZodOptional<z.ZodNumber>;
         outbox_pending: z.ZodOptional<z.ZodNumber>;
         last_brief_sync_at: z.ZodOptional<z.ZodString>;
         last_contact_sync_at: z.ZodOptional<z.ZodString>;
@@ -812,6 +823,7 @@ export declare const PushEventRuleSchema: z.ZodObject<{
     min_amount: z.ZodDefault<z.ZodCoercedNumber<unknown>>;
     recipient_role_ids: z.ZodDefault<z.ZodArray<z.ZodCoercedNumber<unknown>>>;
     hide_customer_name: z.ZodOptional<z.ZodBoolean>;
+    hide_amount: z.ZodOptional<z.ZodBoolean>;
     delivery: z.ZodOptional<z.ZodEnum<{
         instant: "instant";
         digest: "digest";
@@ -842,6 +854,7 @@ export declare const PushSettingsPayloadSchema: z.ZodObject<{
         min_amount: z.ZodDefault<z.ZodCoercedNumber<unknown>>;
         recipient_role_ids: z.ZodDefault<z.ZodArray<z.ZodCoercedNumber<unknown>>>;
         hide_customer_name: z.ZodOptional<z.ZodBoolean>;
+        hide_amount: z.ZodOptional<z.ZodBoolean>;
         delivery: z.ZodOptional<z.ZodEnum<{
             instant: "instant";
             digest: "digest";
@@ -888,6 +901,7 @@ export declare const GetPushSettingsContract: {
                     min_amount: z.ZodDefault<z.ZodCoercedNumber<unknown>>;
                     recipient_role_ids: z.ZodDefault<z.ZodArray<z.ZodCoercedNumber<unknown>>>;
                     hide_customer_name: z.ZodOptional<z.ZodBoolean>;
+                    hide_amount: z.ZodOptional<z.ZodBoolean>;
                     delivery: z.ZodOptional<z.ZodEnum<{
                         instant: "instant";
                         digest: "digest";
@@ -932,6 +946,7 @@ export declare const UpdatePushSettingsContract: {
             min_amount: z.ZodDefault<z.ZodCoercedNumber<unknown>>;
             recipient_role_ids: z.ZodDefault<z.ZodArray<z.ZodCoercedNumber<unknown>>>;
             hide_customer_name: z.ZodOptional<z.ZodBoolean>;
+            hide_amount: z.ZodOptional<z.ZodBoolean>;
             delivery: z.ZodOptional<z.ZodEnum<{
                 instant: "instant";
                 digest: "digest";
@@ -968,6 +983,7 @@ export declare const UpdatePushSettingsContract: {
                     min_amount: z.ZodDefault<z.ZodCoercedNumber<unknown>>;
                     recipient_role_ids: z.ZodDefault<z.ZodArray<z.ZodCoercedNumber<unknown>>>;
                     hide_customer_name: z.ZodOptional<z.ZodBoolean>;
+                    hide_amount: z.ZodOptional<z.ZodBoolean>;
                     delivery: z.ZodOptional<z.ZodEnum<{
                         instant: "instant";
                         digest: "digest";
@@ -1216,6 +1232,7 @@ export declare const ShopDeviceItemSchema: z.ZodObject<{
     capabilities: z.ZodRecord<z.ZodString, z.ZodBoolean>;
     effective_capabilities: z.ZodRecord<z.ZodString, z.ZodBoolean>;
     capability_reasons: z.ZodRecord<z.ZodString, z.ZodNullable<z.ZodString>>;
+    briefs_synced_at: z.ZodOptional<z.ZodNullable<z.ZodString>>;
     reported_state: z.ZodNullable<z.ZodObject<{
         call_screening_role: z.ZodOptional<z.ZodBoolean>;
         overlay_permission: z.ZodOptional<z.ZodBoolean>;
@@ -1224,6 +1241,11 @@ export declare const ShopDeviceItemSchema: z.ZodObject<{
         call_log_permission: z.ZodOptional<z.ZodBoolean>;
         battery_optimization_exempt: z.ZodOptional<z.ZodBoolean>;
         sim_count: z.ZodOptional<z.ZodNumber>;
+        cached_briefs: z.ZodOptional<z.ZodNumber>;
+        outbox_pending: z.ZodOptional<z.ZodNumber>;
+        last_brief_sync_at: z.ZodOptional<z.ZodString>;
+        last_contact_sync_at: z.ZodOptional<z.ZodString>;
+        call_screen_unsupported: z.ZodOptional<z.ZodBoolean>;
     }, z.core.$loose>>;
     health_warnings: z.ZodArray<z.ZodString>;
     version_status: z.ZodOptional<z.ZodEnum<{
@@ -1280,6 +1302,7 @@ export declare const ListShopDevicesContract: {
                 capabilities: z.ZodRecord<z.ZodString, z.ZodBoolean>;
                 effective_capabilities: z.ZodRecord<z.ZodString, z.ZodBoolean>;
                 capability_reasons: z.ZodRecord<z.ZodString, z.ZodNullable<z.ZodString>>;
+                briefs_synced_at: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                 reported_state: z.ZodNullable<z.ZodObject<{
                     call_screening_role: z.ZodOptional<z.ZodBoolean>;
                     overlay_permission: z.ZodOptional<z.ZodBoolean>;
@@ -1288,6 +1311,11 @@ export declare const ListShopDevicesContract: {
                     call_log_permission: z.ZodOptional<z.ZodBoolean>;
                     battery_optimization_exempt: z.ZodOptional<z.ZodBoolean>;
                     sim_count: z.ZodOptional<z.ZodNumber>;
+                    cached_briefs: z.ZodOptional<z.ZodNumber>;
+                    outbox_pending: z.ZodOptional<z.ZodNumber>;
+                    last_brief_sync_at: z.ZodOptional<z.ZodString>;
+                    last_contact_sync_at: z.ZodOptional<z.ZodString>;
+                    call_screen_unsupported: z.ZodOptional<z.ZodBoolean>;
                 }, z.core.$loose>>;
                 health_warnings: z.ZodArray<z.ZodString>;
                 version_status: z.ZodOptional<z.ZodEnum<{
@@ -1394,6 +1422,7 @@ export declare const UpdateShopDeviceContract: {
                 capabilities: z.ZodRecord<z.ZodString, z.ZodBoolean>;
                 effective_capabilities: z.ZodRecord<z.ZodString, z.ZodBoolean>;
                 capability_reasons: z.ZodRecord<z.ZodString, z.ZodNullable<z.ZodString>>;
+                briefs_synced_at: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                 reported_state: z.ZodNullable<z.ZodObject<{
                     call_screening_role: z.ZodOptional<z.ZodBoolean>;
                     overlay_permission: z.ZodOptional<z.ZodBoolean>;
@@ -1402,6 +1431,11 @@ export declare const UpdateShopDeviceContract: {
                     call_log_permission: z.ZodOptional<z.ZodBoolean>;
                     battery_optimization_exempt: z.ZodOptional<z.ZodBoolean>;
                     sim_count: z.ZodOptional<z.ZodNumber>;
+                    cached_briefs: z.ZodOptional<z.ZodNumber>;
+                    outbox_pending: z.ZodOptional<z.ZodNumber>;
+                    last_brief_sync_at: z.ZodOptional<z.ZodString>;
+                    last_contact_sync_at: z.ZodOptional<z.ZodString>;
+                    call_screen_unsupported: z.ZodOptional<z.ZodBoolean>;
                 }, z.core.$loose>>;
                 health_warnings: z.ZodArray<z.ZodString>;
                 version_status: z.ZodOptional<z.ZodEnum<{
@@ -1469,6 +1503,7 @@ export declare const SetShopDeviceStatusContract: {
                 capabilities: z.ZodRecord<z.ZodString, z.ZodBoolean>;
                 effective_capabilities: z.ZodRecord<z.ZodString, z.ZodBoolean>;
                 capability_reasons: z.ZodRecord<z.ZodString, z.ZodNullable<z.ZodString>>;
+                briefs_synced_at: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                 reported_state: z.ZodNullable<z.ZodObject<{
                     call_screening_role: z.ZodOptional<z.ZodBoolean>;
                     overlay_permission: z.ZodOptional<z.ZodBoolean>;
@@ -1477,6 +1512,11 @@ export declare const SetShopDeviceStatusContract: {
                     call_log_permission: z.ZodOptional<z.ZodBoolean>;
                     battery_optimization_exempt: z.ZodOptional<z.ZodBoolean>;
                     sim_count: z.ZodOptional<z.ZodNumber>;
+                    cached_briefs: z.ZodOptional<z.ZodNumber>;
+                    outbox_pending: z.ZodOptional<z.ZodNumber>;
+                    last_brief_sync_at: z.ZodOptional<z.ZodString>;
+                    last_contact_sync_at: z.ZodOptional<z.ZodString>;
+                    call_screen_unsupported: z.ZodOptional<z.ZodBoolean>;
                 }, z.core.$loose>>;
                 health_warnings: z.ZodArray<z.ZodString>;
                 version_status: z.ZodOptional<z.ZodEnum<{
@@ -1849,6 +1889,11 @@ export declare const PhoneAssistantPolicySchema: z.ZodObject<{
     }>>;
     desktop_popup: z.ZodOptional<z.ZodObject<{
         roles: z.ZodArray<z.ZodCoercedNumber<unknown>>;
+        size: z.ZodOptional<z.ZodEnum<{
+            large: "large";
+            compact: "compact";
+            standard: "standard";
+        }>>;
     }, z.core.$strip>>;
     sync: z.ZodOptional<z.ZodObject<{
         stale_after_minutes: z.ZodNumber;
@@ -1995,6 +2040,11 @@ export declare const GetPhoneAssistantPolicyContract: {
                 }>>;
                 desktop_popup: z.ZodOptional<z.ZodObject<{
                     roles: z.ZodArray<z.ZodCoercedNumber<unknown>>;
+                    size: z.ZodOptional<z.ZodEnum<{
+                        large: "large";
+                        compact: "compact";
+                        standard: "standard";
+                    }>>;
                 }, z.core.$strip>>;
                 sync: z.ZodOptional<z.ZodObject<{
                     stale_after_minutes: z.ZodNumber;
@@ -2139,6 +2189,11 @@ export declare const UpdatePhoneAssistantPolicyContract: {
         }>>>;
         desktop_popup: z.ZodOptional<z.ZodOptional<z.ZodObject<{
             roles: z.ZodArray<z.ZodCoercedNumber<unknown>>;
+            size: z.ZodOptional<z.ZodEnum<{
+                large: "large";
+                compact: "compact";
+                standard: "standard";
+            }>>;
         }, z.core.$strip>>>;
         sync: z.ZodOptional<z.ZodOptional<z.ZodObject<{
             stale_after_minutes: z.ZodNumber;
@@ -2281,6 +2336,11 @@ export declare const UpdatePhoneAssistantPolicyContract: {
                 }>>;
                 desktop_popup: z.ZodOptional<z.ZodObject<{
                     roles: z.ZodArray<z.ZodCoercedNumber<unknown>>;
+                    size: z.ZodOptional<z.ZodEnum<{
+                        large: "large";
+                        compact: "compact";
+                        standard: "standard";
+                    }>>;
                 }, z.core.$strip>>;
                 sync: z.ZodOptional<z.ZodObject<{
                     stale_after_minutes: z.ZodNumber;
@@ -2435,6 +2495,11 @@ export declare const PatchPhoneAssistantPolicyContract: {
                 }>>;
                 desktop_popup: z.ZodOptional<z.ZodObject<{
                     roles: z.ZodArray<z.ZodCoercedNumber<unknown>>;
+                    size: z.ZodOptional<z.ZodEnum<{
+                        large: "large";
+                        compact: "compact";
+                        standard: "standard";
+                    }>>;
                 }, z.core.$strip>>;
                 sync: z.ZodOptional<z.ZodObject<{
                     stale_after_minutes: z.ZodNumber;
@@ -2725,6 +2790,26 @@ export declare const DevicePolicyResponseSchema: z.ZodObject<{
         session_minutes: z.ZodNumber;
         block_screenshots: z.ZodBoolean;
     }, z.core.$strip>>;
+    call_screen_policy: z.ZodOptional<z.ZodObject<{
+        allow_phone_text_scale: z.ZodBoolean;
+        min: z.ZodNumber;
+        max: z.ZodNumber;
+        respect_system_font: z.ZodBoolean;
+    }, z.core.$strip>>;
+    desktop_popup: z.ZodOptional<z.ZodObject<{
+        roles: z.ZodArray<z.ZodCoercedNumber<unknown>>;
+        size: z.ZodOptional<z.ZodEnum<{
+            large: "large";
+            compact: "compact";
+            standard: "standard";
+        }>>;
+    }, z.core.$strip>>;
+    notification_language: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    app_language: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    call_text_scale: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+    app_text_size: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    app_lock_enabled: z.ZodOptional<z.ZodBoolean>;
+    locked_by_policy: z.ZodOptional<z.ZodArray<z.ZodString>>;
     min_app_version: z.ZodOptional<z.ZodString>;
     latest_app_version: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
@@ -2935,6 +3020,26 @@ export declare const GetDevicePolicyContract: {
                 session_minutes: z.ZodNumber;
                 block_screenshots: z.ZodBoolean;
             }, z.core.$strip>>;
+            call_screen_policy: z.ZodOptional<z.ZodObject<{
+                allow_phone_text_scale: z.ZodBoolean;
+                min: z.ZodNumber;
+                max: z.ZodNumber;
+                respect_system_font: z.ZodBoolean;
+            }, z.core.$strip>>;
+            desktop_popup: z.ZodOptional<z.ZodObject<{
+                roles: z.ZodArray<z.ZodCoercedNumber<unknown>>;
+                size: z.ZodOptional<z.ZodEnum<{
+                    large: "large";
+                    compact: "compact";
+                    standard: "standard";
+                }>>;
+            }, z.core.$strip>>;
+            notification_language: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            app_language: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            call_text_scale: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+            app_text_size: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            app_lock_enabled: z.ZodOptional<z.ZodBoolean>;
+            locked_by_policy: z.ZodOptional<z.ZodArray<z.ZodString>>;
             min_app_version: z.ZodOptional<z.ZodString>;
             latest_app_version: z.ZodOptional<z.ZodString>;
         }, z.core.$strip>;
@@ -2958,6 +3063,25 @@ export declare const UpdateDeviceSettingsContract: {
             customers_and_contacts: "customers_and_contacts";
         }>>;
         sim_filter: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        notification_language: z.ZodOptional<z.ZodNullable<z.ZodEnum<{
+            en: "en";
+            si: "si";
+            ta: "ta";
+            "si-Latn": "si-Latn";
+        }>>>;
+        app_language: z.ZodOptional<z.ZodNullable<z.ZodEnum<{
+            en: "en";
+            si: "si";
+            ta: "ta";
+        }>>>;
+        call_text_scale: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+        app_text_size: z.ZodOptional<z.ZodNullable<z.ZodEnum<{
+            default: "default";
+            small: "small";
+            large: "large";
+            extra_large: "extra_large";
+        }>>>;
+        app_lock_enabled: z.ZodOptional<z.ZodBoolean>;
     }, z.core.$strip>;
     readonly response: z.ZodObject<{
         status: z.ZodLiteral<"success">;
@@ -3658,6 +3782,20 @@ export declare const PreviewPushTemplateContract: {
                 title: z.ZodString;
                 body: z.ZodString;
             }, z.core.$strip>;
+        }, z.core.$strip>;
+    }, z.core.$strip>;
+};
+export declare const SendCallScreenSampleContract: {
+    readonly path: "/phone-assistant/call-screen/sample";
+    readonly method: "POST";
+    readonly body: z.ZodOptional<z.ZodObject<{
+        profile_id: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>>;
+    readonly response: z.ZodObject<{
+        status: z.ZodLiteral<"success">;
+        message: z.ZodOptional<z.ZodString>;
+        data: z.ZodObject<{
+            reached: z.ZodCoercedNumber<unknown>;
         }, z.core.$strip>;
     }, z.core.$strip>;
 };

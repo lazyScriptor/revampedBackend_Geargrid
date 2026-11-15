@@ -160,10 +160,17 @@ const scale = (value, fallback = 1) => {
 };
 export const normalizeCallScreen = (raw, allowedFields = null) => {
   const input = parseJsonField(raw, {});
-  if (!input || Number(input.version) !== 1) return JSON.parse(JSON.stringify(DEFAULT_CALL_SCREEN));
   const fields = allowedFields ? new Set(allowedFields.includes("*") ? [...BRIEF_FIELD_KEY_SET] : allowedFields) : BRIEF_FIELD_KEY_SET;
+  // The built-in design, limited to the fields this profile may receive.
+  const defaultDesign = () => {
+    const d = JSON.parse(JSON.stringify(DEFAULT_CALL_SCREEN));
+    const rows = d.rows.filter((r) => fields.has(r.field));
+    d.rows = rows.length ? rows : [{ field: [...fields][0] || "name", style: "title" }];
+    return d;
+  };
+  if (!input || Number(input.version) !== 1) return defaultDesign();
   const rows = Array.isArray(input.rows) ? input.rows.filter((row) => row && fields.has(row.field) && CALL_ROW_STYLES.has(row.style)).slice(0, 16).map((row) => ({ field: row.field, style: row.style, ...(typeof row.label === "boolean" ? { label: row.label } : {}), ...(Number.isInteger(row.max_items) ? { max_items: Math.min(10, Math.max(1, row.max_items)) } : {}) })) : [];
-  if (!rows.length) return JSON.parse(JSON.stringify(DEFAULT_CALL_SCREEN));
+  if (!rows.length) return defaultDesign();
   const shape = input.shape || {}, theme = input.theme || {}, behaviour = input.behaviour || {}, locked = input.locked || {};
   return {
     version: 1, size: CALL_SIZES.has(input.size) ? input.size : "standard", text_scale: scale(input.text_scale),
@@ -396,7 +403,7 @@ export const mergePhoneAssistantPolicy = (rawPa) => {
     overlay: normalizeOverlayPolicy(parsed?.overlay),
     unknown_caller: unknownCaller,
     shared_number: sharedNumber,
-    desktop_popup: { roles: desktopPopupRoles },
+    desktop_popup: { roles: desktopPopupRoles, size: ["compact", "standard", "large"].includes(parsed?.desktop_popup?.size) ? parsed.desktop_popup.size : "standard" },
     ...release3,
     contact_sync: normalizeContactSyncPolicy(parsed?.contact_sync),
     call_logging: normalizeCallLoggingPolicy(parsed?.call_logging),
@@ -527,8 +534,9 @@ export const updatePhoneAssistantPolicy = async (models, payload = {}) => {
         if (!p.call_screen || typeof p.call_screen !== "object" || Number(p.call_screen.version) !== 1) {
           throw new AppError(`Profile ${p.id} has an unsupported call_screen version.`, 400);
         }
-        const normalized = normalizeCallScreen(p.call_screen, p.fields);
-        if (!normalized.rows.length) throw new AppError(`Profile ${p.id} call_screen needs at least one allowed row.`, 400);
+        const allowedSet = new Set(p.fields.includes("*") ? [...BRIEF_FIELD_KEY_SET] : p.fields);
+        const usable = (Array.isArray(p.call_screen.rows) ? p.call_screen.rows : []).filter((r) => r && allowedSet.has(r.field));
+        if (!usable.length) throw new AppError(`Profile ${p.id} call_screen needs at least one row for a field the profile may receive.`, 400);
       }
     }
   }
@@ -649,6 +657,37 @@ export const updatePhoneAssistantPolicy = async (models, payload = {}) => {
     if (n.allowed_languages !== undefined && (!Array.isArray(n.allowed_languages) || !n.allowed_languages.length || n.allowed_languages.some((x) => !LANGUAGES.has(x)))) throw new AppError("notifications.allowed_languages is invalid.", 400);
   }
 
+  if (payload.notifications !== undefined) {
+    const n = payload.notifications;
+    if (n.bilingual !== undefined && !["off", "append_english"].includes(n.bilingual)) throw new AppError("Invalid notifications.bilingual value.", 400);
+    const f = n.format || {};
+    if (f.currency !== undefined && !["LKR", "Rs.", "රු."].includes(f.currency)) throw new AppError("Invalid notifications.format.currency value.", 400);
+    if (f.date !== undefined && !["yyyy-mm-dd", "dd MMM", "dd/mm"].includes(f.date)) throw new AppError("Invalid notifications.format.date value.", 400);
+    if (f.time !== undefined && !["24h", "12h"].includes(f.time)) throw new AppError("Invalid notifications.format.time value.", 400);
+    if (f.digits !== undefined && f.digits !== "latin") throw new AppError("Invalid notifications.format.digits value.", 400);
+  }
+  if (payload.full_app !== undefined) {
+    const f = payload.full_app;
+    for (const key of ["enabled", "require_app_lock", "block_screenshots"]) {
+      if (f[key] !== undefined && typeof f[key] !== "boolean") throw new AppError(`full_app.${key} must be a boolean.`, 400);
+    }
+    if (f.session_minutes !== undefined && (!Number.isInteger(Number(f.session_minutes)) || Number(f.session_minutes) < 1 || Number(f.session_minutes) > 1440)) throw new AppError("full_app.session_minutes must be 1..1440.", 400);
+  }
+  if (payload.call_screen !== undefined) {
+    for (const key of ["allow_phone_text_scale", "respect_system_font"]) {
+      if (payload.call_screen[key] !== undefined && typeof payload.call_screen[key] !== "boolean") throw new AppError(`call_screen.${key} must be a boolean.`, 400);
+    }
+  }
+  if (payload.desktop_popup !== undefined) {
+    if (!payload.desktop_popup || typeof payload.desktop_popup !== "object") throw new AppError("desktop_popup must be an object.", 400);
+    if (payload.desktop_popup.size !== undefined && !["compact", "standard", "large"].includes(payload.desktop_popup.size)) throw new AppError("Invalid desktop_popup.size value.", 400);
+  }
+  if (payload.call_logging !== undefined) {
+    for (const key of ["store_unknown_numbers", "business_hours_only"]) {
+      if (payload.call_logging[key] !== undefined && typeof payload.call_logging[key] !== "boolean") throw new AppError(`call_logging.${key} must be a boolean.`, 400);
+    }
+  }
+
   let config = models?.TenantConfig?.findOne ? await models.TenantConfig.findOne() : null;
   if (!config) {
     if (!models?.TenantConfig?.create) {
@@ -686,7 +725,7 @@ export const updatePhoneAssistantPolicy = async (models, payload = {}) => {
       : {}),
     ...(payload.unknown_caller !== undefined ? { unknown_caller: payload.unknown_caller } : {}),
     ...(payload.shared_number !== undefined ? { shared_number: payload.shared_number } : {}),
-    ...(payload.desktop_popup !== undefined ? { desktop_popup: payload.desktop_popup } : {}),
+    ...(payload.desktop_popup !== undefined ? { desktop_popup: { ...current.desktop_popup, ...payload.desktop_popup } } : {}),
     ...(payload.sync !== undefined ? { sync: { ...current.sync, ...payload.sync } } : {}),
     ...(payload.call_screen !== undefined ? { call_screen: { ...current.call_screen, ...payload.call_screen } } : {}),
     ...(payload.notifications !== undefined ? { notifications: { ...current.notifications, ...payload.notifications, ...(payload.notifications.format ? { format: { ...current.notifications.format, ...payload.notifications.format } } : {}) } } : {}),
@@ -737,8 +776,10 @@ export const updatePhoneAssistantPolicy = async (models, payload = {}) => {
     },
   });
 
+  // A call screen design change refreshes the policy only; it must not wipe the customer cache.
+  const withoutDesign = (profiles) => (profiles || []).map(({ call_screen: _design, ...rest }) => rest);
   const briefPolicyChanged =
-    JSON.stringify(current.brief_profiles) !== JSON.stringify(next.brief_profiles) ||
+    JSON.stringify(withoutDesign(current.brief_profiles)) !== JSON.stringify(withoutDesign(next.brief_profiles)) ||
     JSON.stringify(current.default_profile_by_role) !==
       JSON.stringify(next.default_profile_by_role) ||
     current.fallback_profile !== next.fallback_profile ||
@@ -792,6 +833,12 @@ export const updatePhoneAssistantPolicy = async (models, payload = {}) => {
 /** Applies narrowly-scoped policy edits without allowing arbitrary document writes. */
 export const patchPhoneAssistantPolicy = async (models, updates = []) => {
   const allowed = new Set([
+    "approval_mode", "auto_suspend_days", "offline_wipe_days",
+    "overlay.position", "overlay.auto_dismiss_seconds", "overlay.show_for", "unknown_caller", "shared_number",
+    "desktop_popup.size",
+    "contact_sync.allowed_modes",
+    "call_logging.allowed_scopes", "call_logging.store_unknown_numbers", "call_logging.business_hours_only", "call_logging.business_hours", "call_logging.retention_days",
+    "after_call_card.enabled", "after_call_card.auto_dismiss_seconds",
     "sync.stale_after_minutes", "sync.warn_after_hours", "sync.show_sync_footer",
     "call_screen.allow_phone_text_scale", "call_screen.min", "call_screen.max", "call_screen.respect_system_font",
     "notifications.default_language", "notifications.allowed_languages", "notifications.bilingual", "notifications.format.currency", "notifications.format.date", "notifications.format.time", "notifications.format.digits",
@@ -1014,7 +1061,7 @@ export const resolveDeviceCapabilities = ({
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
-export const computeDeviceHealthWarnings = (device, nowMs = Date.now()) => {
+export const computeDeviceHealthWarnings = (device, nowMs = Date.now(), warnAfterHours = 24) => {
   const warnings = [];
   const status = device?.status || "ACTIVE";
   if (status === "PENDING") warnings.push("pending_approval");
@@ -1023,6 +1070,13 @@ export const computeDeviceHealthWarnings = (device, nowMs = Date.now()) => {
     const lastMs = new Date(device.last_seen_at).getTime();
     if (Number.isFinite(lastMs) && nowMs - lastMs > SEVEN_DAYS_MS) {
       warnings.push("not_seen_7d");
+    }
+  }
+  if (device?.is_native_app && status === "ACTIVE") {
+    const syncedMs = device?.briefs_synced_at ? new Date(device.briefs_synced_at).getTime() : null;
+    const limit = Number(warnAfterHours) > 0 ? Number(warnAfterHours) * 3600 * 1000 : 24 * 3600 * 1000;
+    if (syncedMs !== null && Number.isFinite(syncedMs) && nowMs - syncedMs > limit) {
+      warnings.push("brief_sync_stale");
     }
   }
   const reported = parseJsonField(device?.reported_state, null);
