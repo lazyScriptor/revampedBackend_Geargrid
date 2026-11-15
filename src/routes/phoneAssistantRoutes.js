@@ -18,6 +18,7 @@ import {
   DeletePushTemplateContract,
   PreviewPushTemplateContract,
   SendCallScreenSampleContract,
+  SendPushTemplateTestContract,
 } from "@geargrid/contracts";
 import { protect } from "../middlewares/authMiddleware.js";
 import { requireFeature } from "../middlewares/planMiddleware.js";
@@ -30,7 +31,8 @@ import * as pushEventService from "../services/pushEventService.js";
 import * as deviceService from "../services/deviceService.js";
 import * as phoneAssistantPolicyService from "../services/phoneAssistantPolicyService.js";
 import * as pushTemplateService from "../services/pushTemplateService.js";
-import { sendDataPush } from "../services/devicePushService.js";
+import { sendDataPush, sendToUsers } from "../services/devicePushService.js";
+import { PUSH_EVENTS_BY_KEY } from "../config/pushEvents.js";
 import AppError from "../utils/AppError.js";
 
 const router = express.Router();
@@ -205,12 +207,25 @@ registerContract(router, DeletePushTemplateContract, {
 registerContract(router, PreviewPushTemplateContract, {
   basePath: "/phone-assistant", middlewares: [requireAdmin],
   handler: async ({ body, req }) => {
-    pushTemplateService.validateTemplate(body.event_key, body);
     const models = resolveTenantModels(req);
     const { policy } = await phoneAssistantPolicyService.getPhoneAssistantPolicy(models);
-    const vars = { customer: "Nimal Perera", amount: 12000, balance: 2500, invoice_no: "INV-1042", items_count: 3, items: "Mixer", staff: "Kasun", date: "15 Nov", time: "14:05", shop: "GearGrid", contact: "Nimal", phone: "0771234567", reason: "Sample" };
-    const render = async (privateMode) => pushTemplateService.renderForRecipient(models, body.event_key, vars, { language: body.language, hideAmounts: privateMode, hideCustomer: privateMode, policy });
-    return { normal: await render(false), private: await render(true) };
+    const draft = { ...body };
+    return {
+      normal: await pushTemplateService.renderDraft(models, body.event_key, draft, policy),
+      private: await pushTemplateService.renderDraft(models, body.event_key, draft, policy, { privateMode: true }),
+    };
+  },
+});
+
+registerContract(router, SendPushTemplateTestContract, {
+  basePath: "/phone-assistant", middlewares: [requireAdmin],
+  handler: async ({ body, req }) => {
+    const models = resolveTenantModels(req);
+    const { policy } = await phoneAssistantPolicyService.getPhoneAssistantPolicy(models);
+    const text = await pushTemplateService.renderDraft(models, body.event_key, body, policy, { privateMode: Boolean(body.private) });
+    const userId = req.user?.userId || req.user?.id;
+    const res = await sendToUsers(models, [userId], { title: text.title, body: text.body, data: { type: "template_test" }, channel: PUSH_EVENTS_BY_KEY[body.event_key]?.group || "bills" });
+    return { reached: Number(res?.reached ?? 0), title: text.title, body: text.body };
   },
 });
 

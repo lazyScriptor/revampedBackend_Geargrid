@@ -23,6 +23,7 @@ const {
   listTemplates,
   formatNotificationDate,
   formatNotificationTime,
+  renderDraft,
 } = await import("../../src/services/pushTemplateService.js");
 const {
   mergePhoneAssistantPolicy,
@@ -231,6 +232,18 @@ describe("notification templates", () => {
     expect(resolveNotificationLanguage({ policy })).toBe("si");
     expect(resolveNotificationLanguage({ deviceLanguage: "si-Latn", policy })).toBe("si");
     expect(resolveNotificationLanguage({})).toBe("en");
+  });
+});
+
+describe("template drafts", () => {
+  it("renders an unsaved draft in normal and private form and rejects bad placeholders", async () => {
+    const draft = { language: "en", title: "Bill {invoice_no}", body: "{customer}[ · {amount}]" };
+    const policy = { notifications: { format: { currency: "LKR", date: "dd MMM", time: "24h" } } };
+    const normal = await renderDraft({}, "invoice_created", draft, policy);
+    const hidden = await renderDraft({}, "invoice_created", draft, policy, { privateMode: true });
+    expect(normal.body).toBe("Nimal Perera · LKR 12,000");
+    expect(hidden.body).toBe("");
+    await expect(renderDraft({}, "invoice_created", { ...draft, body: "{nope}" }, policy)).rejects.toThrow(/\{nope\}/);
   });
 });
 

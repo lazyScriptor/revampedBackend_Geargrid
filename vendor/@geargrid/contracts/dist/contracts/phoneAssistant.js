@@ -1020,4 +1020,18 @@ export const SendCallScreenSampleContract = {
     body: z.object({ profile_id: z.string().max(40).optional() }).optional(),
     response: successEnvelope(z.object({ reached: NonNegativeInt })),
 };
+export const SendPushTemplateTestContract = {
+    path: "/phone-assistant/templates/test",
+    method: "POST",
+    body: z.object({
+        event_key: z.string(),
+        language: z.enum(["en", "si", "ta", "si-Latn"]),
+        title: z.string().max(160),
+        body: z.string().max(500),
+        title_private: z.string().max(160).nullable().optional(),
+        body_private: z.string().max(500).nullable().optional(),
+        private: z.boolean().optional(),
+    }),
+    response: successEnvelope(z.object({ reached: NonNegativeInt, title: z.string(), body: z.string() })),
+};
 //# sourceMappingURL=phoneAssistant.js.map

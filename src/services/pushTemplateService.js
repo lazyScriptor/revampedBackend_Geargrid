@@ -135,3 +135,24 @@ export const resetTemplate = async (models, eventKey, language) => {
   await models.PushTemplate?.destroy?.({ where: { event_key: eventKey, language } });
   return { restored: true };
 };
+
+export const SAMPLE_TEMPLATE_VARS = {
+  customer: "Nimal Perera", amount: 12000, balance: 2500, invoice_no: "1042", items_count: 3, items: "Mixer, Breaker",
+  staff: "Kasun", date: "2026-11-15T09:00:00Z", time: "2026-11-15T09:05:00Z", shop: "GearGrid", contact: "Nimal", phone: "0771234567", reason: "Sample",
+};
+
+/**
+ * Renders a draft (not yet saved) template with sample values, in normal or private form, using the
+ * shop's formats. Used by the editor's preview and its "send this to my phone" test.
+ */
+export const renderDraft = async (models, eventKey, draft, policy, { privateMode = false } = {}) => {
+  validateTemplate(eventKey, draft);
+  const base = {
+    title: draft.title, body: draft.body,
+    title_private: draft.title_private || null, body_private: draft.body_private || null,
+  };
+  const fake = { PushTemplate: { findOne: async () => base } };
+  return renderForRecipient(fake, eventKey, SAMPLE_TEMPLATE_VARS, {
+    language: draft.language || "en", hideAmounts: privateMode, hideCustomer: privateMode, policy,
+  });
+};

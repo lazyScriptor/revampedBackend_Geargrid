@@ -3799,4 +3799,31 @@ export declare const SendCallScreenSampleContract: {
         }, z.core.$strip>;
     }, z.core.$strip>;
 };
+export declare const SendPushTemplateTestContract: {
+    readonly path: "/phone-assistant/templates/test";
+    readonly method: "POST";
+    readonly body: z.ZodObject<{
+        event_key: z.ZodString;
+        language: z.ZodEnum<{
+            en: "en";
+            si: "si";
+            ta: "ta";
+            "si-Latn": "si-Latn";
+        }>;
+        title: z.ZodString;
+        body: z.ZodString;
+        title_private: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        body_private: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        private: z.ZodOptional<z.ZodBoolean>;
+    }, z.core.$strip>;
+    readonly response: z.ZodObject<{
+        status: z.ZodLiteral<"success">;
+        message: z.ZodOptional<z.ZodString>;
+        data: z.ZodObject<{
+            reached: z.ZodCoercedNumber<unknown>;
+            title: z.ZodString;
+            body: z.ZodString;
+        }, z.core.$strip>;
+    }, z.core.$strip>;
+};
 //# sourceMappingURL=phoneAssistant.d.ts.map
