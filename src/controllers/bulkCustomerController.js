@@ -34,6 +34,7 @@ export const importCustomers = catchAsync(async (req, res, next) => {
   const result = await bulkCustomerService.importCustomers(
     getModels(req),
     req.file.buffer,
+    req.user?.userId || req.user?.id || null,
   );
   res.status(200).json({ status: "success", data: result });
 });

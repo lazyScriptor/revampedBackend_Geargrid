@@ -21,6 +21,7 @@ export const FEATURE_GROUPS = [
     { key: "workforce", requires: "maintenance" },
     { key: "cash_locker" },
     { key: "messages" },
+    { key: "phone_assistant" },
   ] },
   { key: "data", features: [
     { key: "data.imports" }, { key: "data.add_machines" }, { key: "data.equipment_sheet" }, { key: "data.exports" },
@@ -52,7 +53,11 @@ export const DEFAULT_PLANS = {
   Pro: {
     price: 9900,
     limits: { max_equipment: null, max_users: 15, max_locations: null },
-    features: allOn(),
+    features: {
+      ...allOn(),
+      // Phone Assistant is Enterprise-only by default.
+      phone_assistant: false,
+    },
   },
   Enterprise: {
     price: null,

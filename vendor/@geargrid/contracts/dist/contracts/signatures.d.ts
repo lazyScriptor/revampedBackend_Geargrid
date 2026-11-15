@@ -304,6 +304,8 @@ export declare const ClaimPairingCodeContract: {
         data: z.ZodObject<{
             operator_device_id: z.ZodCoercedNumber<unknown>;
             device_id: z.ZodString;
+            tenant_db_name: z.ZodOptional<z.ZodString>;
+            device_token: z.ZodOptional<z.ZodString>;
             operator: z.ZodObject<{
                 user_id: z.ZodCoercedNumber<unknown>;
                 operator_name: z.ZodString;
@@ -358,6 +360,12 @@ export declare const ListMyDevicesContract: {
                 user_agent: z.ZodNullable<z.ZodString>;
                 paired_at: z.ZodString;
                 last_seen_at: z.ZodNullable<z.ZodString>;
+                is_native_app: z.ZodOptional<z.ZodBoolean>;
+                app_version: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                contact_sync_enabled: z.ZodOptional<z.ZodBoolean>;
+                contact_count: z.ZodOptional<z.ZodCoercedNumber<unknown>>;
+                contacts_synced_at: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                briefs_synced_at: z.ZodOptional<z.ZodNullable<z.ZodString>>;
             }, z.core.$strip>>;
         }, z.core.$strip>;
     }, z.core.$strip>;

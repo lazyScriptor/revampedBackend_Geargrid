@@ -1,4 +1,6 @@
+import { Op } from "sequelize";
 import { streamParseCsv, countCsvRows } from "./_helpers.js";
+import { syncCustomerPhones } from "../../services/customerPhoneService.js";
 
 const norm = (k) => String(k || "").trim().toLowerCase();
 const pickRow = (raw) => {
@@ -58,15 +60,53 @@ export default async function importCustomers(ctx) {
 
       if (validRows.length > 0) {
         try {
-          await models.Customer.bulkCreate(validRows, {
-            validate: false,
-            ignoreDuplicates: true,
-          });
-          inserted += validRows.length;
+          const runBatch = async (t) => {
+            const opts = t ? { transaction: t } : {};
+            const created = await models.Customer.bulkCreate(validRows, {
+              validate: false,
+              ignoreDuplicates: true,
+              ...opts,
+            });
+            inserted += validRows.length;
+
+            if (models.CustomerPhone) {
+              const byId = new Map();
+              for (const c of created || []) {
+                if (c?.customer_id) byId.set(c.customer_id, c);
+              }
+              const nics = validRows.map((r) => r.nic_number).filter(Boolean);
+              if (byId.size === 0 && nics.length > 0) {
+                const fetched = await models.Customer.findAll({
+                  where: { nic_number: { [Op.in]: nics } },
+                  attributes: ["customer_id", "phone_number", "customer_delete_status"],
+                  ...opts,
+                });
+                for (const c of fetched) byId.set(c.customer_id, c);
+              }
+              for (const cust of byId.values()) {
+                await syncCustomerPhones(models, cust, opts);
+              }
+            }
+          };
+
+          if (models.sequelize?.transaction) {
+            await models.sequelize.transaction(runBatch);
+          } else {
+            await runBatch(undefined);
+          }
         } catch (err) {
           for (const row of validRows) {
             try {
-              await models.Customer.create(row);
+              const runSingle = async (t) => {
+                const opts = t ? { transaction: t } : {};
+                const created = await models.Customer.create(row, opts);
+                await syncCustomerPhones(models, created, opts);
+              };
+              if (models.sequelize?.transaction) {
+                await models.sequelize.transaction(runSingle);
+              } else {
+                await runSingle(undefined);
+              }
               inserted += 1;
             } catch (innerErr) {
               skipped += 1;
