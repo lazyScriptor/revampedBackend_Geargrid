@@ -461,8 +461,9 @@ describe("GearGrid Phone Assistant — Release 2 Part B (Device Trust)", () => {
     expect(res1.reasons.bill_view).toBe("role");
     expect(res1.effective.contact_sync).toBe(false);
     expect(res1.reasons.contact_sync).toBe("phone_switch");
-    expect(res1.effective.push).toBe(false);
-    expect(res1.reasons.push).toBe("os_permission");
+    // A reported Android permission no longer blocks (it can be stale); the card warns instead.
+    expect(res1.effective.push).toBe(true);
+    expect(res1.reasons.push).toBeNull();
     expect(res1.effective.click_to_call).toBe(false);
     expect(res1.reasons.click_to_call).toBe("shop_policy");
 
