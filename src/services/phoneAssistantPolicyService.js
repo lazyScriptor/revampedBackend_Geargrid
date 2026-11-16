@@ -990,25 +990,6 @@ export const resolveDeviceCapabilities = ({
     return true;
   };
 
-  const checkOsPermission = (cap) => {
-    if (!reported || typeof reported !== "object") return true;
-    if (cap === "caller_brief") {
-      return (
-        reported.call_screening_role !== false && reported.overlay_permission !== false
-      );
-    }
-    if (cap === "push") {
-      return reported.notifications_permission !== false;
-    }
-    if (cap === "contact_sync") {
-      return reported.contacts_permission !== false;
-    }
-    if (cap === "call_logging") {
-      return reported.call_log_permission !== false;
-    }
-    return true;
-  };
-
   for (const cap of DEVICE_CAPABILITY_KEYS) {
     if (deviceStatus === "REVOKED" || !userActive) {
       effective[cap] = false;
@@ -1055,11 +1036,10 @@ export const resolveDeviceCapabilities = ({
       reasons[cap] = "phone_switch";
       continue;
     }
-    if (!checkOsPermission(cap)) {
-      effective[cap] = false;
-      reasons[cap] = "os_permission";
-      continue;
-    }
+    // Android permissions are not a reason to refuse server data. The phone checks its own
+    // permissions before drawing anything, and the reported state can be stale (it was sent at
+    // pairing, before the user granted them), which blocked caller briefs on a correctly set up
+    // phone. The device card still shows them as health warnings.
 
     effective[cap] = true;
     reasons[cap] = null;
