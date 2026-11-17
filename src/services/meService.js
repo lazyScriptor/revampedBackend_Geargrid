@@ -4,6 +4,7 @@ import fs from "fs";
 import { Op } from "sequelize";
 import AppError from "../utils/AppError.js";
 import { getMasterModels } from "../models/master/index.js";
+import { START_PAGES } from "../config/startPages.js";
 
 // Fields the user is allowed to update on themselves. Everything else
 // (username/email/roles/permissions/warehouse) is admin-only.
@@ -23,6 +24,7 @@ const SELF_EDITABLE_PREFERENCE_FIELDS = [
   "date_format",
   "time_format",
   "notification_prefs",
+  "start_page",
 ];
 
 const PUBLIC_USER_ATTRS = [
@@ -45,6 +47,7 @@ const PUBLIC_USER_ATTRS = [
   "date_format",
   "time_format",
   "notification_prefs",
+  "start_page",
   "last_login_at",
   "last_login_ip",
   "password_changed_at",
@@ -145,6 +148,13 @@ export const updateMyPreferences = async (models, userId, payload) => {
   }
   if (updates.time_format && !["12h", "24h"].includes(updates.time_format)) {
     throw new AppError("time_format must be '12h' or '24h'.", 400);
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "start_page")) {
+    // Empty clears the choice, which means the default start page.
+    if (updates.start_page === "" || updates.start_page === undefined) updates.start_page = null;
+    if (updates.start_page !== null && !START_PAGES.includes(updates.start_page)) {
+      throw new AppError(`start_page must be one of: ${START_PAGES.join(", ")}.`, 400);
+    }
   }
   if (Object.keys(updates).length === 0) {
     return getMyProfile(models, userId);

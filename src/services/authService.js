@@ -188,6 +188,8 @@ export const loginUser = async (identifier, password) => {
       // the matching i18n pack on first paint. Resolution order:
       //   tenantUser.language (per-user override) → tenant.default_language → "si"
       language: tenantUser.language || tenantDefaultLanguage || "si",
+      // Page to open after signing in; null means the default (Invoicing).
+      start_page: tenantUser.start_page || null,
       configData: configData ? { ...configData, tenant_default_language: tenantDefaultLanguage } : { tenant_default_language: tenantDefaultLanguage },
       permissions: effectivePermissions, // ✅ Now includes user-level overrides
       // Sent with the login so the menu is right from the first screen.
