@@ -2,6 +2,7 @@ import * as equipmentService from "../services/equipmentService.js";
 import * as equipmentNumbers from "../services/equipmentNumberService.js";
 import { getCachedTenantConnection } from "../config/database.js";
 import { initTenantModels } from "../models/index.js";
+import { requirePermission } from "../middlewares/authMiddleware.js";
 import catchAsync from "../utils/catchAsync.js";
 
 const getModels = (req) => {
@@ -31,6 +32,23 @@ export const bulkSaveEquipment = catchAsync(async (req, res) => {
 
 export const saveEquipmentSheet = catchAsync(async (req, res) => {
   const data = await equipmentNumbers.saveEquipmentSheet(getModels(req), req.body);
+  res.status(200).json({ status: "success", data });
+});
+
+export const importEquipmentSave = catchAsync(async (req, res, next) => {
+  if (Array.isArray(req.body?.newCategories) && req.body.newCategories.length > 0) {
+    let permErr = null;
+    await new Promise((resolve) => {
+      requirePermission("category:create")(req, res, (err) => {
+        permErr = err || null;
+        resolve();
+      });
+    });
+    if (permErr) return next(permErr);
+  }
+  const data = await equipmentNumbers.importEquipmentRows(getModels(req), req.body, {
+    userId: req.user?.userId,
+  });
   res.status(200).json({ status: "success", data });
 });
 

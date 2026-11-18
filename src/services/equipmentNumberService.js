@@ -239,6 +239,53 @@ const SHEET_FIELDS = [
 ];
 const sheetValues = (raw) => Object.fromEntries(SHEET_FIELDS.filter((f) => raw?.[f] !== undefined).map((f) => [f, raw[f]]));
 
+const checkAndWriteSheetChanges = async (models, { updates = [], creates = [], deletes = [] }, t) => {
+  const ids = [...updates.map((u) => Number(u.equipment_id)), ...deletes.map((d) => Number(d.equipment_id))];
+  const current = ids.length ? await models.Equipment.findAll({ where: { equipment_id: { [Op.in]: ids } }, transaction: t, lock: t.LOCK?.UPDATE }) : [];
+  const byId = new Map(current.map((m) => [Number(m.equipment_id), m]));
+
+  const errors = [];
+  const keys = [];
+  const rows = [];
+  for (const u of updates) {
+    const machine = byId.get(Number(u.equipment_id));
+    if (!machine) {
+      errors.push({ key: u.key, field: "equipment_name", code: "machine_missing" });
+      continue;
+    }
+    keys.push(u.key);
+    rows.push({ ...machine.toJSON(), ...sheetValues(u.changes), equipment_id: Number(u.equipment_id) });
+  }
+  for (const c of creates) {
+    keys.push(c.key);
+    rows.push(sheetValues(c.values));
+  }
+  for (const d of deletes) {
+    const machine = byId.get(Number(d.equipment_id));
+    if (!machine) errors.push({ key: d.key, field: "row", code: "machine_missing" });
+    else if (Number(machine.rented_qty) > 0) errors.push({ key: d.key, field: "row", code: "still_rented" });
+  }
+
+  const result = rows.length ? await saveRows(models, rows, t) : { saved: true, rows: [] };
+  if (!result.saved) errors.push(...result.errors.map(({ row, field, code }) => ({ key: keys[row], field, code })));
+  if (errors.length) return { saved: false, errors };
+
+  let archived = 0;
+  for (const d of deletes) {
+    if ((await deleteEquipment(models, Number(d.equipment_id), { transaction: t })).archived) archived++;
+  }
+  const updateKeys = new Set(updates.map((u) => u.key));
+  return {
+    saved: true,
+    created: result.rows
+      .filter((r) => !updateKeys.has(keys[r.row]))
+      .map((r) => ({ key: keys[r.row], equipment_id: r.equipment_id, serial_number: r.serial_number })),
+    updated: updates.length,
+    deleted: deletes.length,
+    archived,
+  };
+};
+
 /**
  * Save the equipment sheet in one go: `updates` carry only the changed cells, so a value someone
  * else changed meanwhile is kept. Any problem saves nothing and is returned against the row's `key`.
@@ -248,47 +295,155 @@ export const saveEquipmentSheet = async (models, { updates = [], creates = [], d
   if (updates.length + creates.length + deletes.length === 0) throw new AppError("Nothing to save.", 400);
   if (updates.length + creates.length > MAX_ROWS * 4) throw new AppError(`Save at most ${MAX_ROWS * 4} rows at a time.`, 400);
 
-  return models.sequelize.transaction(async (t) => {
-    const ids = [...updates.map((u) => Number(u.equipment_id)), ...deletes.map((d) => Number(d.equipment_id))];
-    const current = ids.length ? await models.Equipment.findAll({ where: { equipment_id: { [Op.in]: ids } }, transaction: t, lock: t.LOCK?.UPDATE }) : [];
-    const byId = new Map(current.map((m) => [Number(m.equipment_id), m]));
+  const res = await models.sequelize.transaction((t) =>
+    checkAndWriteSheetChanges(models, { updates, creates, deletes }, t),
+  );
+  if (!res.saved) return res;
+  return {
+    ...res,
+    created: res.created.map(({ key, equipment_id }) => ({ key, equipment_id })),
+  };
+};
 
-    const errors = [];
-    const keys = [];
-    const rows = [];
-    for (const u of updates) {
-      const machine = byId.get(Number(u.equipment_id));
-      if (!machine) {
-        errors.push({ key: u.key, field: "equipment_name", code: "machine_missing" });
-        continue;
+const NEWCAT_REF_RE = /^newcat:\d+$/;
+
+/**
+ * Save imported equipment rows (and optional new categories) in ONE all-or-nothing transaction.
+ * Any error rolls back both equipment writes and created categories, returning `{ saved: false, errors }`.
+ */
+export const importEquipmentRows = async (
+  models,
+  { newCategories = [], creates = [], updates = [] } = {},
+  { userId = null } = {},
+) => {
+  if (![newCategories, creates, updates].every(Array.isArray)) {
+    throw new AppError("Invalid import payload.", 400);
+  }
+  if (creates.length + updates.length === 0) {
+    throw new AppError("Nothing to import.", 400);
+  }
+  if (creates.length + updates.length > MAX_ROWS * 4) {
+    throw new AppError(`Import at most ${MAX_ROWS * 4} rows at a time.`, 400);
+  }
+
+  const seenRefs = new Set();
+  for (const cat of newCategories) {
+    if (!cat || typeof cat !== "object" || !NEWCAT_REF_RE.test(String(cat.ref ?? ""))) {
+      throw new AppError("Invalid newCategories ref.", 400);
+    }
+    if (seenRefs.has(cat.ref)) {
+      throw new AppError("Duplicate newCategories ref.", 400);
+    }
+    seenRefs.add(cat.ref);
+    const trimmed = String(cat.name ?? "").trim();
+    if (trimmed.length < 2 || trimmed.length > 100) {
+      throw new AppError("Category name must be between 2 and 100 characters.", 400);
+    }
+  }
+  for (const c of creates) {
+    if (!c || typeof c !== "object" || !c.key || !c.values || typeof c.values !== "object") {
+      throw new AppError("Invalid create row.", 400);
+    }
+  }
+  for (const u of updates) {
+    if (!u || typeof u !== "object" || !u.key || !(Number(u.equipment_id) > 0) || !u.changes || typeof u.changes !== "object") {
+      throw new AppError("Invalid update row.", 400);
+    }
+  }
+
+  try {
+    return await models.sequelize.transaction(async (t) => {
+      const existingCats = await models.EquipmentCategory.findAll({
+        attributes: ["category_id", "category_name"],
+        raw: true,
+        transaction: t,
+      });
+      const catByLower = new Map(
+        existingCats.map((c) => [String(c.category_name ?? "").trim().toLowerCase(), Number(c.category_id)]),
+      );
+
+      const refToCatId = new Map();
+      const categoriesCreated = [];
+      for (const cat of newCategories) {
+        const trimmed = String(cat.name).trim();
+        const lower = trimmed.toLowerCase();
+        let catId = catByLower.get(lower);
+        let finalName = trimmed;
+        if (catId) {
+          const match = existingCats.find((e) => Number(e.category_id) === catId);
+          if (match?.category_name) finalName = match.category_name;
+        } else {
+          const createdCat = await models.EquipmentCategory.create(
+            { category_name: trimmed, description: "Added by import" },
+            { transaction: t },
+          );
+          catId = Number(createdCat.category_id);
+          catByLower.set(lower, catId);
+        }
+        refToCatId.set(cat.ref, catId);
+        categoriesCreated.push({ ref: cat.ref, category_id: catId, name: finalName });
       }
-      keys.push(u.key);
-      rows.push({ ...machine.toJSON(), ...sheetValues(u.changes), equipment_id: Number(u.equipment_id) });
-    }
-    for (const c of creates) {
-      keys.push(c.key);
-      rows.push(sheetValues(c.values));
-    }
-    for (const d of deletes) {
-      const machine = byId.get(Number(d.equipment_id));
-      if (!machine) errors.push({ key: d.key, field: "row", code: "machine_missing" });
-      else if (Number(machine.rented_qty) > 0) errors.push({ key: d.key, field: "row", code: "still_rented" });
-    }
 
-    const result = rows.length ? await saveRows(models, rows, t) : { saved: true, rows: [] };
-    if (!result.saved) errors.push(...result.errors.map(({ row, field, code }) => ({ key: keys[row], field, code })));
-    if (errors.length) return { saved: false, errors };
+      // A row being updated can move to a new category too, so both lists carry newcat:* refs.
+      const resolveRef = (values) => {
+        const rawCatId = values?.category_id;
+        if (typeof rawCatId === "string" && rawCatId.startsWith("newcat:")) {
+          return { ...values, category_id: refToCatId.get(rawCatId) ?? 0 };
+        }
+        return values;
+      };
+      const resolvedCreates = creates.map((c) => ({ ...c, values: resolveRef(c.values) }));
+      const resolvedUpdates = updates.map((u) => ({ ...u, changes: resolveRef(u.changes) }));
 
-    let archived = 0;
-    for (const d of deletes) {
-      if ((await deleteEquipment(models, Number(d.equipment_id), { transaction: t })).archived) archived++;
-    }
-    return {
-      saved: true,
-      created: result.rows.filter((r) => !updates.some((u) => u.key === keys[r.row])).map((r) => ({ key: keys[r.row], equipment_id: r.equipment_id })),
-      updated: updates.length,
-      deleted: deletes.length,
-      archived,
-    };
-  });
+      const res = await checkAndWriteSheetChanges(
+        models,
+        { updates: resolvedUpdates, creates: resolvedCreates, deletes: [] },
+        t,
+      );
+
+      if (!res.saved) {
+        const err = new Error("__IMPORT_ROLLBACK__");
+        err.importResult = { saved: false, errors: res.errors };
+        throw err;
+      }
+
+      if (typeof models.BulkJob?.create === "function" && userId) {
+        const total = creates.length + updates.length;
+        await models.BulkJob.create(
+          {
+            user_id: Number(userId),
+            operation: "import_equipment",
+            entity: "equipment",
+            mode: "import",
+            status: "completed",
+            progress: 100,
+            total_count: total,
+            processed_count: total,
+            error_count: 0,
+            input_file_path: null,
+            started_at: new Date(),
+            finished_at: new Date(),
+            result_payload: {
+              summary: {
+                created: res.created.length,
+                updated: res.updated,
+                categoriesCreated: categoriesCreated.length,
+              },
+            },
+          },
+          { transaction: t },
+        );
+      }
+
+      return {
+        saved: true,
+        created: res.created,
+        updated: res.updated,
+        categoriesCreated,
+      };
+    });
+  } catch (err) {
+    if (err?.importResult) return err.importResult;
+    throw err;
+  }
 };

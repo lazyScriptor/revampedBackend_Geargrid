@@ -8,9 +8,21 @@ const getModels = (req) => {
   return initTenantModels(connection);
 };
 
-export const downloadTemplate = catchAsync(async (req, res, next) => {
-  const csvData = bulkEquipmentService.generateTemplate();
+export const downloadTemplate = catchAsync(async (req, res) => {
+  if (String(req.query.format || "").toLowerCase() === "xlsx") {
+    const buf = await bulkEquipmentService.generateExcelTemplate(getModels(req));
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    res.setHeader(
+      "Content-Disposition",
+      "attachment; filename=geargrid_equipment_template.xlsx",
+    );
+    return res.status(200).send(buf);
+  }
 
+  const csvData = bulkEquipmentService.generateTemplate();
   res.setHeader("Content-Type", "text/csv");
   res.setHeader(
     "Content-Disposition",
@@ -19,7 +31,7 @@ export const downloadTemplate = catchAsync(async (req, res, next) => {
   res.status(200).send(csvData);
 });
 
-export const exportEquipment = catchAsync(async (req, res, next) => {
+export const exportEquipment = catchAsync(async (req, res) => {
   const csvData = await bulkEquipmentService.exportEquipment(getModels(req));
 
   res.setHeader("Content-Type", "text/csv");
@@ -28,24 +40,4 @@ export const exportEquipment = catchAsync(async (req, res, next) => {
     `attachment; filename=geargrid_export_${new Date().getTime()}.csv`,
   );
   res.status(200).send(csvData);
-});
-
-export const importEquipment = catchAsync(async (req, res, next) => {
-  // Ensure Multer successfully attached the file to the request
-  if (!req.file) {
-    return res
-      .status(400)
-      .json({ status: "error", message: "No CSV file uploaded." });
-  }
-
-  // req.file.buffer contains the file data in memory
-  const result = await bulkEquipmentService.importEquipment(
-    getModels(req),
-    req.file.buffer,
-  );
-
-  res.status(200).json({
-    status: "success",
-    data: result, // Contains successCount and the errors array
-  });
 });

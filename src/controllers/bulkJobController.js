@@ -27,6 +27,7 @@ const EXPORT_OPERATIONS = {
 };
 
 const IMPORT_OPERATIONS = {
+  // @deprecated: the app uses POST /api/equipment/import-save
   equipment: "import_equipment",
   customers: "import_customers",
 };

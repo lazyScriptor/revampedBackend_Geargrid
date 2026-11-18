@@ -12,6 +12,7 @@ import {
   getNextEquipment,
   bulkSaveEquipment,
   saveEquipmentSheet,
+  importEquipmentSave,
 } from "../controllers/equipmentController.js";
 import { protect, requirePermission } from "../middlewares/authMiddleware.js";
 import { enforceLimit, requireFeature } from "../middlewares/planMiddleware.js";
@@ -55,6 +56,15 @@ router.post(
   // Deleting in the same save makes room for what it adds.
   enforceLimit("max_equipment", (req) => (req.body?.creates?.length ?? 0) - (req.body?.deletes?.length ?? 0)),
   saveEquipmentSheet,
+);
+
+router.post(
+  "/import-save",
+  requireFeature("data.imports"),
+  requirePermission("equipment:action:bulk_import"),
+  whenSheetHas("updates", "equipment:edit"),
+  enforceLimit("max_equipment", (req) => req.body?.creates?.length ?? 0),
+  importEquipmentSave,
 );
 
 // Bulk update equipment (MUST be before /:id)

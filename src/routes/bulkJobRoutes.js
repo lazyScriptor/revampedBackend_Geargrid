@@ -30,6 +30,7 @@ router.post(
   bulkJobController.createExportJob,
 );
 
+// @deprecated: equipment imports in the app use POST /api/equipment/import-save
 router.post(
   "/import/:entity",
   requireFeature("data.imports"),
