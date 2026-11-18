@@ -32,6 +32,8 @@ export default (sequelize) => {
       date_format: { type: DataTypes.STRING(20), allowNull: false, defaultValue: "YYYY-MM-DD" },
       time_format: { type: DataTypes.ENUM("12h", "24h"), allowNull: false, defaultValue: "24h" },
       notification_prefs: { type: DataTypes.JSON, allowNull: true },
+      // Page opened after signing in (see config/startPages.js). Null means Invoicing.
+      start_page: { type: DataTypes.STRING(40), allowNull: true },
       last_login_at: { type: DataTypes.DATE, allowNull: true },
       last_login_ip: { type: DataTypes.STRING(45), allowNull: true },
       password_changed_at: { type: DataTypes.DATE, allowNull: true },
