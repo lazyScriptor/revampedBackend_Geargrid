@@ -384,18 +384,20 @@ export const importEquipmentRows = async (
         categoriesCreated.push({ ref: cat.ref, category_id: catId, name: finalName });
       }
 
-      const resolvedCreates = creates.map((c) => {
-        const rawCatId = c.values?.category_id;
+      // A row being updated can move to a new category too, so both lists carry newcat:* refs.
+      const resolveRef = (values) => {
+        const rawCatId = values?.category_id;
         if (typeof rawCatId === "string" && rawCatId.startsWith("newcat:")) {
-          const mappedId = refToCatId.get(rawCatId) ?? 0;
-          return { ...c, values: { ...c.values, category_id: mappedId } };
+          return { ...values, category_id: refToCatId.get(rawCatId) ?? 0 };
         }
-        return c;
-      });
+        return values;
+      };
+      const resolvedCreates = creates.map((c) => ({ ...c, values: resolveRef(c.values) }));
+      const resolvedUpdates = updates.map((u) => ({ ...u, changes: resolveRef(u.changes) }));
 
       const res = await checkAndWriteSheetChanges(
         models,
-        { updates, creates: resolvedCreates, deletes: [] },
+        { updates: resolvedUpdates, creates: resolvedCreates, deletes: [] },
         t,
       );
 

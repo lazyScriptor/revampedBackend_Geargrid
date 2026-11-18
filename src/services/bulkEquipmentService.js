@@ -41,7 +41,7 @@ export const generateExcelTemplate = async (models) => {
     { header: "Base price", required: true, width: 14, format: "Number >= 0", note: "Required. Daily rental rate" },
     { header: "Extra/day", required: false, width: 14, format: "Number >= 0", note: "Optional. Defaults to Base price if blank" },
     { header: "Min days", required: false, width: 12, format: "Whole number >= 1", note: "Optional. Defaults to 1" },
-    { header: "Qty", required: false, width: 10, format: "yes / no", note: "Optional bulk item flag. Defaults to no (automatically yes if Total > 1)" },
+    { header: "Bulk", required: false, width: 10, format: "yes / no", note: "Optional bulk item flag. Defaults to no (automatically yes if Total > 1)" },
     { header: "Total", required: false, width: 10, format: "Whole number >= 1", note: "Optional total owned units. Defaults to 1" },
     { header: "Cost", required: false, width: 14, format: "Number >= 0", note: "Optional purchase cost" },
     { header: "Warr. mo", required: false, width: 12, format: "Whole number >= 0", note: "Optional warranty duration in months" },

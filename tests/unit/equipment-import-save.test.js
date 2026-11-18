@@ -239,6 +239,22 @@ describe("equipmentNumberService.importEquipmentRows", () => {
   });
 });
 
+describe("importEquipmentRows: new category on an updated machine", () => {
+  it("resolves newcat refs in updates as well as creates", async () => {
+    const { models, state } = buildModels({
+      machines: [{ equipment_id: 10, serial_number: "EQ-010", equipment_name: "Mixer - 1" }],
+    });
+    const res = await importEquipmentRows(models, {
+      newCategories: [{ ref: "newcat:1", name: "Mixers" }],
+      updates: [{ key: "r1", equipment_id: 10, changes: { category_id: "newcat:1" } }],
+    });
+    expect(res).toMatchObject({ saved: true, updated: 1 });
+    const created = state.cats.find((c) => c.category_name === "Mixers");
+    expect(created).toBeTruthy();
+    expect(state.machines[0].category_id).toBe(created.category_id);
+  });
+});
+
 describe("equipmentController.importEquipmentSave permission check", () => {
   it("returns 403 when newCategories is non-empty and the user lacks category:create", async () => {
     mockUserPermissions = ["equipment:action:bulk_import"];
