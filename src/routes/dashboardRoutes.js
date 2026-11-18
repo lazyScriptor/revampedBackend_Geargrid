@@ -17,6 +17,14 @@ router.get("/kpis",                 dashboardController.getKPIs);
 router.get("/utilization-sparkline",dashboardController.getUtilizationSparkline);
 router.get("/returns-today",        dashboardController.getReturnsDueToday);
 router.get("/maintenance-queue",    dashboardController.getMaintenanceQueue);
+router.get(
+  "/open-invoices",
+  (req, res, next) =>
+    req.query.view === "money"
+      ? requirePermission("inventory_permission")(req, res, next)
+      : next(),
+  dashboardController.getOpenInvoices,
+);
 
 // Admin template management
 router.get("/templates",            requirePermission("dashboard:manage_templates"), dashboardController.listTemplates);

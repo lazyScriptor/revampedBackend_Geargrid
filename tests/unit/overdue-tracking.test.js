@@ -16,7 +16,11 @@ describe("overdue is only about lines whose return date is tracked", () => {
       const { models, sqls } = capture();
       await run(models);
       expect(sqls[0]).toMatch(/earliest_due/);
-      expect(sqls[0]).toMatch(/track_overdue IS NULL OR track_overdue = TRUE/);
+      expect(sqls[0]).toMatch(/(l\.)?track_overdue IS NULL OR (l\.)?track_overdue = TRUE/);
+      // A part-returned line keeps line_status 'Active' but gets actual_return_date, so "still out"
+      // must come from the quantities, not from actual_return_date IS NULL.
+      expect(sqls[0]).not.toMatch(/actual_return_date IS NULL/);
+      expect(sqls[0]).toMatch(/borrow_quantity - COALESCE\(l\.good_returned_qty/);
     }
   });
 });
@@ -28,5 +32,13 @@ describe("dashboard overdue list", () => {
     const sql = sqls.find((s) => /days_overdue/.test(s));
     expect(sql).toMatch(/il\.expected_return_date <= CURDATE\(\)/);
     expect(sql).toMatch(/il\.track_overdue IS NULL OR il\.track_overdue = TRUE/);
+  });
+
+  it("keeps part-returned lines and shows only the units still out", async () => {
+    const { models, sqls } = capture();
+    await getReturnsDueToday(models, {});
+    const sql = sqls.find((s) => /days_overdue/.test(s));
+    expect(sql).not.toMatch(/actual_return_date IS NULL/);
+    expect(sql).toMatch(/GREATEST\(0, il\.borrow_quantity - COALESCE\(il\.good_returned_qty, 0\) - COALESCE\(il\.defective_returned_qty, 0\)\) AS borrow_quantity/);
   });
 });

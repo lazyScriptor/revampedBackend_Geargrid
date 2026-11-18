@@ -24,6 +24,17 @@ export const PAID_PER_INVOICE_SQL = `(
 /** SQL expression for what an invoice comes to so far (billed + charges so far for machines still out). */
 export const liveTotalExpr = (inv = "i") => `(${inv}.total_amount + COALESCE(${inv}.accrued_charges, 0))`;
 
+/** SQL: units of a line not yet back (borrowed − returned good − returned defective). */
+export const unitsOutExpr = (line = "il") =>
+  `GREATEST(0, ${line}.borrow_quantity - COALESCE(${line}.good_returned_qty, 0) - COALESCE(${line}.defective_returned_qty, 0))`;
+
+/**
+ * SQL condition: the line still has units out. A partial return writes `actual_return_date` but
+ * keeps the line 'Active' until every unit is back, so `actual_return_date IS NULL` is NOT a
+ * reliable "still out" test: it hides part-returned rentals.
+ */
+export const lineStillOutSql = (line = "il") => `(${line}.line_status = 'Active' AND ${unitsOutExpr(line)} > 0)`;
+
 /** SQL expression for a line's value so far. */
 export const liveLineTotalExpr = (line = "il") => `(${line}.line_total_amount + COALESCE(${line}.accrued_charge, 0))`;
 

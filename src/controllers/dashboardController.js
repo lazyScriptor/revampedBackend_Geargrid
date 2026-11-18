@@ -80,6 +80,22 @@ export const getMaintenanceQueue = catchAsync(async (req, res) => {
 });
 
 // ============================================================================
+// OPEN INVOICES (money owed & equipment not returned)
+// ============================================================================
+export const getOpenInvoices = catchAsync(async (req, res) => {
+  const { view, olderThanDays, onlyOverdue, warehouseId, limit } = req.query;
+  const data = await dashboardService.getOpenInvoices(getModels(req), {
+    view,
+    olderThanDays,
+    onlyOverdue,
+    warehouseId: warehouseId ? parseInt(warehouseId, 10) : null,
+    limit,
+    tenantTz: resolveTenantTz(req),
+  });
+  res.status(200).json({ status: "success", data });
+});
+
+// ============================================================================
 // TEMPLATES (admin management)
 // ============================================================================
 export const listTemplates = catchAsync(async (req, res) => {
