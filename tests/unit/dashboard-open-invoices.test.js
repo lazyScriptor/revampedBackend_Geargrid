@@ -252,6 +252,29 @@ describe("dashboardService.getOpenInvoices", () => {
     });
   });
 
+  it("counts part-returned lines as still out (quantities, not actual_return_date)", async () => {
+    const { models, sqls } = buildFakeModels({
+      mainRows: [{ invoice_id: 5, issued_date: "2026-11-01", age_days: 17, status: "Active", customer_id: 1,
+        first_name: "A", last_name: "B", live_total: 1000, paid: 0, owed: 1000, accrued_charges: 0,
+        units_out: 2, earliest_due_date: "2026-11-05", days_overdue: 13 }],
+    });
+    await getOpenInvoices(models, { view: "returns", olderThanDays: 0 });
+    for (const sql of sqls) {
+      expect(sql).not.toMatch(/actual_return_date IS NULL/);
+      expect(sql).toMatch(/il\.line_status = 'Active' AND GREATEST\(0, il\.borrow_quantity/);
+    }
+  });
+
+  it("flags invoices whose only lines out are open-ended", async () => {
+    const row = (id, open_ended) => ({ invoice_id: id, issued_date: "2026-11-01", age_days: 17, status: "Active",
+      customer_id: 1, first_name: "A", last_name: "B", live_total: 0, paid: 0, owed: 0, accrued_charges: 0,
+      units_out: 1, earliest_due_date: "2026-11-05", days_overdue: 0, open_ended });
+    const { models } = buildFakeModels({ mainRows: [row(1, 1), row(2, 0)] });
+    const res = await getOpenInvoices(models, { view: "returns", olderThanDays: 0 });
+    const byId = Object.fromEntries(res.rows.map((r) => [r.invoice_id, r.open_ended]));
+    expect(byId).toEqual({ 1: true, 2: false });
+  });
+
   it("registers open_money and open_returns in WIDGET_CATALOG and DEFAULT_LAYOUT", () => {
     const moneyDef = WIDGET_CATALOG.find((w) => w.widget_key === "open_money");
     const returnsDef = WIDGET_CATALOG.find((w) => w.widget_key === "open_returns");

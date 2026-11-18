@@ -1,7 +1,7 @@
 // invoiceReportService.js — invoice-centric reports for the Reports surface.
 
 import { Op, QueryTypes } from "sequelize";
-import { OPEN_INVOICE_STATUSES_SQL, PAID_PER_INVOICE_SQL, owedExpr, liveTotalExpr } from "../utils/invoiceBalance.js";
+import { OPEN_INVOICE_STATUSES_SQL, PAID_PER_INVOICE_SQL, owedExpr, liveTotalExpr, lineStillOutSql } from "../utils/invoiceBalance.js";
 import { parseTenantDayRange } from "../utils/dateRange.js";
 
 // Aging report — every active invoice with a positive balance, bucketed by
@@ -30,9 +30,9 @@ export const getInvoiceAging = async (models, filters = {}) => {
       LEFT JOIN ${PAID_PER_INVOICE_SQL} p ON p.invoice_id = i.invoice_id
       LEFT JOIN (
         SELECT invoice_id, MIN(expected_return_date) AS due_date
-        FROM INVOICE_LINES
-        WHERE line_status = 'Active' AND actual_return_date IS NULL
-        AND (track_overdue IS NULL OR track_overdue = TRUE)
+        FROM INVOICE_LINES l
+        WHERE ${lineStillOutSql("l")}
+        AND (l.track_overdue IS NULL OR l.track_overdue = TRUE)
         GROUP BY invoice_id
       ) earliest_due ON earliest_due.invoice_id = i.invoice_id
       WHERE i.status IN ${OPEN_INVOICE_STATUSES_SQL}

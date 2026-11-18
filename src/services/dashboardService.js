@@ -6,6 +6,8 @@ import {
   PAID_PER_INVOICE_SQL,
   liveTotalExpr,
   owedExpr,
+  unitsOutExpr,
+  lineStillOutSql,
 } from "../utils/invoiceBalance.js";
 import AppError from "../utils/AppError.js";
 
@@ -257,14 +259,13 @@ export const getReturnsDueToday = async (models, { warehouseId } = {}) => {
       c.phone_number,
       e.equipment_name,
       il.expected_return_date,
-      il.borrow_quantity,
+      ${unitsOutExpr("il")} AS borrow_quantity,
       DATEDIFF(CURDATE(), il.expected_return_date) AS days_overdue
     FROM INVOICE_LINES il
     JOIN INVOICES i   ON i.invoice_id   = il.invoice_id AND i.is_deleted = 0
     JOIN CUSTOMERS c  ON c.customer_id  = i.customer_id
     JOIN EQUIPMENT e  ON e.equipment_id = il.equipment_id
-    WHERE il.line_status = 'Active'
-      AND il.actual_return_date IS NULL
+    WHERE ${lineStillOutSql("il")}
       AND il.expected_return_date <= CURDATE()
       AND (il.track_overdue IS NULL OR il.track_overdue = TRUE)
       ${warehouseId ? "AND e.warehouse_id = :warehouseId" : ""}
@@ -475,29 +476,29 @@ export const getOpenInvoices = async (models, params = {}) => {
       CASE
         WHEN lines_agg.overdue_due_date IS NULL THEN 0
         ELSE GREATEST(0, DATEDIFF(:today, lines_agg.overdue_due_date))
-      END AS days_overdue
+      END AS days_overdue,
+      CASE WHEN lines_agg.units_out > 0 AND lines_agg.overdue_due_date IS NULL THEN 1 ELSE 0 END AS open_ended
     FROM INVOICES i
     JOIN CUSTOMERS c ON c.customer_id = i.customer_id
     LEFT JOIN ${PAID_PER_INVOICE_SQL} p ON p.invoice_id = i.invoice_id
     LEFT JOIN (
       SELECT
         il.invoice_id,
-        SUM(GREATEST(0, il.borrow_quantity - COALESCE(il.good_returned_qty, 0) - COALESCE(il.defective_returned_qty, 0))) AS units_out,
+        SUM(${unitsOutExpr("il")}) AS units_out,
         MIN(CASE
-          WHEN (il.borrow_quantity - COALESCE(il.good_returned_qty, 0) - COALESCE(il.defective_returned_qty, 0)) > 0
+          WHEN ${unitsOutExpr("il")} > 0
           THEN il.expected_return_date
           ELSE NULL
         END) AS earliest_due_date,
         MIN(CASE
-          WHEN (il.borrow_quantity - COALESCE(il.good_returned_qty, 0) - COALESCE(il.defective_returned_qty, 0)) > 0
+          WHEN ${unitsOutExpr("il")} > 0
             AND (il.track_overdue IS NULL OR il.track_overdue = TRUE)
           THEN il.expected_return_date
           ELSE NULL
         END) AS overdue_due_date
       FROM INVOICE_LINES il
       ${warehouseLinesFilter}
-      WHERE il.line_status = 'Active'
-        AND il.actual_return_date IS NULL
+      WHERE ${lineStillOutSql("il")}
         ${warehouseLinesWhere}
       GROUP BY il.invoice_id
     ) lines_agg ON lines_agg.invoice_id = i.invoice_id
@@ -539,6 +540,8 @@ export const getOpenInvoices = async (models, params = {}) => {
         items_out: [],
         earliest_due_date: r.earliest_due_date ? String(r.earliest_due_date).slice(0, 10) : null,
         days_overdue: Math.max(0, parseInt(r.days_overdue, 10) || 0),
+        // Every line still out is open-ended (track_overdue off): it has no real due date.
+        open_ended: hasItemsOut && Number(r.open_ended) === 1,
         is_unpaid: isUnpaid,
         has_items_out: hasItemsOut,
       };
@@ -598,12 +601,11 @@ export const getOpenInvoices = async (models, params = {}) => {
       `SELECT
         il.invoice_id,
         e.equipment_name AS name,
-        SUM(GREATEST(0, il.borrow_quantity - COALESCE(il.good_returned_qty, 0) - COALESCE(il.defective_returned_qty, 0))) AS qty
+        SUM(${unitsOutExpr("il")}) AS qty
       FROM INVOICE_LINES il
       JOIN EQUIPMENT e ON e.equipment_id = il.equipment_id
       WHERE il.invoice_id IN (:invoiceIds)
-        AND il.line_status = 'Active'
-        AND il.actual_return_date IS NULL
+        AND ${lineStillOutSql("il")}
         ${warehouseLinesWhere}
       GROUP BY il.invoice_id, il.equipment_id, e.equipment_name
       HAVING qty > 0
