@@ -1,6 +1,13 @@
-import { Op, fn, col } from "sequelize";
+import { Op, fn, col, QueryTypes } from "sequelize";
 import * as reportService from "./reportService.js";
 import { tenantTodayYmd, tenantNDaysAgoYmd } from "../utils/dateRange.js";
+import {
+  OPEN_INVOICE_STATUSES_SQL,
+  PAID_PER_INVOICE_SQL,
+  liveTotalExpr,
+  owedExpr,
+} from "../utils/invoiceBalance.js";
+import AppError from "../utils/AppError.js";
 
 // ============================================================================
 // WIDGET CATALOG — source of truth for all available widgets (code-defined,
@@ -63,6 +70,20 @@ export const WIDGET_CATALOG = [
     required_permission: "inventory_permission",
     default_w: 6, default_h: 4, min_w: 3, min_h: 3,
   },
+  {
+    widget_key: "open_money",
+    display_name: "Money Owed",
+    description: "Open invoices with unpaid balances, aged by issue date",
+    required_permission: "inventory_permission",
+    default_w: 6, default_h: 4, min_w: 3, min_h: 3,
+  },
+  {
+    widget_key: "open_returns",
+    display_name: "Equipment Not Returned",
+    description: "Open invoices with rental equipment still out",
+    required_permission: null,
+    default_w: 6, default_h: 4, min_w: 3, min_h: 3,
+  },
 ];
 
 export const DEFAULT_LAYOUT = [
@@ -74,6 +95,8 @@ export const DEFAULT_LAYOUT = [
   { i: "utilization_sparkline",x: 6, y: 2, w: 6, h: 3 },
   { i: "returns_today",       x: 0, y: 5, w: 6, h: 4 },
   { i: "maintenance_queue",   x: 6, y: 5, w: 6, h: 4 },
+  { i: "open_money",          x: 0, y: 9, w: 6, h: 4 },
+  { i: "open_returns",        x: 6, y: 9, w: 6, h: 4 },
 ];
 
 // Called per request so "today" is recomputed each time. Previously this was
@@ -332,4 +355,284 @@ export const deleteTemplate = async (models, templateId) => {
   const template = await models.DashboardTemplate.findByPk(templateId);
   if (!template) throw new Error("Template not found");
   await template.update({ is_active: false });
+};
+
+// ============================================================================
+// 8. OPEN INVOICES — unpaid money & equipment not yet returned
+// ============================================================================
+const ALLOWED_OPEN_AGE_DAYS = new Set([0, 7, 14, 30, 90]);
+const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+const parseOpenInvoicesParams = ({
+  view,
+  olderThanDays = 7,
+  onlyOverdue = 0,
+  warehouseId = null,
+  limit = 50,
+} = {}) => {
+  if (view !== "money" && view !== "returns") {
+    throw new AppError("Invalid view parameter. Expected 'money' or 'returns'.", 400);
+  }
+
+  const rawAge = olderThanDays === undefined || olderThanDays === "" ? 7 : Number(olderThanDays);
+  if (!Number.isInteger(rawAge) || !ALLOWED_OPEN_AGE_DAYS.has(rawAge)) {
+    throw new AppError("Invalid olderThanDays parameter. Expected 0, 7, 14, 30, or 90.", 400);
+  }
+
+  let onlyOverdueBool = false;
+  if (onlyOverdue === 1 || onlyOverdue === "1" || onlyOverdue === true) {
+    onlyOverdueBool = true;
+  } else if (
+    onlyOverdue !== 0 &&
+    onlyOverdue !== "0" &&
+    onlyOverdue !== false &&
+    onlyOverdue !== undefined &&
+    onlyOverdue !== ""
+  ) {
+    throw new AppError("Invalid onlyOverdue parameter. Expected 0 or 1.", 400);
+  }
+
+  const rawLimit = limit === undefined || limit === "" ? 50 : Number(limit);
+  if (!Number.isInteger(rawLimit) || rawLimit < 1 || rawLimit > 100) {
+    throw new AppError("Invalid limit parameter. Expected an integer between 1 and 100.", 400);
+  }
+
+  let parsedWarehouseId = null;
+  if (warehouseId !== null && warehouseId !== undefined && warehouseId !== "") {
+    parsedWarehouseId = Number(warehouseId);
+    if (!Number.isInteger(parsedWarehouseId) || parsedWarehouseId <= 0) {
+      throw new AppError("Invalid warehouseId parameter.", 400);
+    }
+  }
+
+  return {
+    view,
+    olderThanDays: rawAge,
+    onlyOverdue: onlyOverdueBool,
+    warehouseId: parsedWarehouseId,
+    limit: rawLimit,
+  };
+};
+
+const buildAgingBuckets = (unpaidRows) => {
+  const buckets = [
+    { key: "0_7", count: 0, owed: 0 },
+    { key: "8_14", count: 0, owed: 0 },
+    { key: "15_30", count: 0, owed: 0 },
+    { key: "31_90", count: 0, owed: 0 },
+    { key: "90_plus", count: 0, owed: 0 },
+  ];
+
+  for (const r of unpaidRows) {
+    let idx = 4;
+    if (r.age_days <= 7) idx = 0;
+    else if (r.age_days <= 14) idx = 1;
+    else if (r.age_days <= 30) idx = 2;
+    else if (r.age_days <= 90) idx = 3;
+
+    buckets[idx].count += 1;
+    buckets[idx].owed = round2(buckets[idx].owed + r.owed);
+  }
+
+  return buckets;
+};
+
+export const getOpenInvoices = async (models, params = {}) => {
+  const { view, olderThanDays, onlyOverdue, warehouseId, limit } = parseOpenInvoicesParams(params);
+  const today = tenantTodayYmd(params.tenantTz);
+  const selectType = models.sequelize?.constructor?.QueryTypes?.SELECT || QueryTypes.SELECT;
+
+  const warehouseLinesFilter = warehouseId
+    ? "JOIN EQUIPMENT e ON e.equipment_id = il.equipment_id"
+    : "";
+  const warehouseLinesWhere = warehouseId ? "AND e.warehouse_id = :warehouseId" : "";
+  const warehouseOuterWhere = warehouseId
+    ? `AND EXISTS (
+        SELECT 1 FROM INVOICE_LINES ilw
+        JOIN EQUIPMENT ew ON ew.equipment_id = ilw.equipment_id
+        WHERE ilw.invoice_id = i.invoice_id AND ew.warehouse_id = :warehouseId
+      )`
+    : "";
+
+  const rawRows = await models.sequelize.query(
+    `SELECT
+      i.invoice_id,
+      DATE_FORMAT(i.issued_date, '%Y-%m-%d') AS issued_date,
+      GREATEST(0, DATEDIFF(:today, DATE(i.issued_date))) AS age_days,
+      i.status,
+      c.customer_id,
+      c.first_name,
+      c.last_name,
+      c.company_name,
+      c.customer_type,
+      c.phone_number,
+      ${liveTotalExpr("i")} AS live_total,
+      COALESCE(p.total_paid, 0) AS paid,
+      ${owedExpr("i", "p.total_paid")} AS owed,
+      COALESCE(i.accrued_charges, 0) AS accrued_charges,
+      COALESCE(lines_agg.units_out, 0) AS units_out,
+      DATE_FORMAT(lines_agg.earliest_due_date, '%Y-%m-%d') AS earliest_due_date,
+      CASE
+        WHEN lines_agg.overdue_due_date IS NULL THEN 0
+        ELSE GREATEST(0, DATEDIFF(:today, lines_agg.overdue_due_date))
+      END AS days_overdue
+    FROM INVOICES i
+    JOIN CUSTOMERS c ON c.customer_id = i.customer_id
+    LEFT JOIN ${PAID_PER_INVOICE_SQL} p ON p.invoice_id = i.invoice_id
+    LEFT JOIN (
+      SELECT
+        il.invoice_id,
+        SUM(GREATEST(0, il.borrow_quantity - COALESCE(il.good_returned_qty, 0) - COALESCE(il.defective_returned_qty, 0))) AS units_out,
+        MIN(CASE
+          WHEN (il.borrow_quantity - COALESCE(il.good_returned_qty, 0) - COALESCE(il.defective_returned_qty, 0)) > 0
+          THEN il.expected_return_date
+          ELSE NULL
+        END) AS earliest_due_date,
+        MIN(CASE
+          WHEN (il.borrow_quantity - COALESCE(il.good_returned_qty, 0) - COALESCE(il.defective_returned_qty, 0)) > 0
+            AND (il.track_overdue IS NULL OR il.track_overdue = TRUE)
+          THEN il.expected_return_date
+          ELSE NULL
+        END) AS overdue_due_date
+      FROM INVOICE_LINES il
+      ${warehouseLinesFilter}
+      WHERE il.line_status = 'Active'
+        AND il.actual_return_date IS NULL
+        ${warehouseLinesWhere}
+      GROUP BY il.invoice_id
+    ) lines_agg ON lines_agg.invoice_id = i.invoice_id
+    WHERE i.status IN ${OPEN_INVOICE_STATUSES_SQL}
+      AND i.is_deleted = 0
+      ${warehouseOuterWhere}`,
+    {
+      replacements: { today, ...(warehouseId ? { warehouseId } : {}) },
+      type: selectType,
+    },
+  );
+
+  const normalized = (rawRows || [])
+    .map((r) => {
+      const owed = round2(Math.max(0, Number(r.owed) || 0));
+      const unitsOut = parseInt(r.units_out, 10) || 0;
+      const isUnpaid = owed > 0.009;
+      const hasItemsOut = unitsOut > 0;
+      const customerName =
+        r.customer_type === "Business" && r.company_name
+          ? r.company_name
+          : `${r.first_name || ""} ${r.last_name || ""}`.trim();
+
+      return {
+        invoice_id: Number(r.invoice_id),
+        issued_date: r.issued_date ? String(r.issued_date).slice(0, 10) : null,
+        age_days: Math.max(0, parseInt(r.age_days, 10) || 0),
+        status: r.status,
+        customer: {
+          customer_id: Number(r.customer_id),
+          name: customerName,
+          phone_number: r.phone_number || null,
+        },
+        live_total: round2(Number(r.live_total) || 0),
+        paid: round2(Number(r.paid) || 0),
+        owed,
+        accrued_charges: round2(Number(r.accrued_charges) || 0),
+        units_out: unitsOut,
+        items_out: [],
+        earliest_due_date: r.earliest_due_date ? String(r.earliest_due_date).slice(0, 10) : null,
+        days_overdue: Math.max(0, parseInt(r.days_overdue, 10) || 0),
+        is_unpaid: isUnpaid,
+        has_items_out: hasItemsOut,
+      };
+    })
+    .filter((r) => r.is_unpaid || r.has_items_out);
+
+  const buckets = buildAgingBuckets(normalized.filter((r) => r.is_unpaid));
+
+  const ageFiltered =
+    olderThanDays > 0 ? normalized.filter((r) => r.age_days >= olderThanDays) : normalized;
+
+  const moneyRowsAll = ageFiltered.filter((r) => r.is_unpaid);
+  const returnsRowsAll = ageFiltered.filter(
+    (r) => r.has_items_out && (!onlyOverdue || r.days_overdue > 0),
+  );
+  const bothRowsAll = ageFiltered.filter((r) => r.is_unpaid && r.has_items_out);
+
+  const summary = {
+    money: {
+      count: moneyRowsAll.length,
+      owed: round2(moneyRowsAll.reduce((s, r) => s + r.owed, 0)),
+      owedWithItemsOut: round2(bothRowsAll.reduce((s, r) => s + r.owed, 0)),
+      accruedCharges: round2(moneyRowsAll.reduce((s, r) => s + r.accrued_charges, 0)),
+    },
+    returns: {
+      count: returnsRowsAll.length,
+      unitsOut: returnsRowsAll.reduce((s, r) => s + r.units_out, 0),
+      overdueCount: returnsRowsAll.filter((r) => r.days_overdue > 0).length,
+    },
+    both: {
+      count: bothRowsAll.length,
+      owed: round2(bothRowsAll.reduce((s, r) => s + r.owed, 0)),
+    },
+  };
+
+  const targetRows =
+    view === "money"
+      ? [...moneyRowsAll].sort(
+          (a, b) =>
+            Number(b.has_items_out) - Number(a.has_items_out) ||
+            b.owed - a.owed ||
+            b.invoice_id - a.invoice_id,
+        )
+      : [...returnsRowsAll].sort(
+          (a, b) =>
+            b.days_overdue - a.days_overdue ||
+            b.units_out - a.units_out ||
+            b.invoice_id - a.invoice_id,
+        );
+
+  const totalCount = targetRows.length;
+  const pagedRows = targetRows.slice(0, limit);
+
+  if (pagedRows.length > 0) {
+    const invoiceIds = pagedRows.map((r) => r.invoice_id);
+    const itemRows = await models.sequelize.query(
+      `SELECT
+        il.invoice_id,
+        e.equipment_name AS name,
+        SUM(GREATEST(0, il.borrow_quantity - COALESCE(il.good_returned_qty, 0) - COALESCE(il.defective_returned_qty, 0))) AS qty
+      FROM INVOICE_LINES il
+      JOIN EQUIPMENT e ON e.equipment_id = il.equipment_id
+      WHERE il.invoice_id IN (:invoiceIds)
+        AND il.line_status = 'Active'
+        AND il.actual_return_date IS NULL
+        ${warehouseLinesWhere}
+      GROUP BY il.invoice_id, il.equipment_id, e.equipment_name
+      HAVING qty > 0
+      ORDER BY qty DESC, e.equipment_name ASC`,
+      {
+        replacements: { invoiceIds, ...(warehouseId ? { warehouseId } : {}) },
+        type: selectType,
+      },
+    );
+
+    const itemsByInvoice = new Map();
+    for (const item of itemRows || []) {
+      const invId = Number(item.invoice_id);
+      if (!itemsByInvoice.has(invId)) itemsByInvoice.set(invId, []);
+      itemsByInvoice.get(invId).push({
+        name: item.name,
+        qty: parseInt(item.qty, 10) || 0,
+      });
+    }
+
+    for (const row of pagedRows) {
+      row.items_out = itemsByInvoice.get(row.invoice_id) || [];
+    }
+  }
+
+  return {
+    summary,
+    buckets,
+    rows: pagedRows,
+    totalCount,
+  };
 };
