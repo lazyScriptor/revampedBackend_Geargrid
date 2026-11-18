@@ -5,7 +5,7 @@ import {
   isWholeNumber,
 } from "../utils/customerSearch.js";
 import { parseTenantDayRange } from "../utils/dateRange.js";
-import { liveTotalExpr } from "../utils/invoiceBalance.js";
+import { liveTotalExpr, liveTotalOf } from "../utils/invoiceBalance.js";
 
 // ============================================================================
 // HELPER: Build a Sequelize WHERE clause from common filter params
@@ -110,7 +110,7 @@ export const getFilteredInvoices = async (models, query) => {
       },
       {
         model: models.Payment,
-        attributes: ["payment_id", "payment_amount", "payment_date", "method"],
+        attributes: ["payment_id", "payment_amount", "payment_date", "method", "is_voided"],
       },
       {
         model: models.User,
@@ -127,26 +127,32 @@ export const getFilteredInvoices = async (models, query) => {
   // Compute derived fields
   const invoices = rows.map((inv) => {
     const json = inv.toJSON();
-    const totalPaid = (json.Payments || []).reduce((s, p) => s + parseFloat(p.payment_amount || 0), 0);
+    // Voided payments never count, the same as the summary below and the rest of accounting.
+    const payments = (json.Payments || []).filter((p) => !p.is_voided);
+    const totalPaid = Math.round(payments.reduce((s, p) => s + parseFloat(p.payment_amount || 0), 0) * 100) / 100;
     return {
       ...json,
       total_paid: totalPaid,
-      outstanding: parseFloat(json.total_amount || 0) - totalPaid,
-      payment_count: (json.Payments || []).length,
+      // `total_amount` here is the live total (billed + charges so far), see Invoice.toJSON.
+      outstanding: Math.round((parseFloat(json.total_amount || 0) - totalPaid) * 100) / 100,
+      payment_count: payments.length,
     };
   });
 
   // Database-wide summary aggregates across ALL matching invoices (independent of pagination limit/offset)
+  // Totals use the same live total as the rows (billed + charges so far for machines still out), so
+  // the cards and the table agree. `accrued_charges` is the part of the total that is charges so far.
   let summary = {
     total_amount: 0,
     total_paid: 0,
     outstanding: 0,
+    accrued_charges: 0,
   };
 
   if (count > 0) {
     const matchingInvoices = await models.Invoice.findAll({
       where,
-      attributes: ["invoice_id", "total_amount"],
+      attributes: ["invoice_id", "total_amount", "accrued_charges"],
       include: query.search
         ? [
             {
@@ -167,10 +173,8 @@ export const getFilteredInvoices = async (models, query) => {
       }
     }
 
-    const totalAmountSum = uniqueMatching.reduce(
-      (acc, inv) => acc + parseFloat(inv.total_amount || 0),
-      0
-    );
+    const accruedSum = uniqueMatching.reduce((acc, inv) => acc + (parseFloat(inv.accrued_charges) || 0), 0);
+    const totalAmountSum = uniqueMatching.reduce((acc, inv) => acc + liveTotalOf(inv), 0);
     const invoiceIds = uniqueMatching.map((inv) => inv.invoice_id);
 
     let totalPaidSum = 0;
@@ -192,6 +196,7 @@ export const getFilteredInvoices = async (models, query) => {
       total_amount: Math.round(totalAmountSum * 100) / 100,
       total_paid: Math.round(totalPaidSum * 100) / 100,
       outstanding: Math.round((totalAmountSum - totalPaidSum) * 100) / 100,
+      accrued_charges: Math.round(accruedSum * 100) / 100,
     };
   }
 
