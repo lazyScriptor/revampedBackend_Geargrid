@@ -210,6 +210,56 @@ describe("getFilteredInvoices — database-wide summary aggregates across pagina
       total_amount: 30000,
       total_paid: 18000,
       outstanding: 12000,
+      accrued_charges: 0,
     });
+  });
+
+  // Seen on a live shop: three Active invoices had Rs 1,735 of charges so far, so the rows (live
+  // totals) added up to 8,120 while the cards (billed only) said 6,385.
+  it("adds charges so far for machines still out, so the cards match the rows", async () => {
+    const allMatching = [
+      { invoice_id: 1, total_amount: "1200", accrued_charges: "0" },
+      { invoice_id: 2, total_amount: "2900", accrued_charges: "1220" },
+      { invoice_id: 3, total_amount: "835", accrued_charges: "515" },
+    ];
+    const models = {
+      sequelize: { fn: vi.fn(), col: vi.fn() },
+      Invoice: {
+        findAndCountAll: vi.fn(async () => ({ count: 3, rows: [] })),
+        findAll: vi.fn(async () => allMatching),
+      },
+      Payment: { findOne: vi.fn(async () => ({ sum_paid: "1200" })) },
+    };
+    const res = await getFilteredInvoices(models, {});
+    expect(res.summary).toEqual({
+      total_amount: 6670,
+      total_paid: 1200,
+      outstanding: 5470,
+      accrued_charges: 1735,
+    });
+  });
+
+  it("leaves voided payments out of a row's paid and outstanding", async () => {
+    const row = {
+      toJSON: () => ({
+        invoice_id: 9,
+        total_amount: 1000,
+        Payments: [
+          { payment_amount: "400", is_voided: false },
+          { payment_amount: "600", is_voided: true },
+        ],
+      }),
+    };
+    const models = {
+      sequelize: { fn: vi.fn(), col: vi.fn() },
+      Invoice: {
+        findAndCountAll: vi.fn(async () => ({ count: 1, rows: [row] })),
+        findAll: vi.fn(async () => [{ invoice_id: 9, total_amount: "1000", accrued_charges: "0" }]),
+      },
+      Payment: { findOne: vi.fn(async () => ({ sum_paid: "400" })) },
+    };
+    const res = await getFilteredInvoices(models, {});
+    expect(res.rows[0]).toMatchObject({ total_paid: 400, outstanding: 600, payment_count: 1 });
+    expect(res.summary.outstanding).toBe(600);
   });
 });
