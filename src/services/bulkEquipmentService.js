@@ -1,6 +1,4 @@
-import { capImportedMachines } from "./planService.js";
-import { Readable } from "stream";
-import csvParser from "csv-parser";
+import ExcelJS from "exceljs";
 import { Parser } from "json2csv";
 
 const CSV_FIELDS = [
@@ -24,6 +22,117 @@ export const generateTemplate = () => {
   return json2csvParser.parse([]);
 };
 
+export const generateExcelTemplate = async (models) => {
+  const [cats, whs] = await Promise.all([
+    models.EquipmentCategory.findAll({ attributes: ["category_name"], order: [["category_name", "ASC"]], raw: true }),
+    models.Warehouse.findAll({ attributes: ["location_name"], order: [["location_name", "ASC"]], raw: true }),
+  ]);
+
+  const categories = cats.map((c) => c.category_name).filter(Boolean);
+  const warehouses = whs.map((w) => w.location_name).filter(Boolean);
+  const multiWarehouse = warehouses.length > 1;
+
+  const cols = [
+    { header: "Name", required: true, width: 28, format: "Text (min 2 chars)", note: "Required. Example: Hilti Breaker - 1" },
+    { header: "Name (Sinhala)", required: false, width: 24, format: "Text", note: "Optional Sinhala display name" },
+    { header: "EQ No.", required: false, width: 14, format: "Text (e.g. EQ-101)", note: "Optional. Leave blank to assign the next EQ number automatically" },
+    { header: "Category", required: true, width: 22, format: "Category name", note: "Required (unless you pick one category for all rows in step 2)" },
+    { header: "Location", required: multiWarehouse, width: 22, format: "Location name", note: multiWarehouse ? "Required (shop has multiple locations)" : "Optional when shop has a single location" },
+    { header: "Base price", required: true, width: 14, format: "Number >= 0", note: "Required. Daily rental rate" },
+    { header: "Extra/day", required: false, width: 14, format: "Number >= 0", note: "Optional. Defaults to Base price if blank" },
+    { header: "Min days", required: false, width: 12, format: "Whole number >= 1", note: "Optional. Defaults to 1" },
+    { header: "Qty", required: false, width: 10, format: "yes / no", note: "Optional bulk item flag. Defaults to no (automatically yes if Total > 1)" },
+    { header: "Total", required: false, width: 10, format: "Whole number >= 1", note: "Optional total owned units. Defaults to 1" },
+    { header: "Cost", required: false, width: 14, format: "Number >= 0", note: "Optional purchase cost" },
+    { header: "Warr. mo", required: false, width: 12, format: "Whole number >= 0", note: "Optional warranty duration in months" },
+    { header: "Warranty end", required: false, width: 16, format: "YYYY-MM-DD", note: "Optional warranty end date" },
+  ];
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "GearGrid";
+
+  // Sheet 1: Equipment
+  const eqSheet = wb.addWorksheet("Equipment");
+  eqSheet.columns = cols.map((c) => ({ header: c.header, width: c.width }));
+  const headerRow = eqSheet.getRow(1);
+  cols.forEach((c, idx) => {
+    const cell = headerRow.getCell(idx + 1);
+    cell.font = { bold: true, color: { argb: c.required ? "FF991B1B" : "FF0F172A" } };
+    cell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: c.required ? "FFFEE2E2" : "FFF1F5F9" },
+    };
+  });
+
+  const exampleRow = eqSheet.addRow([
+    "Hilti Breaker - 1",
+    "",
+    "",
+    categories[0] || "Power Tools",
+    warehouses[0] || "Main Warehouse",
+    1500,
+    1500,
+    1,
+    "no",
+    1,
+    85000,
+    12,
+    "2027-12-31",
+  ]);
+  exampleRow.eachCell((cell) => {
+    cell.font = { italic: true, color: { argb: "FF64748B" } };
+  });
+
+  // Sheet 2: Lists (for dropdown validation)
+  const listsSheet = wb.addWorksheet("Lists");
+  listsSheet.columns = [
+    { header: "Categories", width: 28 },
+    { header: "Locations", width: 28 },
+  ];
+  const maxListLen = Math.max(categories.length, warehouses.length);
+  for (let i = 0; i < maxListLen; i++) {
+    listsSheet.addRow([categories[i] || "", warehouses[i] || ""]);
+  }
+
+  if (categories.length > 0) {
+    const catRange = `Lists!$A$2:$A$${categories.length + 1}`;
+    for (let r = 3; r <= 200; r++) {
+      eqSheet.getCell(r, 4).dataValidation = {
+        type: "list",
+        allowBlank: true,
+        formulae: [catRange],
+      };
+    }
+  }
+  if (warehouses.length > 0) {
+    const whRange = `Lists!$B$2:$B$${warehouses.length + 1}`;
+    for (let r = 3; r <= 200; r++) {
+      eqSheet.getCell(r, 5).dataValidation = {
+        type: "list",
+        allowBlank: true,
+        formulae: [whRange],
+      };
+    }
+  }
+
+  // Sheet 3: How to fill
+  const guideSheet = wb.addWorksheet("How to fill");
+  guideSheet.columns = [
+    { header: "Column", width: 20 },
+    { header: "Required?", width: 22 },
+    { header: "Format", width: 22 },
+    { header: "Notes", width: 55 },
+  ];
+  guideSheet.getRow(1).font = { bold: true };
+  for (const c of cols) {
+    guideSheet.addRow([c.header, c.required ? "Required" : "Optional", c.format, c.note]);
+  }
+
+  const buffer = await wb.xlsx.writeBuffer();
+  return Buffer.from(buffer);
+};
+
 export const exportEquipment = async (models) => {
   const equipment = await models.Equipment.findAll({
     where: { is_archived: false },
@@ -33,394 +142,4 @@ export const exportEquipment = async (models) => {
   if (!equipment || equipment.length === 0) return generateTemplate();
   const json2csvParser = new Parser({ fields: CSV_FIELDS });
   return json2csvParser.parse(equipment);
-};
-
-// Clean key helper: strips spaces, dashes, slashes, hashes and lowercases
-const cleanKey = (k) => String(k || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-
-const getField = (row, candidates) => {
-  for (const cand of candidates) {
-    const cleanCand = cleanKey(cand);
-    for (const key of Object.keys(row)) {
-      if (cleanKey(key) === cleanCand) {
-        const val = row[key];
-        if (val != null && String(val).trim() !== "") {
-          return String(val).trim();
-        }
-      }
-    }
-  }
-  return null;
-};
-
-export const importEquipment = async (models, fileBuffer) => {
-  // 1. Preload categories & warehouses
-  const categoryMap = new Map();
-  try {
-    const existingCats = await models.EquipmentCategory.findAll();
-    for (const cat of existingCats) {
-      categoryMap.set(String(cat.category_id), cat.category_id);
-      categoryMap.set(cat.category_name.toLowerCase().trim(), cat.category_id);
-    }
-  } catch (e) {
-    console.error("Error preloading categories:", e);
-  }
-
-  const warehouseMap = new Map();
-  let defaultWarehouseId = null;
-  try {
-    const existingWhs = await models.Warehouse.findAll();
-    for (const wh of existingWhs) {
-      warehouseMap.set(String(wh.warehouse_id), wh.warehouse_id);
-      warehouseMap.set(wh.location_name.toLowerCase().trim(), wh.warehouse_id);
-    }
-    if (existingWhs.length > 0) {
-      defaultWarehouseId = existingWhs[0].warehouse_id;
-    } else {
-      const defaultWh = await models.Warehouse.create({ location_name: "Main Warehouse" });
-      defaultWarehouseId = defaultWh.warehouse_id;
-      warehouseMap.set("main warehouse", defaultWarehouseId);
-      warehouseMap.set(String(defaultWarehouseId), defaultWarehouseId);
-    }
-  } catch (e) {
-    console.error("Error preloading warehouses:", e);
-  }
-
-  return new Promise((resolve, reject) => {
-    const rawItems = [];
-    let rowNumber = 1;
-
-    // 1. Convert Buffer to String
-    let csvString = fileBuffer.toString("utf-8").replace(/^[\u200B\uFEFF]/, "");
-
-    // Check if entire lines are quoted (e.g. "col1,col2,col3")
-    const firstLine = csvString.split(/\r?\n/).find((l) => l.trim().length > 0);
-    if (
-      firstLine &&
-      firstLine.trim().startsWith('"') &&
-      firstLine.trim().endsWith('"') &&
-      firstLine.includes(",")
-    ) {
-      csvString = csvString
-        .split(/\r?\n/)
-        .map((line) => {
-          let l = line.trim();
-          if (l.startsWith('"') && l.endsWith('"')) {
-            l = l.slice(1, -1).replace(/""/g, '"');
-          }
-          return l;
-        })
-        .join("\n");
-    }
-
-    // 2. Hardware tools quote replacement for inches (e.g. 4.5")
-    csvString = csvString.replace(/(\d)"(,|s|$)/g, "$1 inch$2");
-
-    const stream = Readable.from([csvString]);
-
-    stream
-      .pipe(
-        csvParser({
-          mapHeaders: ({ header }) =>
-            header.trim().replace(/^[\u200B\uFEFF]/, ""), // Strip Excel BOM
-        }),
-      )
-      .on("data", (data) => {
-        rowNumber++;
-        let rowData = data;
-        if (rowData && typeof rowData === "object") {
-          const keys = Object.keys(rowData);
-          if (keys.length === 1 && keys[0].includes(",")) {
-            const re = Papa.parse(`${keys[0]}\n${rowData[keys[0]]}`, {
-              header: true,
-            });
-            if (re.data && re.data[0]) rowData = re.data[0];
-          }
-        }
-        rawItems.push({ rowNumber, data: rowData });
-      })
-      .on("end", async () => {
-        const results = [];
-        const errors = [];
-
-        for (const item of rawItems) {
-          const { rowNumber: rowNum, data } = item;
-          try {
-            const name = getField(data, [
-              "equipment_name",
-              "equipment",
-              "name",
-              "item_name",
-              "item",
-              "title",
-            ]);
-
-            if (!name) {
-              throw new Error("Missing equipment_name");
-            }
-
-            // Resolve Category
-            let categoryId = null;
-            const rawCategory = getField(data, [
-              "category_id",
-              "category_name",
-              "category",
-            ]);
-
-            if (rawCategory) {
-              const cleanCat = rawCategory.toLowerCase().trim();
-              if (categoryMap.has(cleanCat)) {
-                categoryId = categoryMap.get(cleanCat);
-              } else {
-                try {
-                  const newCat = await models.EquipmentCategory.create({
-                    category_name: rawCategory,
-                    description: `Imported category ${rawCategory}`,
-                  });
-                  categoryId = newCat.category_id;
-                  categoryMap.set(cleanCat, categoryId);
-                  categoryMap.set(String(categoryId), categoryId);
-                } catch (err) {
-                  const found = await models.EquipmentCategory.findOne({
-                    where: { category_name: rawCategory },
-                  });
-                  if (found) {
-                    categoryId = found.category_id;
-                    categoryMap.set(cleanCat, categoryId);
-                  }
-                }
-              }
-            }
-
-            if (!categoryId) {
-              if (categoryMap.has("general")) {
-                categoryId = categoryMap.get("general");
-              } else {
-                try {
-                  const genCat = await models.EquipmentCategory.create({
-                    category_name: "General",
-                    description: "Default category",
-                  });
-                  categoryId = genCat.category_id;
-                  categoryMap.set("general", categoryId);
-                  categoryMap.set(String(categoryId), categoryId);
-                } catch (e) {
-                  const firstCat = await models.EquipmentCategory.findOne();
-                  categoryId = firstCat ? firstCat.category_id : null;
-                }
-              }
-            }
-
-            // Resolve Warehouse
-            let warehouseId = null;
-            const rawWarehouse = getField(data, [
-              "warehouse_id",
-              "warehouse_name",
-              "warehouse",
-              "location",
-              "depot",
-            ]);
-
-            if (rawWarehouse) {
-              const cleanWh = rawWarehouse.toLowerCase().trim();
-              if (warehouseMap.has(cleanWh)) {
-                warehouseId = warehouseMap.get(cleanWh);
-              } else {
-                try {
-                  const newWh = await models.Warehouse.create({
-                    location_name: rawWarehouse,
-                  });
-                  warehouseId = newWh.warehouse_id;
-                  warehouseMap.set(cleanWh, warehouseId);
-                  warehouseMap.set(String(warehouseId), warehouseId);
-                } catch (err) {
-                  const found = await models.Warehouse.findOne({
-                    where: { location_name: rawWarehouse },
-                  });
-                  if (found) {
-                    warehouseId = found.warehouse_id;
-                    warehouseMap.set(cleanWh, warehouseId);
-                  }
-                }
-              }
-            }
-
-            if (!warehouseId) {
-              warehouseId = defaultWarehouseId;
-            }
-
-            let serialNumber = getField(data, [
-              "serial_number",
-              "serial",
-              "serial_no",
-              "serial_#",
-              "sku",
-            ]);
-            if (!serialNumber) {
-              serialNumber = `SKU-${Date.now().toString(36).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
-            }
-
-            const base =
-              parseFloat(
-                getField(data, [
-                  "base_rental_price",
-                  "rental_price_per_day",
-                  "rate_per_day",
-                  "rate_day",
-                  "rate/day",
-                  "rateday",
-                  "daily_rate",
-                  "day_rate",
-                  "rate",
-                  "price",
-                ]),
-              ) || 0;
-
-            const extra =
-              parseFloat(
-                getField(data, [
-                  "extra_daily_rate",
-                  "extra_rate",
-                  "extra_price",
-                  "extra",
-                ]),
-              ) || base;
-
-            const totalOwned =
-              parseInt(
-                getField(data, [
-                  "total_owned_qty",
-                  "total_quantity",
-                  "total",
-                  "quantity",
-                  "qty",
-                ]),
-                10,
-              ) || 1;
-
-            const rawAvail = getField(data, [
-              "available_qty",
-              "available_quantity",
-              "available",
-            ]);
-            const available =
-              rawAvail != null ? parseInt(rawAvail, 10) : totalOwned;
-
-            const minDays =
-              parseInt(
-                getField(data, [
-                  "minimum_rental_days",
-                  "min_rental_days",
-                  "min_days",
-                ]),
-                10,
-              ) || 1;
-
-            const purchaseCost =
-              parseFloat(getField(data, ["purchase_cost", "cost"])) || null;
-
-            const isBulkRaw = getField(data, [
-              "is_bulk_item",
-              "bulk_item",
-              "bulk",
-            ]);
-            const isBulkItem =
-              isBulkRaw != null
-                ? (isBulkRaw.toLowerCase() === "true" ||
-                    isBulkRaw === "1" ||
-                    isBulkRaw.toLowerCase() === "yes")
-                : (rawCategory && rawCategory.toLowerCase().includes("bulk")) || totalOwned > 1;
-
-            const warrantyMonths =
-              parseInt(
-                getField(data, [
-                  "warranty_period_months",
-                  "warranty_months",
-                  "warranty",
-                ]),
-                10,
-              ) || null;
-
-            const endOfWarranty = getField(data, [
-              "end_of_warranty_date",
-              "warranty_date",
-              "warranty_end",
-            ]);
-
-            const imageUrl = getField(data, ["image_url", "image"]);
-
-            results.push({
-              serial_number: serialNumber,
-              equipment_name: name,
-              category_id: categoryId,
-              warehouse_id: warehouseId,
-              base_rental_price: base,
-              extra_daily_rate: extra,
-              minimum_rental_days: minDays,
-              purchase_cost: purchaseCost,
-              total_owned_qty: totalOwned,
-              available_qty: available,
-              rented_qty: 0,
-              defective_qty: 0,
-              is_bulk_item: isBulkItem,
-              warranty_period_months: warrantyMonths,
-              end_of_warranty_date: endOfWarranty || null,
-              image_url: imageUrl || null,
-            });
-          } catch (err) {
-            errors.push({ row: rowNum, message: err.message });
-          }
-        }
-
-        // The plan's machine limit: what doesn't fit is reported, the rest still goes in.
-        const capped = await capImportedMachines(models, models.sequelize?.config?.database, results);
-        for (const row of capped.refused) {
-          errors.push({ row: row.equipment_name, message: `Your ${capped.tier} plan includes up to ${capped.limit} machines.` });
-        }
-        results.length = 0;
-        results.push(...capped.allowed);
-
-        try {
-          let insertedCount = 0;
-          if (results.length > 0) {
-            try {
-              await models.Equipment.bulkCreate(results, {
-                updateOnDuplicate: [
-                  "equipment_name",
-                  "category_id",
-                  "warehouse_id",
-                  "base_rental_price",
-                  "extra_daily_rate",
-                  "minimum_rental_days",
-                  "purchase_cost",
-                  "total_owned_qty",
-                  "is_bulk_item",
-                  "warranty_period_months",
-                  "end_of_warranty_date",
-                  "image_url",
-                ],
-              });
-              insertedCount = results.length;
-            } catch (bulkErr) {
-              // Row-by-row fallback
-              for (const row of results) {
-                try {
-                  await models.Equipment.create(row);
-                  insertedCount += 1;
-                } catch (singleErr) {
-                  errors.push({
-                    row: row.equipment_name,
-                    message: singleErr.message?.slice(0, 200) || "Insert error",
-                  });
-                }
-              }
-            }
-          }
-          resolve({ successCount: insertedCount, errors });
-        } catch (dbError) {
-          reject(dbError);
-        }
-      })
-      .on("error", (error) => reject(error));
-  });
 };
