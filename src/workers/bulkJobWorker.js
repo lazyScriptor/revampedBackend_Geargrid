@@ -119,7 +119,7 @@ const titleForJob = (job, success) => {
   return success ? `${op} completed` : `${op} failed`;
 };
 
-const tickOnce = async () => {
+export const tickOnce = async () => {
   if (inflight >= MAX_CONCURRENT_JOBS) return;
 
   const tenants = await getTenantList();
@@ -137,7 +137,15 @@ const tickOnce = async () => {
     const models = initTenantModels(connection);
 
     const slots = MAX_CONCURRENT_JOBS - inflight;
-    const claimed = await claimNextQueuedJobs(models, { limit: slots });
+    let claimed;
+    try {
+      claimed = await claimNextQueuedJobs(models, { limit: slots });
+    } catch (err) {
+      // One broken tenant (e.g. a missing BULK_JOBS table) must not stop the tenants after it.
+      // eslint-disable-next-line no-console
+      console.error(`bulkJobWorker tick error (${tenantDbName}):`, err.message);
+      continue;
+    }
     for (const job of claimed) {
       inflight += 1;
       // Don't await — run concurrently inside the cap.

@@ -113,11 +113,12 @@ describe.skipIf(!DB_URL)("tenant migrations recover a tenant with missing tracki
   it("the demo tenant's exact situation: three migrations pending, invalid legacy dates in several tables", async () => {
     await freshSchema();
     const umzug = umzugFor(sequelize);
-    const pendingNames = FILES.slice(-3); // accounting-fixes, equipment images, whatsapp hub
-    expect(pendingNames[0]).toBe("20261025100000-accounting-fixes.js");
+    // accounting-fixes, equipment images, whatsapp hub (newer migrations are recorded as applied)
+    const first = FILES.indexOf("20261025100000-accounting-fixes.js");
+    const pendingNames = FILES.slice(first, first + 3);
     expect(pendingNames[2]).toBe("20261027100000-whatsapp-hub.js");
     await umzug.executed(); // creates the tracking table
-    for (const f of FILES.slice(0, -3)) await umzug.storage.logMigration({ name: f });
+    for (const f of FILES.filter((f) => !pendingNames.includes(f))) await umzug.storage.logMigration({ name: f });
 
     // rewind what the three pending migrations add
     await q("SET FOREIGN_KEY_CHECKS = 0");
@@ -188,6 +189,50 @@ describe.skipIf(!DB_URL)("tenant migrations recover a tenant with missing tracki
     const cols = await sequelize.getQueryInterface().describeTable("INVOICE_LINES");
     expect(cols.track_overdue).toBeTruthy();
   }, 120000);
+
+  it("BULK_JOBS missing although 20260522000002-create-bulk-jobs is recorded as applied (two production shops) is created, once", async () => {
+    await freshSchema();
+    const umzug = umzugFor(sequelize);
+    await umzug.up();
+    await q("DROP TABLE BULK_JOBS");
+    await q("DELETE FROM SequelizeMeta WHERE name = '20261115120000-ensure-bulk-jobs-table.js'");
+    await expect(models.BulkJob.findAll({ limit: 1 })).rejects.toThrow(/BULK_JOBS.*doesn't exist/);
+
+    await umzug.up();
+    await expect(models.BulkJob.findAll({ limit: 1 })).resolves.toEqual([]);
+    const job = await models.BulkJob.create({ user_id: 1, operation: "import_equipment", mode: "import" });
+    expect(job.status).toBe("queued");
+    const indexCount = (await sequelize.getQueryInterface().showIndex("BULK_JOBS")).length;
+
+    // a second run (tracking row removed again) changes nothing
+    const migration = await import(pathToFileURL(path.join(DIR, "20261115120000-ensure-bulk-jobs-table.js")).href);
+    await migration.up({ context: sequelize.getQueryInterface() });
+    expect((await sequelize.getQueryInterface().showIndex("BULK_JOBS")).length).toBe(indexCount);
+    expect(await models.BulkJob.count()).toBe(1);
+  }, 60000);
+
+  it("legacy zero dates in several tables (as in geargrid_tenant_template) are repaired, and the tables can be rebuilt again", async () => {
+    await freshSchema();
+    await sequelize.transaction(async (t) => {
+      await q("SET SESSION sql_mode = ''", { transaction: t });
+      await q("INSERT INTO CUSTOMERS (nic_number, first_name, last_name, phone_number, createdAt, updatedAt) VALUES ('NICZ9', 'Template', 'Customer', '0771234599', '0000-00-00 00:00:00', NOW())", { transaction: t });
+      await q("INSERT INTO EXPENSES (category, amount, date, createdAt, updatedAt) VALUES ('Fuel', 100, NOW(), '0000-00-00 00:00:00', '0000-00-00 00:00:00')", { transaction: t });
+      await q("SET SESSION sql_mode = DEFAULT", { transaction: t });
+    });
+    // what production startup hit: rebuilding the table under strict mode
+    await expect(q("ALTER TABLE CUSTOMERS ENGINE=InnoDB, ALGORITHM=COPY")).rejects.toThrow(/Incorrect datetime value/);
+
+    const migration = await import(pathToFileURL(path.join(DIR, "20261115120100-repair-legacy-zero-dates.js")).href);
+    await migration.up({ context: sequelize.getQueryInterface() });
+
+    for (const table of ["CUSTOMERS", "EXPENSES"]) {
+      const [{ n }] = await q(`SELECT COUNT(*) n FROM ${table} WHERE CAST(createdAt AS CHAR) LIKE '0000%' OR CAST(updatedAt AS CHAR) LIKE '0000%'`, { type: "SELECT" });
+      expect(Number(n), table).toBe(0);
+    }
+    expect(await models.Customer.count()).toBe(1); // rows kept
+    await expect(q("ALTER TABLE CUSTOMERS ENGINE=InnoDB, ALGORITHM=COPY")).resolves.toBeTruthy();
+    await expect(migration.up({ context: sequelize.getQueryInterface() })).resolves.toBeUndefined(); // second run: nothing to do
+  }, 60000);
 
   describe("repairZeroDates", () => {
     const withLegacyRows = async (rowsSql) => {
