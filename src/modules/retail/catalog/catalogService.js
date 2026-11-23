@@ -21,15 +21,21 @@ import {
   withProductCodeRetry,
 } from "./naming.js";
 import { ensureStarterCatalog } from "./starterService.js";
+import { getProductStockAndMovements } from "../stock/stockService.js";
 
 const COST_KEYS = new Set([
   "avg_cost",
   "last_cost",
   "unit_cost",
+  "entered_unit_cost",
+  "total_cost",
+  "delivery_charge",
   "cost_total",
   "cost",
   "margin",
   "margin_pct",
+  "stock_value",
+  "last_unit_cost",
 ]);
 
 const CHUNK_SIZE = 500;
@@ -570,10 +576,12 @@ export const getProductById = async (models, productId) => {
   const plain = typeof product.toJSON === "function" ? product.toJSON() : product;
   const cat = plain.RetailCategory || null;
   const categoryPath = cat?.Parent ? [cat.Parent, cat] : cat ? [cat] : [];
+  const { stock, recent_movements } = await getProductStockAndMovements(models, productId);
   return {
     ...plain,
     category_path: categoryPath,
-    stock: null, // R2 will populate stock levels
+    stock,
+    recent_movements,
   };
 };
 

@@ -132,6 +132,7 @@ const PERMISSION_CATALOG = [
   { permission_code: "retail:reports", module_name: "Retail", description: "View retail sales, stock and profit reports" },
   { permission_code: "retail:add_unlisted", module_name: "Retail", description: "Add unlisted items at the POS counter" },
   { permission_code: "retail:confirm_unlisted", module_name: "Retail", description: "Link, create or confirm unlisted retail sales on the Manager desk" },
+  { permission_code: "retail:backdate", module_name: "Retail", description: "Post stock documents dated in the past" },
   { permission_code: "inventory_permission", module_name: "Legacy", description: "Legacy module-level inventory access" },
 ];
 

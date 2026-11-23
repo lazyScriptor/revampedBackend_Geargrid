@@ -20,9 +20,10 @@ const args = process.argv.slice(2);
 const dbName = args.find((a) => !a.startsWith("--"));
 const withPerf = args.includes("--perf");
 const withReset = args.includes("--reset");
+const withStock = args.includes("--stock");
 
 if (!dbName) {
-  console.error("Usage: NODE_ENV=development node scripts/seed-retail-demo.js <db_name> [--reset] [--perf]");
+  console.error("Usage: NODE_ENV=development node scripts/seed-retail-demo.js <db_name> [--reset] [--perf] [--stock]");
   process.exit(1);
 }
 
@@ -236,11 +237,13 @@ const roundLkr = (n) => Math.max(10, Math.round(n / 10) * 10);
     let createdUnits = 0;
     let createdBarcodes = 0;
 
+    const shouldSeedCatalog = withReset || existingProducts.length === 0;
     const productRows = [];
     const packCandidates = [];
     let barcodeSeq = maxCodeNum + 1;
 
-    for (const sub of subCats) {
+    if (shouldSeedCatalog) {
+      for (const sub of subCats) {
       const parent = catsById.get(sub.parent_id);
       const allowedBrands =
         SUBCAT_BRANDS[sub.name] || SUBCAT_BRANDS[parent?.name] || ["Lanka"];
@@ -399,6 +402,7 @@ const roundLkr = (n) => Math.max(10, Math.round(n / 10) * 10);
       await models.RetailBarcode.bulkCreate(chunk);
       createdBarcodes += chunk.length;
     }
+    }
 
     let perfAdded = 0;
     if (withPerf) {
@@ -443,6 +447,164 @@ const roundLkr = (n) => Math.max(10, Math.round(n / 10) * 10);
         await models.RetailProduct.bulkCreate(chunk);
         perfAdded += chunk.length;
       }
+    }
+
+    if (withStock) {
+      const {
+        postOpeningDocument,
+        createReceiveDocument,
+        postAdjustDocument,
+        postCountDocument,
+        checkStockIntegrity,
+      } = await import("../src/modules/retail/stock/stockService.js");
+
+      const adminUser = await models.User.findOne({ order: [["user_id", "ASC"]] });
+      const actorId = adminUser?.user_id || 1;
+      const warehouse = await models.Warehouse.findOne({ order: [["warehouse_id", "ASC"]] });
+      const warehouseId = warehouse?.warehouse_id || 1;
+      const stockOpts = { effectivePermissions: new Set(["*"]) };
+
+      const allProds = await models.RetailProduct.findAll({
+        where: { is_active: true, tracking: "counted" },
+        include: [{ model: models.RetailProductUnit, as: "Units" }],
+        order: [["product_id", "ASC"]],
+      });
+
+      const openingQtyFor = (p, idx) => {
+        const u = p.base_unit;
+        if (u === "m") return 90 + ((idx * 30) % 180);
+        if (u === "ft") return 60 + ((idx * 20) % 160);
+        if (u === "kg") return 15 + ((idx * 5) % 45);
+        if (u === "tin" || u === "bag") return 10 + ((idx * 3) % 30);
+        return 12 + ((idx * 7) % 108);
+      };
+
+      const sixtyDaysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+      // Opening stock for ~70% of products
+      const openingLines = [];
+      for (let i = 0; i < allProds.length; i++) {
+        if (i % 10 >= 7) continue; // leave ~30% not counted yet
+        openingLines.push({
+          product_id: allProds[i].product_id,
+          qty: openingQtyFor(allProds[i], i),
+          unit_cost: Number(allProds[i].avg_cost || 0),
+        });
+      }
+      let openingDocs = 0;
+      for (let i = 0; i < openingLines.length; i += 100) {
+        await postOpeningDocument(
+          models,
+          actorId,
+          {
+            warehouse_id: warehouseId,
+            occurred_at: sixtyDaysAgo.toISOString(),
+            note: "Initial opening stock",
+            lines: openingLines.slice(i, i + 100),
+          },
+          stockOpts,
+        );
+        openingDocs += 1;
+      }
+
+      // Group products by family for realistic multi-size supplier deliveries
+      const byFamily = new Map();
+      for (const p of allProds) {
+        if (!p.family_id) continue;
+        const arr = byFamily.get(p.family_id) || [];
+        arr.push(p);
+        byFamily.set(p.family_id, arr);
+      }
+      const familyGroups = [...byFamily.values()].filter((g) => g.length > 0);
+      const SUPPLIERS = [
+        "Ceylon Hardware Distributors",
+        "Lanka Tool House",
+        "Metro Building Supplies",
+        "Kelani Electrical Agencies",
+        "Kandy Paint & Coatings",
+        "S-lon Authorized Dealers",
+      ];
+
+      let receivePosted = 0;
+      let receiveDrafts = 0;
+      for (let i = 0; i < 35; i++) {
+        const fam = familyGroups[(i * 5) % familyGroups.length];
+        const supplier = SUPPLIERS[i % SUPPLIERS.length];
+        const daysAgo = 55 - Math.floor((i * 52) / 35);
+        const occurredAt = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
+        const isDraft = i >= 31; // 4 drafts left unposted
+        const deliveryCharge = i % 4 === 0 ? 750 + (i % 3) * 500 : 0;
+
+        const lines = fam.slice(0, 5).map((p, idx) => {
+          const packUnit = (p.Units || [])[0] || null;
+          const usePack = Boolean(packUnit && idx % 2 === 0);
+          const factor = usePack ? Number(packUnit.factor) : 1;
+          const qty = usePack ? 2 + (idx % 3) : 10 + ((i + idx) % 15);
+          const baseCost = Number(p.avg_cost || Number(p.sell_price) * 0.72);
+          return {
+            product_id: p.product_id,
+            ...(usePack ? { unit_id: packUnit.unit_id } : {}),
+            qty,
+            unit_cost: Math.round(baseCost * factor * 100) / 100,
+          };
+        });
+
+        await createReceiveDocument(
+          models,
+          actorId,
+          {
+            warehouse_id: warehouseId,
+            supplier_name: supplier,
+            supplier_ref: `INV-${202600 + i}`,
+            occurred_at: occurredAt.toISOString(),
+            delivery_charge: deliveryCharge,
+            lines,
+            post: !isDraft,
+          },
+          stockOpts,
+        );
+        if (isDraft) receiveDrafts += 1;
+        else receivePosted += 1;
+      }
+
+      // Handful of adjustments (damaged, lost, own_use)
+      const countedProds = allProds.filter((_, idx) => idx % 10 < 7);
+      const adjustReasons = ["damaged", "lost", "own_use", "damaged"];
+      for (let i = 0; i < adjustReasons.length; i++) {
+        const p = countedProds[(i * 17) % countedProds.length];
+        await postAdjustDocument(
+          models,
+          actorId,
+          {
+            warehouse_id: warehouseId,
+            reason: adjustReasons[i],
+            note: `Demo ${adjustReasons[i]} adjustment`,
+            occurred_at: new Date(Date.now() - (10 - i) * 24 * 60 * 60 * 1000).toISOString(),
+            lines: [{ product_id: p.product_id, qty_change: -(1 + (i % 3)) }],
+          },
+          stockOpts,
+        );
+      }
+
+      // One category count
+      const countSubset = countedProds.slice(0, 8);
+      await postCountDocument(
+        models,
+        actorId,
+        {
+          warehouse_id: warehouseId,
+          note: "Cycle count sample",
+          lines: countSubset.map((p, idx) => ({
+            product_id: p.product_id,
+            counted_qty: openingQtyFor(p, idx) + (idx % 2 === 0 ? 2 : -1),
+          })),
+        },
+        stockOpts,
+      );
+
+      const integrity = await checkStockIntegrity(models);
+      console.log(
+        `📦 Seeded stock: opening_docs=${openingDocs} (${openingLines.length} products), receive_posted=${receivePosted}, receive_drafts=${receiveDrafts}, adjusts=${adjustReasons.length}, counts=1, integrity_ok=${integrity.ok} (checked=${integrity.checked_pairs}, mismatches=${integrity.mismatches.length})`,
+      );
     }
 
     console.log(
