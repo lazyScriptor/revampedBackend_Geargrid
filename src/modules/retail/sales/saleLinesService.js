@@ -4,7 +4,7 @@ import { addCents, fromCents, splitByWeight, toCents } from "../money.js";
 import { getRetailSettings } from "../retailSettingsService.js";
 import { consumeApprovalToken } from "../approvalService.js";
 import { createProduct } from "../catalog/catalogService.js";
-import { postOpeningDocument, sell } from "../stock/stockService.js";
+import { postOpeningDocument, resolveWarehouseId, sell } from "../stock/stockService.js";
 import { userHasPermission } from "../../../services/userService.js";
 
 const round3 = (n) => Math.round((Number(n) || 0) * 1000) / 1000;
@@ -81,7 +81,7 @@ export const createSaleBillLinesAndTotals = async (
     approvalTokens = {},
     userId,
     effectivePermissions = null,
-    warehouseId = null,
+    warehouseId: requestedWarehouseId = null,
     occurredAt = new Date(),
     transaction,
     now = new Date(),
@@ -93,6 +93,8 @@ export const createSaleBillLinesAndTotals = async (
 
   const opts = transaction ? { transaction } : {};
   const settings = await getRetailSettings(models);
+  // Every sale line records where it left from, so pick the warehouse before saving lines.
+  const warehouseId = await resolveWarehouseId(models, requestedWarehouseId, settings, opts);
   const maxDiscountPct = Number(settings?.discountLimitPct ?? 10);
 
   const productIds = [
@@ -102,7 +104,7 @@ export const createSaleBillLinesAndTotals = async (
     productIds.length > 0
       ? await models.RetailProduct.findAll({
           where: { product_id: { [Op.in]: productIds } },
-          include: [{ model: models.RetailProductUnit, required: false }],
+          include: [{ model: models.RetailProductUnit, as: "Units", required: false }],
           ...opts,
         })
       : [];
@@ -135,20 +137,20 @@ export const createSaleBillLinesAndTotals = async (
       throw new AppError("Each sale item must have a positive qty.", 400);
     }
 
-    // The counter calls a catalogue line "item" (plan §4.3); stored as "catalog".
-    const rawKind = raw?.line_kind === "item" ? "catalog" : raw?.line_kind;
-    const lineKind = rawKind || (raw?.product_id ? "catalog" : "unlisted");
+    // A catalogue line is stored as "item" (plan §4.3); "catalog" is accepted as another name for it.
+    const rawKind = raw?.line_kind === "catalog" ? "item" : raw?.line_kind;
+    const lineKind = rawKind || (raw?.product_id ? "item" : "unlisted");
     // Approvals can ride on each line (the counter sends them per line) or in the shared map.
     const lineTokens = raw?.approval_tokens && typeof raw.approval_tokens === "object" ? raw.approval_tokens : {};
     const lineEntry = (type, pid) =>
       lineTokens[type] ? { token: String(lineTokens[type]) } : resolveApprovalEntry(approvalTokens, type, pid);
-    if (!["catalog", "unlisted", "sundry"].includes(lineKind)) {
+    if (!["item", "unlisted", "sundry"].includes(lineKind)) {
       throw new AppError(`Invalid line_kind: ${lineKind}`, 400);
     }
 
     const lineDiscountCents = Math.max(0, toCents(raw?.line_discount ?? raw?.discount_amount ?? 0));
 
-    if (lineKind === "catalog") {
+    if (lineKind === "item") {
       const pid = Number(raw?.product_id);
       const product = productsById.get(pid);
       if (!product) {
@@ -161,7 +163,7 @@ export const createSaleBillLinesAndTotals = async (
 
       let unit = null;
       if (raw?.unit_id != null) {
-        const units = product.RetailProductUnits || [];
+        const units = product.Units || [];
         unit = units.find((u) => Number(u.unit_id) === Number(raw.unit_id));
         if (!unit) {
           throw new AppError(`Unit ${raw.unit_id} does not belong to product ${pid}.`, 400);
@@ -217,7 +219,7 @@ export const createSaleBillLinesAndTotals = async (
           (ctx.unit_id == null || unit == null || Number(ctx.unit_id) === Number(unit.unit_id)),
         );
         finalUnitPriceCents = overrideCents;
-        priceSource = "approved_override";
+        priceSource = "manual"; // an approved price change (plan §4.3)
         pendingExceptions.push({
           type: "price_change",
           status: "approved",
@@ -236,7 +238,7 @@ export const createSaleBillLinesAndTotals = async (
       const unitCost = Number(product.avg_cost || 0);
 
       preparedLines.push({
-        line_kind: "catalog",
+        line_kind: "item",
         product_id: pid,
         description: product.name,
         qty,
@@ -448,7 +450,7 @@ export const createSaleBillLinesAndTotals = async (
 
     createdLines.push(created);
 
-    if (line.line_kind === "catalog" && line.product_id) {
+    if (line.line_kind === "item" && line.product_id) {
       catalogLinesToSell.push({
         sale_line_id: created.sale_line_id,
         product_id: line.product_id,

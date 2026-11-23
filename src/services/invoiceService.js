@@ -107,6 +107,8 @@ export const createDispatchInvoice = async (models, payload, userId) => {
           customer_id: customer.customer_id,
           issued_by_user_id: userId,
           bill_kind: "sale",
+          // Required column on every bill; a sale has no rental days.
+          number_of_days_of_the_bill: 0,
           job_site: job_site ? String(job_site).trim().slice(0, 120) : null,
           customer_po: customer_po ? String(customer_po).trim().slice(0, 60) : null,
           sub_total: 0,

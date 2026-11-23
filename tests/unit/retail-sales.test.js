@@ -2,7 +2,8 @@ import crypto from "node:crypto";
 import express from "express";
 import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
-import { Op } from "sequelize";
+import { Op, Sequelize } from "sequelize";
+import { initTenantModels } from "../../src/models/index.js";
 import { createDispatchInvoice } from "../../src/services/invoiceService.js";
 import { deleteInvoice } from "../../src/services/invoiceDeletionService.js";
 import {
@@ -16,6 +17,13 @@ import {
   updateRetailSettings,
 } from "../../src/modules/retail/index.js";
 import { idempotency } from "../../src/middlewares/idempotency.js";
+
+// The mocks below run the real model rules (required columns, allowed values) on every
+// saved bill and sale line, so a value the database would refuse fails here too.
+const realModels = initTenantModels(new Sequelize("mysql://u:p@127.0.0.1:1/none", { logging: false }));
+const assertSavable = async (modelName, data) => {
+  await realModels[modelName].build(data).validate();
+};
 
 const makeRecord = (data, pkField) => {
   const rec = { ...data };
@@ -138,7 +146,7 @@ const makeSalesHarness = ({
         prodRecords
           .filter((p) => matchesWhere(p, where))
           .map((p) => {
-            p.RetailProductUnits = unitRecords.filter((u) => Number(u.product_id) === Number(p.product_id));
+            p.Units = unitRecords.filter((u) => Number(u.product_id) === Number(p.product_id));
             return p;
           }),
       ),
@@ -222,6 +230,7 @@ const makeSalesHarness = ({
     },
     Invoice: {
       create: vi.fn(async (data) => {
+        await assertSavable("Invoice", data);
         const rec = makeRecord({ invoice_id: nextInvoiceId++, issued_date: data.issued_date || new Date(), ...data }, "invoice_id");
         invoiceRecords.push(rec);
         return rec;
@@ -233,6 +242,7 @@ const makeSalesHarness = ({
     },
     InvoiceSaleLine: {
       create: vi.fn(async (data) => {
+        await assertSavable("InvoiceSaleLine", data);
         const rec = makeRecord({ sale_line_id: nextSaleLineId++, ...data }, "sale_line_id");
         saleLineRecords.push(rec);
         return rec;
@@ -463,7 +473,7 @@ describe("R3-backend: Retail sales on a bill", () => {
     );
 
     expect(Number(bill.total_amount)).toBe(4500);
-    expect(h.saleLineRecords[0].price_source).toBe("approved_override");
+    expect(h.saleLineRecords[0].price_source).toBe("manual");
     expect(h.exceptionRecords.some((e) => e.type === "price_change" && e.status === "approved")).toBe(true);
 
     // Token cannot be reused

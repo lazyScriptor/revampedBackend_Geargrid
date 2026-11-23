@@ -86,7 +86,7 @@ const userHasPermission = async (models, userId, permissionCode, effectivePermis
   return effective.has(permissionCode);
 };
 
-const resolveWarehouseId = async (models, requestedId, settings, { transaction } = {}) => {
+export const resolveWarehouseId = async (models, requestedId, settings, { transaction } = {}) => {
   const opts = transaction ? { transaction } : {};
   const candidate = requestedId ?? settings?.defaultWarehouseId ?? null;
   if (candidate) {
@@ -1709,8 +1709,8 @@ export const sell = async (
   }
 
   const opts = transaction ? { transaction } : {};
-  const wid = await resolveWarehouseId(models, warehouseId, userId, transaction);
   const settings = await getRetailSettings(models);
+  const wid = await resolveWarehouseId(models, warehouseId, settings, opts);
   const negativeBehavior = settings?.negativeStock || "warn";
 
   const productIds = [...new Set(lines.map((l) => Number(l.product_id)).filter(Boolean))];
