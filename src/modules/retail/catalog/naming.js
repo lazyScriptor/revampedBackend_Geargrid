@@ -1,6 +1,6 @@
 import { Op } from "sequelize";
 
-export const DEFAULT_NAME_PATTERN = "{brand} {subcategory} {item} {variant}{unit}";
+export const DEFAULT_NAME_PATTERN = "{brand} {item} {variant}{unit}";
 
 /**
  * Expand size/variant labels into multiple searchable forms:
@@ -63,6 +63,7 @@ const formatPattern = ({ brand, subCategory, category, itemWord, variant, unit, 
 
 export const generateName = ({
   brand = "",
+  itemName = "",
   subCategory = "",
   category = "",
   itemWord = "",
@@ -70,10 +71,19 @@ export const generateName = ({
   unit = "",
   pattern = DEFAULT_NAME_PATTERN,
 } = {}) =>
-  formatPattern({ brand, subCategory, category, itemWord, variant, unit, pattern });
+  formatPattern({
+    brand,
+    subCategory,
+    category,
+    itemWord: String(itemWord || itemName || subCategory || "").trim(),
+    variant,
+    unit,
+    pattern,
+  });
 
 export const generateSinhalaName = ({
   brand = "",
+  itemNameSi = "",
   subCategorySi = "",
   categorySi = "",
   itemWordSi = "",
@@ -85,7 +95,7 @@ export const generateSinhalaName = ({
     brand,
     subCategory: subCategorySi,
     category: categorySi,
-    itemWord: itemWordSi,
+    itemWord: String(itemWordSi || itemNameSi || subCategorySi || "").trim(),
     variant,
     unit,
     pattern,

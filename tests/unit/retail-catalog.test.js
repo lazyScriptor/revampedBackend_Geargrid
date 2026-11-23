@@ -42,23 +42,41 @@ const makeRecord = (data, pkField) => {
 
 describe("Retail R1 Catalogue", () => {
   describe("Naming, Sinhala naming, and code generation", () => {
-    it("generates English and Sinhala names from patterns without double-appending units", () => {
+    it("generates English and Sinhala names from item_name without duplicating subCategory, and falls back to subCategory when item_name is missing", () => {
       expect(
         generateName({
           brand: "SALI",
           subCategory: "Steel",
-          itemWord: "Drill Bit",
+          itemName: "Steel Drill Bit",
           variant: "6",
           unit: "mm",
         }),
       ).toBe("SALI Steel Drill Bit 6mm");
+
+      expect(
+        generateName({
+          brand: "SALI",
+          subCategory: "Cutting wheels",
+          itemName: "Cutting Wheel",
+          variant: '4"',
+        }),
+      ).toBe('SALI Cutting Wheel 4"');
+
+      // Fallback when item_name is missing: uses subCategory as-is, never both
+      expect(
+        generateName({
+          brand: "Bosch",
+          subCategory: "Lighting",
+          variant: "12W",
+        }),
+      ).toBe("Bosch Lighting 12W");
 
       // Already has unit on variant
       expect(
         generateName({
           brand: "SALI",
           subCategory: "Steel",
-          itemWord: "Drill Bit",
+          itemName: "Steel Drill Bit",
           variant: "6mm",
           unit: "mm",
         }),
@@ -68,11 +86,11 @@ describe("Retail R1 Catalogue", () => {
         generateSinhalaName({
           brand: "SALI",
           subCategorySi: "වානේ",
-          itemWordSi: "විදුම් කටු",
+          itemNameSi: "වානේ විදුම් කටුව",
           variant: "6",
           unit: "mm",
         }),
-      ).toBe("SALI වානේ විදුම් කටු 6mm");
+      ).toBe("SALI වානේ විදුම් කටුව 6mm");
     });
 
     it("computes next sequential HW-00001 code and retries up to 5 times on unique clash", async () => {
@@ -179,9 +197,25 @@ describe("Retail R1 Catalogue", () => {
       expect(first.seeded).toBe(true);
       expect(first.categories).toBeGreaterThan(50);
       expect(first.aliases).toBeGreaterThan(15);
+      expect(cats.find((c) => c.name === "Cutting wheels")?.item_name).toBe("Cutting Wheel");
+
+      // Backfills item_name / item_name_si when existing starter categories lack them
+      const cuttingRow = cats.find((c) => c.name === "Cutting wheels");
+      cuttingRow.item_name = null;
+      cuttingRow.item_name_si = null;
+      models.RetailCategory.findAll = vi.fn(async () =>
+        cats.filter((c) => c.item_name === null),
+      );
+      models.RetailCategory.update = vi.fn(async (patch, { where }) => {
+        const target = cats.find((c) => c.category_id === where.category_id);
+        if (target) Object.assign(target, patch);
+        return [1];
+      });
 
       const second = await ensureStarterCatalog(models);
       expect(second).toEqual({ seeded: false, categories: 0, aliases: 0 });
+      expect(cuttingRow.item_name).toBe("Cutting Wheel");
+      expect(cuttingRow.item_name_si).toBe("කැපුම් තැටිය");
     });
   });
 

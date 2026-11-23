@@ -426,6 +426,7 @@ export const createProduct = async (models, userId, body = {}) => {
       brand: validated.brand?.name || "",
       category: (parentCat || validated.category).name,
       subCategory: parentCat ? validated.category.name : "",
+      itemName: validated.category.item_name || "",
       itemWord: String(body.item_word || "").trim(),
       variant: body.variant_label || "",
       unit: family?.option_unit || "",
@@ -443,6 +444,7 @@ export const createProduct = async (models, userId, body = {}) => {
             brand: validated.brand?.name || "",
             categorySi: (parentCat || validated.category).name_si || "",
             subCategorySi: parentCat ? validated.category.name_si || "" : "",
+            itemNameSi: validated.category.item_name_si || "",
             itemWordSi: String(body.item_word_si || "").trim(),
             variant: body.variant_label || "",
             unit: family?.option_unit || "",
@@ -528,6 +530,8 @@ export const updateProduct = async (models, productId, body = {}) => {
       patch.name = n;
     }
     if (body.name_si !== undefined) patch.name_si = body.name_si;
+    if (body.item_name !== undefined) patch.item_name = body.item_name;
+    if (body.item_name_si !== undefined) patch.item_name_si = body.item_name_si;
     if (body.code !== undefined) {
       const c = String(body.code || "").trim();
       if (!c) throw new AppError("code cannot be empty.", 400);
@@ -742,6 +746,7 @@ export const createFamily = async (models, userId, body = {}) => {
         brand: brand?.name || "",
         category: (parentCat || category).name,
         subCategory: parentCat ? category.name : "",
+        itemName: category.item_name || "",
         itemWord: String(item_word || "").trim(),
         variant: "",
         unit: "",
@@ -788,7 +793,8 @@ export const createFamily = async (models, userId, body = {}) => {
             brand: brand?.name || "",
             category: (parentCat || category).name,
             subCategory: parentCat ? category.name : "",
-            itemWord: String(item_word || familyName).replace(brand?.name || "", "").replace(category.name, "").trim() || familyName,
+            itemName: category.item_name || "",
+            itemWord: String(item_word || "").trim(),
             variant: variantLabel,
             unit: family.option_unit || "",
             pattern: settings.namePattern,
@@ -864,6 +870,8 @@ export const updateFamily = async (models, familyId, body = {}) => {
       patch.name = n;
     }
     if (body.name_si !== undefined) patch.name_si = body.name_si;
+    if (body.item_name !== undefined) patch.item_name = body.item_name;
+    if (body.item_name_si !== undefined) patch.item_name_si = body.item_name_si;
     if (body.category_id !== undefined) patch.category_id = Number(body.category_id);
     if (body.brand_id !== undefined) patch.brand_id = body.brand_id ? Number(body.brand_id) : null;
     if (body.option_label !== undefined) patch.option_label = String(body.option_label).slice(0, 40);
@@ -1053,6 +1061,8 @@ export const createCategory = async (models, body = {}) => {
     parent_id: body.parent_id ? Number(body.parent_id) : null,
     name,
     name_si: body.name_si || null,
+    item_name: body.item_name || null,
+    item_name_si: body.item_name_si || null,
     image_url: body.image_url || null,
     icon: body.icon || null,
     usual_sizes: body.usual_sizes ?? null,
@@ -1076,6 +1086,8 @@ export const updateCategory = async (models, categoryId, body = {}) => {
       patch.name = n;
     }
     if (body.name_si !== undefined) patch.name_si = body.name_si;
+    if (body.item_name !== undefined) patch.item_name = body.item_name;
+    if (body.item_name_si !== undefined) patch.item_name_si = body.item_name_si;
     if (body.image_url !== undefined) patch.image_url = body.image_url;
     if (body.icon !== undefined) patch.icon = body.icon;
     if (body.usual_sizes !== undefined) patch.usual_sizes = body.usual_sizes;
@@ -1409,7 +1421,7 @@ export const getPosCatalog = async (models, { since } = {}) => {
       : Promise.resolve([]),
     models.RetailCategory.findAll({
       where: { is_active: true },
-      attributes: ["category_id", "parent_id", "name", "name_si", "icon", "default_unit", "sort_order"],
+      attributes: ["category_id", "parent_id", "name", "name_si", "item_name", "item_name_si", "icon", "default_unit", "sort_order"],
       order: [["sort_order", "ASC"], ["category_id", "ASC"]],
       raw: true,
     }),

@@ -46,7 +46,7 @@ export const DEFAULT_RETAIL_SETTINGS = {
   booksClosedUntil: null,
   discountLimitPct: 10,
   quickPad: [],
-  namePattern: "{brand} {subcategory} {item} {variant}{unit}",
+  namePattern: "{brand} {item} {variant}{unit}",
   codePrefix: "HW-",
   units: {
     base: [...ALLOWED_BASE_UNITS],

@@ -12,6 +12,8 @@ export default (sequelize) => {
       parent_id: { type: DataTypes.INTEGER, allowNull: true },
       name: { type: DataTypes.STRING(150), allowNull: false },
       name_si: { type: DataTypes.STRING(150), allowNull: true },
+      item_name: { type: DataTypes.STRING(150), allowNull: true },
+      item_name_si: { type: DataTypes.STRING(150), allowNull: true },
       image_url: { type: DataTypes.STRING(500), allowNull: true },
       icon: { type: DataTypes.STRING(40), allowNull: true },
       usual_sizes: { type: DataTypes.JSON, allowNull: true },
