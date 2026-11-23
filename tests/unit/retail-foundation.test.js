@@ -894,11 +894,15 @@ describe("Retail R0 Foundations", () => {
   });
 
   describe("UI preferences & Payment methods", () => {
-    it("stores/reads per-user UI preferences and enforces 32 KB limit", async () => {
+    it("stores/reads per-user UI preferences, enforces 32 KB limit, and caps at 200 keys per user", async () => {
       const rows = [];
       const models = {
         UserUiPreference: {
           findAll: vi.fn(async ({ where }) => rows.filter((r) => r.user_id === where.user_id)),
+          findOne: vi.fn(async ({ where }) =>
+            rows.find((r) => r.user_id === where.user_id && r.pref_key === where.pref_key) || null,
+          ),
+          count: vi.fn(async ({ where }) => rows.filter((r) => r.user_id === where.user_id).length),
           upsert: vi.fn(async (data) => {
             const idx = rows.findIndex((r) => r.user_id === data.user_id && r.pref_key === data.pref_key);
             if (idx >= 0) rows[idx] = data;
@@ -914,6 +918,21 @@ describe("Retail R0 Foundations", () => {
       const oversized = "x".repeat(33 * 1024);
       await expect(
         setMyUiPreference(models, 7, "pos.big", oversized),
+      ).rejects.toMatchObject({ statusCode: 400 });
+
+      // Fill up to 200 distinct keys
+      for (let i = rows.length; i < 200; i++) {
+        await setMyUiPreference(models, 7, `k_${i}`, { i });
+      }
+      expect(rows).toHaveLength(200);
+
+      // Updating an existing key at 200 still works
+      await setMyUiPreference(models, 7, "pos.density", { compact: false });
+      expect((await getMyUiPreferences(models, 7)).preferences["pos.density"]).toEqual({ compact: false });
+
+      // Adding a 201st distinct key is rejected with 400
+      await expect(
+        setMyUiPreference(models, 7, "k_overflow", { x: 1 }),
       ).rejects.toMatchObject({ statusCode: 400 });
     });
 

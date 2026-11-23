@@ -322,6 +322,7 @@ export const recordLogin = async (models, userId, { ip }) => {
 };
 
 const MAX_UI_PREF_BYTES = 32 * 1024;
+const MAX_UI_PREF_KEYS = 200;
 const UI_PREF_KEY_RE = /^[a-zA-Z0-9_.:-]{1,60}$/;
 
 const parsePrefValue = (raw) => {
@@ -363,13 +364,29 @@ export const setMyUiPreference = async (models, userId, key, value) => {
     throw new AppError("Preference value exceeds the 32 KB limit.", 400);
   }
 
+  const prefKey = String(key);
+  const existing = await models.UserUiPreference.findOne({
+    where: { user_id: userId, pref_key: prefKey },
+  });
+  if (!existing) {
+    const keyCount = await models.UserUiPreference.count({
+      where: { user_id: userId },
+    });
+    if (keyCount >= MAX_UI_PREF_KEYS) {
+      throw new AppError(
+        `Maximum of ${MAX_UI_PREF_KEYS} UI preference keys per user exceeded.`,
+        400,
+      );
+    }
+  }
+
   const now = new Date();
   await models.UserUiPreference.upsert({
     user_id: userId,
-    pref_key: String(key),
+    pref_key: prefKey,
     value,
     updatedAt: now,
   });
 
-  return { pref_key: String(key), value, updatedAt: now };
+  return { pref_key: prefKey, value, updatedAt: now };
 };
