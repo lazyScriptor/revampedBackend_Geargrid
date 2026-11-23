@@ -396,8 +396,12 @@ describe("Retail R1 Catalogue", () => {
         RetailFamily: { findAll: vi.fn(async () => []) },
       };
 
+      const before = Date.now();
       const delta = await getPosCatalog(models, { since });
-      expect(delta.server_time).toBeTruthy();
+      const after = Date.now();
+      const serverTs = new Date(delta.server_time).getTime();
+      expect(serverTs).toBeGreaterThanOrEqual(before - 5000);
+      expect(serverTs).toBeLessThanOrEqual(after - 5000);
       expect(delta.products.map((p) => p.product_id)).toEqual([2]);
       expect(delta.archived_ids).toEqual([3]);
     });

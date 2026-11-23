@@ -1367,7 +1367,8 @@ export const learnBarcode = async (models, { barcode, product_id, unit_id = null
 };
 
 export const getPosCatalog = async (models, { since } = {}) => {
-  const serverTime = new Date().toISOString();
+  // 5-second overlap window so products saved mid-request are picked up on the next delta sync
+  const serverTime = new Date(Date.now() - 5000).toISOString();
   let sinceDate = null;
   if (since) {
     const parsed = new Date(since);
