@@ -1422,7 +1422,7 @@ export const getPosCatalog = async (models, { since } = {}) => {
       : Promise.resolve([]),
     models.RetailCategory.findAll({
       where: { is_active: true },
-      attributes: ["category_id", "parent_id", "name", "name_si", "item_name", "item_name_si", "icon", "default_unit", "sort_order"],
+      attributes: ["category_id", "parent_id", "name", "name_si", "item_name", "item_name_si", "icon", "image_url", "attributes", "usual_sizes", "default_unit", "sort_order"],
       order: [["sort_order", "ASC"], ["category_id", "ASC"]],
       raw: true,
     }),
