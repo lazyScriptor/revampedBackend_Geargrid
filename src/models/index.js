@@ -34,6 +34,10 @@ import CallLogFactory from "./CallLog.js";
 import CallNoteFactory from "./CallNote.js";
 import DeviceAuditLogFactory from "./DeviceAuditLog.js";
 import PushTemplateFactory from "./PushTemplate.js";
+import CounterExceptionFactory from "./CounterException.js";
+import ApprovalTokenFactory from "./ApprovalToken.js";
+import IdempotencyKeyFactory from "./IdempotencyKey.js";
+import UserUiPreferenceFactory from "./UserUiPreference.js";
 
 export const initTenantModels = (tenantConnection) => {
   const User = UserFactory(tenantConnection);
@@ -72,6 +76,10 @@ export const initTenantModels = (tenantConnection) => {
   const CallNote = CallNoteFactory(tenantConnection);
   const DeviceAuditLog = DeviceAuditLogFactory(tenantConnection);
   const PushTemplate = PushTemplateFactory(tenantConnection);
+  const CounterException = CounterExceptionFactory(tenantConnection);
+  const ApprovalToken = ApprovalTokenFactory(tenantConnection);
+  const IdempotencyKey = IdempotencyKeyFactory(tenantConnection);
+  const UserUiPreference = UserUiPreferenceFactory(tenantConnection);
 
   // ==========================================
   // AUTH & USERS
@@ -269,6 +277,13 @@ export const initTenantModels = (tenantConnection) => {
   CashLockerCount.belongsTo(User, { as: "CountedBy", foreignKey: "counted_by_user_id" });
   CashLockerCount.belongsTo(User, { as: "ReviewedBy", foreignKey: "reviewed_by_user_id" });
 
+  // ── Retail POS foundations (R0): counter exceptions & approvals ──
+  CounterException.belongsTo(User, { as: "Requester", foreignKey: "requested_by" });
+  CounterException.belongsTo(User, { as: "Approver", foreignKey: "approved_by" });
+  ApprovalToken.belongsTo(CounterException, { foreignKey: "exception_id" });
+  CounterException.hasMany(ApprovalToken, { foreignKey: "exception_id" });
+  UserUiPreference.belongsTo(User, { foreignKey: "user_id" });
+
   return {
     User,
     Role,
@@ -306,6 +321,10 @@ export const initTenantModels = (tenantConnection) => {
     CallNote,
     DeviceAuditLog,
     PushTemplate,
+    CounterException,
+    ApprovalToken,
+    IdempotencyKey,
+    UserUiPreference,
     sequelize: tenantConnection,
   };
 };

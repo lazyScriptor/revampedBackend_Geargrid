@@ -50,7 +50,7 @@ export const syncCustomerPhones = async (models, customer, { transaction } = {})
     ...opts,
   });
 
-  if (customer.customer_delete_status) {
+  if (customer.customer_delete_status || customer.is_walk_in) {
     if (models.PhoneContact?.update) {
       await models.PhoneContact.update(
         { linked_customer_id: null },

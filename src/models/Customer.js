@@ -59,6 +59,13 @@ export default (sequelize) => {
       source_contact_id: { type: DataTypes.INTEGER, allowNull: true },
       brief_changed_at: { type: DataTypes.DATE, allowNull: true },
       customer_delete_status: { type: DataTypes.BOOLEAN, defaultValue: false },
+      // ── Retail POS foundations (R0) ──────────────────────────────────────
+      is_walk_in: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+      price_level: {
+        type: DataTypes.ENUM("retail", "contractor", "trade"),
+        allowNull: false,
+        defaultValue: "retail",
+      },
     },
     {
       tableName: "CUSTOMERS",

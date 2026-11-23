@@ -127,6 +127,20 @@ const PERMISSION_CATALOG = [
   { permission_code: "call_notes:write", module_name: "Phone Assistant", description: "Add after-call notes, outcomes and follow-ups" },
   { permission_code: "approvals:decide", module_name: "Phone Assistant", description: "Approve or reject staff discount, void and delete requests" },
 
+  // Retail POS
+  { permission_code: "retail:view", module_name: "Retail", description: "View retail products, stock levels and history" },
+  { permission_code: "retail:sell", module_name: "Retail", description: "Sell retail items on POS bills" },
+  { permission_code: "retail:return", module_name: "Retail", description: "Process returns of sold retail items" },
+  { permission_code: "retail:price_override", module_name: "Retail", description: "Override retail item selling prices on a bill" },
+  { permission_code: "retail:discount", module_name: "Retail", description: "Apply line or bill discounts on retail sales" },
+  { permission_code: "retail:product_manage", module_name: "Retail", description: "Create, edit and archive retail products, categories, brands and families" },
+  { permission_code: "retail:stock_receive", module_name: "Retail", description: "Receive retail stock deliveries" },
+  { permission_code: "retail:stock_adjust", module_name: "Retail", description: "Adjust retail stock and record counts or opening stock" },
+  { permission_code: "retail:cost_view", module_name: "Retail", description: "View retail item costs and profit margins" },
+  { permission_code: "retail:reports", module_name: "Retail", description: "View retail sales, stock and profit reports" },
+  { permission_code: "retail:add_unlisted", module_name: "Retail", description: "Add unlisted items at the POS counter" },
+  { permission_code: "retail:confirm_unlisted", module_name: "Retail", description: "Link, create or confirm unlisted retail sales on the Manager desk" },
+
   // Legacy module-level permissions (backward compat)
   { permission_code: "inventory_permission", module_name: "Legacy", description: "Legacy module-level inventory access" },
 ];

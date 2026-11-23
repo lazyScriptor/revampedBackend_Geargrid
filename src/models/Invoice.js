@@ -78,6 +78,24 @@ export default (sequelize) => {
       source_contact_id: { type: DataTypes.INTEGER, allowNull: true },
       contact_reviewed_at: { type: DataTypes.DATE, allowNull: true },
       contact_reviewed_by: { type: DataTypes.INTEGER, allowNull: true },
+      // ── Retail POS foundations (R0) ──────────────────────────────────────
+      bill_kind: {
+        type: DataTypes.ENUM("rental", "sale", "mixed"),
+        allowNull: false,
+        defaultValue: "rental",
+      },
+      sale_total: {
+        type: DataTypes.DECIMAL(12, 2),
+        allowNull: false,
+        defaultValue: 0,
+      },
+      rental_total: {
+        type: DataTypes.DECIMAL(12, 2),
+        allowNull: false,
+        defaultValue: 0,
+      },
+      job_site: { type: DataTypes.STRING(120), allowNull: true },
+      customer_po: { type: DataTypes.STRING(60), allowNull: true },
     },
     {
       tableName: "INVOICES",
