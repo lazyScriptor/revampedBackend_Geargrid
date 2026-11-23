@@ -191,7 +191,7 @@ const assertTrackableProducts = async (models, productIds, { transaction } = {})
  * Lock or insert RETAIL_STOCK_LEVELS rows in strict (product_id ASC, warehouse_id ASC) order
  * so concurrent transactions never deadlock.
  */
-const lockStockLevelsInOrder = async (models, pairs, { transaction } = {}) => {
+export const lockStockLevelsInOrder = async (models, pairs, { transaction } = {}) => {
   const opts = transaction ? { transaction } : {};
   const uniqueMap = new Map();
   for (const { product_id, warehouse_id } of pairs) {
@@ -1737,6 +1737,8 @@ export const sell = async (
 
   const lockedLevels = await lockStockLevelsInOrder(models, trackedPairs, { transaction, now });
   const consumedNegTokens = new Map();
+  // Lines of the same item on one bill draw from the same stock, so count what earlier lines took.
+  const takenSoFar = new Map();
   const sold = [];
 
   for (const line of lines) {
@@ -1753,7 +1755,7 @@ export const sell = async (
     }
 
     const level = lockedLevels.get(`${pid}:${wid}`);
-    const available = round3(Number(level?.qty_on_hand || 0));
+    const available = round3(Number(level?.qty_on_hand || 0) - (takenSoFar.get(`${pid}:${wid}`) || 0));
     const isUncounted = level?.counted_at === null || level?.counted_at === undefined;
     const wouldGoNegative = available < baseQty;
 
@@ -1897,6 +1899,7 @@ export const sell = async (
       transaction,
     });
 
+    takenSoFar.set(`${pid}:${wid}`, round3((takenSoFar.get(`${pid}:${wid}`) || 0) + baseQty));
     sold.push({ sale_line_id: line.sale_line_id, product_id: pid, qty_after: qtyAfter });
   }
 
@@ -1906,4 +1909,77 @@ export const sell = async (
   );
 
   return { sold, warehouse_id: wid };
+};
+
+
+/**
+ * Put sold goods back on the shelf (bill deleted). One SALE_VOID movement per counted or
+ * serial-numbered line at the line's own cost; serials go back to in_stock. Lines of
+ * untracked or service items take no stock. Stock is only ever changed through applyStockChange.
+ */
+export const voidSale = async (
+  models,
+  { lines = [], invoiceId = null, userId = null, occurredAt = new Date(), transaction, now = new Date() } = {},
+) => {
+  if (!Array.isArray(lines) || lines.length === 0) return { voided: [] };
+  const opts = transaction ? { transaction } : {};
+
+  const productIds = [...new Set(lines.map((l) => Number(l.product_id)).filter(Boolean))];
+  const products = productIds.length
+    ? await models.RetailProduct.findAll({ where: { product_id: { [Op.in]: productIds } }, ...opts })
+    : [];
+  const productsById = new Map(products.map((p) => [Number(p.product_id), p]));
+
+  const tracked = lines.filter((l) => {
+    const p = productsById.get(Number(l.product_id));
+    return p && (p.tracking === "counted" || p.tracking === "serial");
+  });
+  await lockStockLevelsInOrder(
+    models,
+    tracked.map((l) => ({ product_id: l.product_id, warehouse_id: l.warehouse_id })),
+    { transaction },
+  );
+
+  const voided = [];
+  for (const line of tracked) {
+    const pid = Number(line.product_id);
+    const wid = Number(line.warehouse_id);
+    const product = productsById.get(pid);
+
+    if (product.tracking === "serial") {
+      let serial = await models.RetailSerial.findOne({
+        where: { product_id: pid, sale_line_id: line.sale_line_id },
+        ...opts,
+      });
+      const lineSerialNo = line.serial_no ?? line.serial_number;
+      if (!serial && lineSerialNo) {
+        serial = await models.RetailSerial.findOne({
+          where: { product_id: pid, serial_no: String(lineSerialNo) },
+          ...opts,
+        });
+      }
+      if (serial) {
+        await serial.update(
+          { status: "in_stock", sale_line_id: null, sold_at: null, warranty_end: null },
+          opts,
+        );
+      }
+    }
+
+    const qtyAfter = await applyStockChange(models, {
+      product_id: pid,
+      warehouse_id: wid,
+      delta: round3(Number(line.base_qty || 0)),
+      movementType: "SALE_VOID",
+      reason: null,
+      unit_cost: line.unit_cost ?? product.avg_cost ?? 0,
+      sale_line_id: line.sale_line_id ?? null,
+      user_id: userId,
+      occurred_at: occurredAt,
+      now,
+      transaction,
+    });
+    voided.push({ sale_line_id: line.sale_line_id, product_id: pid, qty_after: qtyAfter });
+  }
+  return { voided, invoice_id: invoiceId };
 };

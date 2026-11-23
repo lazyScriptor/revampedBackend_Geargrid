@@ -4,7 +4,13 @@ import { addCents, fromCents, splitByWeight, toCents } from "../money.js";
 import { getRetailSettings } from "../retailSettingsService.js";
 import { consumeApprovalToken } from "../approvalService.js";
 import { createProduct } from "../catalog/catalogService.js";
-import { postOpeningDocument, resolveWarehouseId, sell } from "../stock/stockService.js";
+import {
+  lockStockLevelsInOrder,
+  postOpeningDocument,
+  resolveWarehouseId,
+  sell,
+  voidSale,
+} from "../stock/stockService.js";
 import { userHasPermission } from "../../../services/userService.js";
 
 const round3 = (n) => Math.round((Number(n) || 0) * 1000) / 1000;
@@ -78,6 +84,9 @@ export const createSaleBillLinesAndTotals = async (
     customer,
     saleItems = [],
     billDiscountAmount = 0,
+    // Mixed bills: the machines' rental subtotal (rupees, before discount). The bill discount is
+    // split between it and each sold line, and the discount limit is checked on the whole bill.
+    rentalSubtotal = 0,
     approvalTokens = {},
     userId,
     effectivePermissions = null,
@@ -344,9 +353,14 @@ export const createSaleBillLinesAndTotals = async (
   }
 
   const billDiscountCents = Math.max(0, toCents(billDiscountAmount || 0));
-  const totalGrossCents = preparedLines.reduce((acc, l) => addCents(acc, l.line_gross_cents), 0);
+  const rentalSubtotalCents = Math.max(0, toCents(rentalSubtotal || 0));
+  const totalGrossCents = addCents(
+    rentalSubtotalCents,
+    preparedLines.reduce((acc, l) => addCents(acc, l.line_gross_cents), 0),
+  );
   const totalLineDiscountCents = preparedLines.reduce((acc, l) => addCents(acc, l.line_discount_cents), 0);
-  const subtotalCents = preparedLines.reduce((acc, l) => addCents(acc, l.line_net_cents), 0);
+  const saleSubtotalCents = preparedLines.reduce((acc, l) => addCents(acc, l.line_net_cents), 0);
+  const subtotalCents = addCents(rentalSubtotalCents, saleSubtotalCents);
 
   if (billDiscountCents > subtotalCents) {
     throw new AppError("Bill discount cannot exceed subtotal.", 400);
@@ -411,10 +425,13 @@ export const createSaleBillLinesAndTotals = async (
     });
   }
 
-  const billDiscountShares = splitByWeight(
-    billDiscountCents,
-    preparedLines.map((l) => l.line_net_cents),
-  );
+  // Weight 0 is the rental part (zero when there is no rental), then one weight per sold line.
+  const allShares = splitByWeight(billDiscountCents, [
+    rentalSubtotalCents,
+    ...preparedLines.map((l) => l.line_net_cents),
+  ]);
+  const rentalDiscountShareCents = allShares[0] || 0;
+  const billDiscountShares = allShares.slice(1);
 
   const createdLines = [];
   const catalogLinesToSell = [];
@@ -432,6 +449,7 @@ export const createSaleBillLinesAndTotals = async (
         qty: line.qty,
         unit_id: line.unit_id,
         unit_name: line.unit_name,
+        unit_label: String(line.unit_name || "pcs").slice(0, 20),
         unit_factor: line.unit_factor,
         base_qty: line.base_qty,
         unit_price: fromCents(line.unit_price_cents),
@@ -440,8 +458,10 @@ export const createSaleBillLinesAndTotals = async (
         bill_discount_share: fromCents(shareCents),
         line_total: fromCents(line.line_net_cents),
         unit_cost: line.unit_cost,
+        cost_total: Math.round(Number(line.unit_cost || 0) * Number(line.base_qty || 0) * 100) / 100,
         warehouse_id: warehouseId ?? null,
         serial_number: line.serial_number,
+        serial_no: line.serial_number != null && String(line.serial_number).trim() ? String(line.serial_number).trim().slice(0, 80) : null,
         status: "sold",
         note: line.note,
       },
@@ -510,11 +530,20 @@ export const createSaleBillLinesAndTotals = async (
     });
   }
 
+  const saleDiscountShareCents = billDiscountShares.reduce((acc, c) => addCents(acc, c), 0);
+  const saleTotalCents = addCents(saleSubtotalCents, -saleDiscountShareCents);
   const grandTotalCents = addCents(subtotalCents, -billDiscountCents);
   return {
     saleLines: createdLines,
+    // sub_total of the bill: rental subtotal + sold lines before the bill discount.
     subTotal: fromCents(subtotalCents),
+    saleSubTotal: fromCents(saleSubtotalCents),
     discount: fromCents(billDiscountCents),
+    // What the customer pays for the goods after their share of the discount.
+    saleTotal: fromCents(saleTotalCents),
+    // The part of the bill discount that falls on the machines (mixed bills only).
+    rentalDiscountShare: fromCents(rentalDiscountShareCents),
+    // Rental subtotal + goods − discount (transport is added by the caller).
     totalAmount: fromCents(grandTotalCents),
     warehouseId: sellResult.warehouse_id,
   };
@@ -532,6 +561,8 @@ export const getToSortDeskItems = async (models, { page = 1, limit = 20 } = {}) 
     where: {
       line_kind: "unlisted",
       sorted_at: null,
+      // Lines of a deleted bill are voided and leave the desk.
+      status: { [Op.ne]: "voided" },
     },
     include: [
       {
@@ -711,4 +742,165 @@ export const markUnlistedOneOff = async (models, { saleLineIds, userId }) => {
     throw new AppError("No open unlisted sale lines found.", 404);
   }
   return { marked_count: updated, sale_line_ids: ids };
+};
+
+const TRACKED = new Set(["counted", "serial"]);
+const DELETED_NOTE = "bill deleted";
+
+/**
+ * A bill is deleted: every sold line becomes 'voided' and its stock goes back on the shelf
+ * (one SALE_VOID movement per counted or serial line, at the line's own cost). Unlisted lines that
+ * were never sorted took no stock; their desk exceptions are declined.
+ * A bill with any line already returned can't be deleted.
+ */
+export const voidForInvoice = async (models, invoiceId, { userId = null, transaction, now = new Date() } = {}) => {
+  const opts = transaction ? { transaction } : {};
+  const lines = await models.InvoiceSaleLine.findAll({
+    where: { invoice_id: invoiceId },
+    ...(transaction?.LOCK ? { lock: transaction.LOCK.UPDATE } : {}),
+    ...opts,
+  });
+
+  if (lines.some((l) => Number(l.returned_base_qty || 0) > 0 || l.status === "returned" || l.status === "partly_returned")) {
+    throw new AppError("Goods were returned on this bill, so it can't be deleted.", 409);
+  }
+
+  const soldLines = lines.filter((l) => l.status === "sold");
+  if (soldLines.length === 0) return { voided_lines: 0, restocked_lines: 0 };
+
+  const stockLines = soldLines.filter((l) => l.product_id);
+  const { voided } = await voidSale(models, {
+    lines: stockLines.map((l) => ({
+      sale_line_id: l.sale_line_id,
+      product_id: l.product_id,
+      warehouse_id: l.warehouse_id,
+      base_qty: l.base_qty,
+      unit_cost: l.unit_cost,
+      serial_no: l.serial_no,
+    })),
+    invoiceId,
+    userId,
+    occurredAt: now,
+    now,
+    transaction,
+  });
+
+  const lineIds = soldLines.map((l) => l.sale_line_id);
+  await models.InvoiceSaleLine.update({ status: "voided" }, { where: { sale_line_id: { [Op.in]: lineIds } }, ...opts });
+
+  // Unsorted unlisted lines: nothing to put back; the manager has nothing left to sort.
+  const unsortedIds = soldLines
+    .filter((l) => l.line_kind === "unlisted" && !l.sorted_at && !l.product_id)
+    .map((l) => l.sale_line_id);
+  if (unsortedIds.length > 0) {
+    await models.CounterException.update(
+      { status: "declined", note: DELETED_NOTE, resolved_at: now },
+      {
+        where: {
+          sale_line_id: { [Op.in]: unsortedIds },
+          type: "unlisted_item",
+          status: { [Op.in]: ["recorded", "waiting", "approved"] },
+        },
+        ...opts,
+      },
+    );
+  }
+
+  return { voided_lines: lineIds.length, restocked_lines: voided.length };
+};
+
+/**
+ * A bill is restored: the stock is taken again the way a sale takes it. Under the 'block' setting
+ * the whole restore is refused if any item no longer has the stock; a serial that is no longer
+ * in stock is always refused. Nothing changes when it is refused.
+ */
+export const restoreForInvoice = async (models, invoiceId, { userId = null, transaction, now = new Date() } = {}) => {
+  const opts = transaction ? { transaction } : {};
+  const lines = await models.InvoiceSaleLine.findAll({
+    where: { invoice_id: invoiceId, status: "voided" },
+    ...opts,
+  });
+  if (lines.length === 0) return { restored_lines: 0 };
+
+  const stockLines = lines.filter((l) => l.product_id);
+  const productIds = [...new Set(stockLines.map((l) => Number(l.product_id)))];
+  const products = productIds.length
+    ? await models.RetailProduct.findAll({ where: { product_id: { [Op.in]: productIds } }, ...opts })
+    : [];
+  const productsById = new Map(products.map((p) => [Number(p.product_id), p]));
+  const tracked = stockLines.filter((l) => TRACKED.has(productsById.get(Number(l.product_id))?.tracking));
+
+  if (tracked.length > 0) {
+    const settings = await getRetailSettings(models);
+    const levels = await lockStockLevelsInOrder(
+      models,
+      tracked.map((l) => ({ product_id: l.product_id, warehouse_id: l.warehouse_id })),
+      { transaction },
+    );
+
+    // Serials must still be in stock, whatever the negative-stock setting says.
+    for (const line of tracked) {
+      const product = productsById.get(Number(line.product_id));
+      if (product.tracking !== "serial") continue;
+      const serialNo = line.serial_no ? String(line.serial_no) : null;
+      if (!serialNo) continue;
+      const serial = await models.RetailSerial.findOne({ where: { product_id: line.product_id, serial_no: serialNo }, ...opts });
+      if (!serial || serial.status !== "in_stock" || Number(serial.warehouse_id) !== Number(line.warehouse_id)) {
+        throw new AppError(`Cannot restore: serial ${serialNo} of ${product.name} is no longer in stock.`, 409);
+      }
+    }
+
+    if ((settings?.negativeStock || "warn") === "block") {
+      const need = new Map();
+      for (const line of tracked) {
+        const key = `${Number(line.product_id)}:${Number(line.warehouse_id)}`;
+        need.set(key, round3((need.get(key) || 0) + Number(line.base_qty || 0)));
+      }
+      const shortages = [];
+      for (const [key, qty] of need) {
+        const level = levels.get(key);
+        // Items not counted yet are never blocked.
+        if (level?.counted_at === null || level?.counted_at === undefined) continue;
+        const available = round3(Number(level?.qty_on_hand || 0));
+        if (available < qty) {
+          const product = productsById.get(Number(key.split(":")[0]));
+          shortages.push(`${product?.name || `item ${key.split(":")[0]}`} (needs ${qty}, ${Math.max(0, available)} available)`);
+        }
+      }
+      if (shortages.length > 0) {
+        throw new AppError(`Cannot restore: not enough stock for ${shortages.join(", ")}.`, 409);
+      }
+    }
+
+    // Every line goes back through sell(), from the warehouse it left from.
+    const byWarehouse = new Map();
+    for (const line of tracked) {
+      const wid = Number(line.warehouse_id);
+      if (!byWarehouse.has(wid)) byWarehouse.set(wid, []);
+      byWarehouse.get(wid).push({
+        sale_line_id: line.sale_line_id,
+        product_id: line.product_id,
+        base_qty: line.base_qty,
+        serial_number: line.serial_no,
+        unit_cost: line.unit_cost,
+      });
+    }
+    for (const [wid, wlines] of byWarehouse) {
+      await sell(models, { lines: wlines, warehouseId: wid, invoiceId, userId, occurredAt: now, transaction, now });
+    }
+  }
+
+  const lineIds = lines.map((l) => l.sale_line_id);
+  await models.InvoiceSaleLine.update({ status: "sold" }, { where: { sale_line_id: { [Op.in]: lineIds } }, ...opts });
+
+  // Exceptions declined by the delete come back as they were.
+  const exceptions = await models.CounterException.findAll({
+    where: { sale_line_id: { [Op.in]: lineIds }, status: "declined", note: DELETED_NOTE },
+    ...opts,
+  });
+  for (const ex of exceptions) {
+    await ex.update({ status: ex.approved_by ? "approved" : "recorded", note: null, resolved_at: null }, opts);
+  }
+
+  return { restored_lines: lineIds.length };
 };
