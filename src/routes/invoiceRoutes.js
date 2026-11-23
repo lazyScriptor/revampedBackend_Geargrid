@@ -4,6 +4,7 @@ import * as reviewController from "../controllers/invoiceReviewController.js";
 import * as printLogController from "../controllers/invoicePrintLogController.js";
 import * as invoiceService from "../services/invoiceService.js";
 import { protect, requirePermission } from "../middlewares/authMiddleware.js";
+import { idempotency } from "../middlewares/idempotency.js";
 import { refuseDamagedWithoutMaintenance, requireFeature } from "../middlewares/planMiddleware.js";
 import { registerContract } from "../utils/contractAdapter.js";
 import { getCachedTenantConnection } from "../config/database.js";
@@ -28,7 +29,7 @@ router.use(freshAccruals);
 
 // 1. Core Invoicing
 router.get("/", requirePermission("invoice:view"), invoiceController.getInvoices);
-router.post("/", requirePermission("invoice:create"), invoiceController.createInvoice);
+router.post("/", requirePermission("invoice:create"), idempotency(), invoiceController.createInvoice);
 
 // 2. Bill Printing Audit Logs — declared before /:id so /print-logs doesn't collide with /:id
 router.post("/print-logs", printLogController.createPrintLog);

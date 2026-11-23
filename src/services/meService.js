@@ -320,3 +320,73 @@ export const recordLogin = async (models, userId, { ip }) => {
     // Non-fatal — login flow proceeds even if the audit columns can't be written.
   }
 };
+
+const MAX_UI_PREF_BYTES = 32 * 1024;
+const MAX_UI_PREF_KEYS = 200;
+const UI_PREF_KEY_RE = /^[a-zA-Z0-9_.:-]{1,60}$/;
+
+const parsePrefValue = (raw) => {
+  if (typeof raw !== "string") return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw;
+  }
+};
+
+export const getMyUiPreferences = async (models, userId) => {
+  const rows = await models.UserUiPreference.findAll({
+    where: { user_id: userId },
+    order: [["pref_key", "ASC"]],
+  });
+  const preferences = {};
+  for (const row of rows) {
+    preferences[row.pref_key] = parsePrefValue(row.value);
+  }
+  return { preferences };
+};
+
+export const setMyUiPreference = async (models, userId, key, value) => {
+  if (!key || !UI_PREF_KEY_RE.test(String(key))) {
+    throw new AppError(
+      "Preference key must be 1 to 60 alphanumeric, dot, dash, colon, or underscore characters.",
+      400,
+    );
+  }
+  if (value === undefined) {
+    throw new AppError("value is required.", 400);
+  }
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) {
+    throw new AppError("value must be JSON-serializable.", 400);
+  }
+  if (Buffer.byteLength(serialized, "utf8") > MAX_UI_PREF_BYTES) {
+    throw new AppError("Preference value exceeds the 32 KB limit.", 400);
+  }
+
+  const prefKey = String(key);
+  const existing = await models.UserUiPreference.findOne({
+    where: { user_id: userId, pref_key: prefKey },
+  });
+  if (!existing) {
+    const keyCount = await models.UserUiPreference.count({
+      where: { user_id: userId },
+    });
+    if (keyCount >= MAX_UI_PREF_KEYS) {
+      throw new AppError(
+        `Maximum of ${MAX_UI_PREF_KEYS} UI preference keys per user exceeded.`,
+        400,
+      );
+    }
+  }
+
+  const now = new Date();
+  await models.UserUiPreference.upsert({
+    user_id: userId,
+    pref_key: prefKey,
+    value,
+    updatedAt: now,
+  });
+
+  return { pref_key: prefKey, value, updatedAt: now };
+};

@@ -43,6 +43,10 @@ export default (sequelize) => {
       // Public path to a stored PNG (e.g. /uploads/signatures/.../user-12.png).
       signature_url: { type: DataTypes.STRING(500), allowNull: true },
       signature_captured_at: { type: DataTypes.DATE, allowNull: true },
+      // ── Manager approval PIN (R0) ────────────────────────────────────────
+      approval_pin_hash: { type: DataTypes.STRING(255), allowNull: true },
+      pin_failed_count: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+      pin_locked_until: { type: DataTypes.DATE, allowNull: true },
     },
     {
       tableName: "USERS",

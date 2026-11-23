@@ -27,6 +27,7 @@ export const FEATURE_GROUPS = [
     { key: "data.imports" }, { key: "data.add_machines" }, { key: "data.equipment_sheet" }, { key: "data.exports" },
   ] },
   { key: "admin", features: [{ key: "admin.roles" }] },
+  { key: "retail", features: [{ key: "retail" }] },
 ];
 
 export const FEATURES = FEATURE_GROUPS.flatMap((g) => g.features);
@@ -57,12 +58,17 @@ export const DEFAULT_PLANS = {
       ...allOn(),
       // Phone Assistant is Enterprise-only by default.
       phone_assistant: false,
+      // Retail is off on every tier by default; enabled per shop via plan_overrides.
+      retail: false,
     },
   },
   Enterprise: {
     price: null,
     limits: { max_equipment: null, max_users: null, max_locations: null },
-    features: allOn(),
+    features: {
+      ...allOn(),
+      retail: false,
+    },
   },
 };
 

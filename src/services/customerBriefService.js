@@ -304,6 +304,7 @@ export const buildBriefs = async (models, customerIds, { now = new Date(), profi
     where: {
       customer_id: { [Op.in]: requestedIds },
       customer_delete_status: false,
+      is_walk_in: { [Op.not]: true },
     },
     include: [
       {
@@ -319,7 +320,7 @@ export const buildBriefs = async (models, customerIds, { now = new Date(), profi
 
   const customerById = new Map();
   for (const cust of customers) {
-    if (cust.customer_delete_status) continue;
+    if (cust.customer_delete_status || cust.is_walk_in) continue;
     customerById.set(Number(cust.customer_id), cust);
   }
   const activeIds = requestedIds.filter((id) => customerById.has(id));
@@ -646,6 +647,7 @@ export const syncDeviceBriefs = async (models, device, query = {}, { now = new D
     models.Customer.findAll({
       where: {
         customer_delete_status: false,
+        is_walk_in: { [Op.not]: true },
         ...(cursor > 0 ? { customer_id: { [Op.gt]: cursor } } : {}),
         ...(sinceDate
           ? {

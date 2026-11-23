@@ -319,6 +319,9 @@ export const composeMessage = async (models, { template_key, invoice_id, custome
   const customerId = invoice ? invoice.customer_id : customer_id;
   const customer = await models.Customer.findByPk(customerId);
   if (!customer) throw new AppError("Customer not found.", 404);
+  if (customer.is_walk_in) {
+    throw new AppError("WhatsApp messages cannot be sent to the walk-in customer.", 422);
+  }
 
   const shop = await getShopContext(models);
   const lang = language || (await lastLanguageFor(models, customerId)) || shop.default_language;
@@ -372,6 +375,9 @@ export const logMessage = async (models, { customer_id, invoice_id, template_key
   const digits = String(to_phone || "").replace(/\D/g, "");
   if (customer_id) {
     const customer = await models.Customer.findByPk(customer_id);
+    if (customer?.is_walk_in) {
+      throw new AppError("WhatsApp messages cannot be sent to the walk-in customer.", 422);
+    }
     if (customer?.whatsapp_opt_out) throw new AppError("This customer has asked not to be messaged on WhatsApp.", 409);
   }
   const row = await models.WhatsappMessageLog.create({

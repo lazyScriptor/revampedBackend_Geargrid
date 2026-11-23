@@ -100,8 +100,11 @@ export const getAllCustomers = async (models, queryParams) => {
   const limit = parseInt(queryParams.limit) || 20;
   const offset = (page - 1) * limit;
 
-  // 1. Base query: Hide soft-deleted customers
-  const whereClause = { customer_delete_status: false };
+  // 1. Base query: Hide soft-deleted customers and the built-in walk-in customer
+  const whereClause = {
+    customer_delete_status: false,
+    is_walk_in: { [Op.not]: true },
+  };
 
   // 2. Dynamic Search (name, customer ID, NIC, phone number)
   if (queryParams.search) {
@@ -382,7 +385,10 @@ export const deleteCustomer = async (models, customerId) => {
 // filtered at submit time — hiding them here just confused users who couldn't
 // find an account they knew existed.
 export const getParentOptions = async (models, { excludeId, search } = {}) => {
-  const where = { customer_delete_status: { [Op.not]: true } };
+  const where = {
+    customer_delete_status: { [Op.not]: true },
+    is_walk_in: { [Op.not]: true },
+  };
   if (excludeId) {
     where.customer_id = { [Op.ne]: excludeId };
   }
@@ -539,7 +545,10 @@ export const getCustomerStats = async (models) => {
       [models.sequelize.literal(`COALESCE(SUM(deposit_balance), 0)`), "totalAdvance"],
       [models.sequelize.literal(`COALESCE(SUM(CASE WHEN parent_customer_id IS NOT NULL THEN 1 ELSE 0 END), 0)`), "linkedToParent"],
     ],
-    where: { customer_delete_status: false },
+    where: {
+      customer_delete_status: false,
+      is_walk_in: { [Op.not]: true },
+    },
     raw: true,
   });
 
