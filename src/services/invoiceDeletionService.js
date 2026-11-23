@@ -3,6 +3,7 @@ import AppError from "../utils/AppError.js";
 import { createNotification } from "./notificationService.js";
 import { notifyEvent } from "./pushEventService.js";
 import { touchCustomerBrief } from "./customerBriefService.js";
+import { restoreForInvoice, voidForInvoice } from "../modules/retail/index.js";
 
 const formatLkr = (n) => {
   const num = Number(n || 0);
@@ -101,9 +102,6 @@ export const deleteInvoice = async (models, invoiceId, actor, { reason, note } =
     const invoice = await models.Invoice.unscoped().findByPk(invoiceId, { transaction: t, lock: t.LOCK.UPDATE });
     if (!invoice) throw new AppError("Invoice not found.", 404);
     if (invoice.is_deleted) throw new AppError("This invoice is already deleted.", 409);
-    if (invoice.bill_kind === "sale" || invoice.bill_kind === "mixed") {
-      throw new AppError("Sale bills can't be deleted yet.", 409);
-    }
     deletedInvoiceTotal = Number(invoice.total_amount || 0);
     deletedCustomerId = invoice.customer_id;
 
@@ -133,6 +131,13 @@ export const deleteInvoice = async (models, invoiceId, actor, { reason, note } =
         { transaction: t },
       );
       unitsRestored += qty;
+    }
+
+    // 1b. Goods sold on the bill go back on the shelf (bills with goods only).
+    let goodsVoided = 0;
+    if (invoice.bill_kind === "sale" || invoice.bill_kind === "mixed") {
+      const voidResult = await voidForInvoice(models, invoiceId, { userId: actor.userId, transaction: t });
+      goodsVoided = voidResult.voided_lines;
     }
 
     // 2. Wallet deposits go back to the customer's wallet.
@@ -172,14 +177,14 @@ export const deleteInvoice = async (models, invoiceId, actor, { reason, note } =
         event_category: "ADMIN",
         event_action: "INVOICE_DELETED",
         comments: `Deleted by ${actorName} (${roles}). Reason: ${reason}${cleanNote ? ` — ${cleanNote}` : ""}.`,
-        state_payload: { reason, note: cleanNote, paidTotal, voidedPayments: payments.length, unitsRestored, walletRefunded: walletTotal },
+        state_payload: { reason, note: cleanNote, paidTotal, voidedPayments: payments.length, unitsRestored, goodsVoided, walletRefunded: walletTotal },
       },
       { transaction: t },
     );
 
     await touchCustomerBrief(models, invoice.customer_id, { transaction: t });
 
-    return { invoice_id: invoiceId, flagged: !canAny, paidTotal, voidedPayments: payments.length, unitsRestored, walletRefunded: walletTotal };
+    return { invoice_id: invoiceId, flagged: !canAny, paidTotal, voidedPayments: payments.length, unitsRestored, goodsVoided, walletRefunded: walletTotal };
   });
 
   if (result.flagged) {
@@ -270,6 +275,13 @@ export const restoreInvoice = async (models, invoiceId, actor) => {
       await eq.update({ rented_qty: Number(eq.rented_qty) + qty, available_qty: Number(eq.available_qty) - qty }, { transaction: t });
     }
 
+    // 1b. Take the goods' stock again (bills with goods only). Refused with nothing changed if it's gone.
+    let goodsRestored = 0;
+    if (invoice.bill_kind === "sale" || invoice.bill_kind === "mixed") {
+      const restoreResult = await restoreForInvoice(models, invoiceId, { userId: actor.userId, transaction: t });
+      goodsRestored = restoreResult.restored_lines;
+    }
+
     // 2. Un-void payments; re-debit wallet deposits.
     const voided = await models.Payment.unscoped().findAll({ where: { invoice_id: invoiceId, is_voided: true }, transaction: t });
     const walletTotal = voided.filter((p) => p.method === "WalletDeposit").reduce((s, p) => s + Number(p.payment_amount || 0), 0);
@@ -294,7 +306,7 @@ export const restoreInvoice = async (models, invoiceId, actor) => {
         event_category: "ADMIN",
         event_action: "INVOICE_RESTORED",
         comments: `Restored by ${actorName} (${roles}).`,
-        state_payload: { paymentsRestored: voided.length, walletReapplied: walletTotal },
+        state_payload: { paymentsRestored: voided.length, walletReapplied: walletTotal, goodsRestored },
       },
       { transaction: t },
     );
@@ -368,6 +380,8 @@ export const listDeletedInvoices = async (models, query = {}) => {
       invoice_id: r.invoice_id,
       issued_date: r.issued_date,
       total_amount: Number(r.total_amount),
+      bill_kind: r.bill_kind || "rental",
+      sale_total: Number(r.sale_total || 0),
       status: r.status,
       customer: r.Customer || null,
       deleted_at: r.deleted_at,

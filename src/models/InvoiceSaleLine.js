@@ -25,6 +25,8 @@ export default (sequelize) => {
       sorted_by: { type: DataTypes.INTEGER, allowNull: true },
       description: { type: DataTypes.STRING(255), allowNull: false },
       warehouse_id: { type: DataTypes.INTEGER, allowNull: false },
+      // The serial number sold on this line (serial-numbered items), kept so a deleted bill can be restored.
+      serial_no: { type: DataTypes.STRING(80), allowNull: true },
       unit_id: { type: DataTypes.INTEGER, allowNull: true },
       unit_label: {
         type: DataTypes.STRING(20),
