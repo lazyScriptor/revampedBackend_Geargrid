@@ -12,12 +12,45 @@ const getModels = (req) => {
 
 // --- 1. Create a New Dispatch Invoice ---
 export const createInvoice = catchAsync(async (req, res, next) => {
-  const { customer_id, items, fees } = req.body;
+  const {
+    customer_id,
+    items,
+    fees,
+    sale_items,
+    job_site,
+    customer_po,
+    settle_now,
+    approval_tokens,
+    payment,
+    walk_in,
+    issued_date,
+    borrowed_on_behalf_of_customer_id,
+    discount,
+    discount_amount,
+    warehouse_id,
+  } = req.body;
   const userId = req.user.userId;
 
   const newInvoice = await invoiceService.createDispatchInvoice(
     getModels(req),
-    { customer_id, items, fees },
+    {
+      customer_id,
+      items,
+      fees,
+      sale_items,
+      job_site,
+      customer_po,
+      settle_now,
+      approval_tokens,
+      payment,
+      walk_in,
+      issued_date,
+      borrowed_on_behalf_of_customer_id,
+      discount,
+      discount_amount,
+      warehouse_id,
+      effectivePermissions: req.effectivePermissions,
+    },
     userId,
   );
 

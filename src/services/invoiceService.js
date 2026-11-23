@@ -6,6 +6,7 @@ import { refreshAccruals } from "./accrualService.js";
 import { touchCustomerBrief } from "./customerBriefService.js";
 import { notifyEvent } from "./pushEventService.js";
 import { isUserAdmin, userHasPermission } from "./userService.js";
+import { createSaleBillLinesAndTotals, ensureWalkInCustomer } from "../modules/retail/index.js";
 
 const formatLkr = (n) => {
   const num = Number(n || 0);
@@ -57,8 +58,196 @@ export { wholeDaysBetween, lateDays, isOpenEndedLine, lineOutMoment, elapsedRent
 
 // --- 1. DISPATCH ENGINE (With Row-Level Locks) ---
 export const createDispatchInvoice = async (models, payload, userId) => {
-  const { customer_id, items, fees, borrowed_on_behalf_of_customer_id } = payload;
+  const {
+    customer_id,
+    items,
+    fees,
+    borrowed_on_behalf_of_customer_id,
+    sale_items,
+    job_site,
+    customer_po,
+    settle_now,
+    approval_tokens,
+    payment,
+    walk_in,
+    discount,
+    discount_amount,
+    warehouse_id,
+    effectivePermissions,
+  } = payload;
   const issuedDate = resolveIssuedDate(payload.issued_date);
+
+  const hasRentalItems = Array.isArray(items) && items.length > 0;
+  const hasSaleItems = Array.isArray(sale_items) && sale_items.length > 0;
+
+  if (!hasRentalItems && !hasSaleItems) {
+    throw new AppError("Invoice must contain at least one item.", 400);
+  }
+  if (hasRentalItems && hasSaleItems) {
+    throw new AppError("Combined rental and sale bills are not supported yet.", 400);
+  }
+
+  if (hasSaleItems) {
+    let resolvedCustomerId = customer_id;
+    let soldCount = sale_items.length;
+
+    const newSaleInvoice = await models.sequelize.transaction(async (t) => {
+      let customer;
+      if (walk_in === true || !customer_id) {
+        customer = await ensureWalkInCustomer(models, { transaction: t });
+      } else {
+        customer = await models.Customer.findByPk(customer_id, { transaction: t });
+        if (!customer) throw new AppError("Customer not found.", 404);
+      }
+      resolvedCustomerId = customer.customer_id;
+
+      const bill = await models.Invoice.create(
+        {
+          customer_id: customer.customer_id,
+          issued_by_user_id: userId,
+          bill_kind: "sale",
+          job_site: job_site ? String(job_site).trim().slice(0, 120) : null,
+          customer_po: customer_po ? String(customer_po).trim().slice(0, 60) : null,
+          sub_total: 0,
+          discount_amount: 0,
+          total_amount: 0,
+          advance_paid: 0,
+          status: "PendingPayment",
+          ...(issuedDate ? { issued_date: issuedDate } : {}),
+        },
+        { transaction: t },
+      );
+
+      const saleResult = await createSaleBillLinesAndTotals(models, {
+        invoiceId: bill.invoice_id,
+        customer,
+        saleItems: sale_items,
+        billDiscountAmount: discount ?? discount_amount ?? 0,
+        approvalTokens: approval_tokens,
+        userId,
+        effectivePermissions,
+        warehouseId: warehouse_id ?? null,
+        occurredAt: issuedDate || new Date(),
+        transaction: t,
+      });
+
+      soldCount = saleResult.saleLines.length;
+      const paidAmount = Number(payment?.amount ?? fees?.advance ?? 0);
+      if (paidAmount < 0 || !Number.isFinite(paidAmount)) {
+        throw new AppError("Invalid payment amount.", 400);
+      }
+
+      if (customer.is_walk_in && paidAmount + 0.005 < saleResult.totalAmount) {
+        throw new AppError("Walk-in customers must pay in full at checkout.", 422);
+      }
+
+      const isFullyPaid = paidAmount + 0.005 >= saleResult.totalAmount;
+      const finalStatus = settle_now && isFullyPaid ? "Completed" : "PendingPayment";
+
+      await bill.update(
+        {
+          sub_total: saleResult.subTotal,
+          discount_amount: saleResult.discount,
+          total_amount: saleResult.totalAmount,
+          sale_total: saleResult.totalAmount,
+          advance_paid: paidAmount,
+          status: finalStatus,
+        },
+        { transaction: t },
+      );
+
+      if (paidAmount > 0) {
+        const payMethod =
+          payment?.method ||
+          payload.advance_payment_method ||
+          fees?.advance_payment_method ||
+          payload.payment_method ||
+          "Cash";
+
+        await models.Payment.create(
+          {
+            invoice_id: bill.invoice_id,
+            payment_amount: paidAmount,
+            method: payMethod,
+            is_advance: false,
+            received_by_user_id: userId,
+            ...(issuedDate ? { payment_date: issuedDate } : {}),
+          },
+          { transaction: t },
+        );
+
+        if (payMethod === "WalletDeposit") {
+          if (Number(customer.deposit_balance) < paidAmount) {
+            throw new AppError("Insufficient customer deposit balance in wallet.", 400);
+          }
+          const newBalance = Math.max(0, Number(customer.deposit_balance) - paidAmount);
+          await customer.update({ deposit_balance: newBalance }, { transaction: t });
+        }
+      }
+
+      await models.InvoiceTrace.create(
+        {
+          invoice_id: bill.invoice_id,
+          actor_user_id: userId,
+          event_category: "BILLING",
+          event_action: "INVOICE_CREATED",
+          comments:
+            `Sale bill generated for ${soldCount} items. Total: Rs. ${saleResult.totalAmount}.` +
+            (finalStatus === "Completed" ? " Settled at checkout." : "") +
+            (issuedDate ? ` Bill date set to ${issuedDate.toISOString()}.` : ""),
+          state_payload: {
+            bill_kind: "sale",
+            sale_items_count: soldCount,
+            status: finalStatus,
+            ...(issuedDate ? { issued_date: issuedDate.toISOString() } : {}),
+          },
+        },
+        { transaction: t },
+      );
+
+      await touchCustomerBrief(models, customer.customer_id, { transaction: t });
+      return bill;
+    });
+
+    void (async () => {
+      try {
+        const [customer, staffName] = await Promise.all([
+          models.Customer?.findByPk
+            ? models.Customer.findByPk(resolvedCustomerId, {
+                attributes: ["customer_id", "first_name", "last_name", "company_name", "customer_type"],
+              })
+            : null,
+          lookupStaffName(models, userId),
+        ]);
+        const customerName = formatCustomerDisplay(customer);
+        const total = formatLkr(newSaleInvoice.total_amount);
+        await notifyEvent(models, "invoice_created", {
+          amount: Number(newSaleInvoice.total_amount || 0),
+          actorUserId: userId,
+          customerName,
+          vars: {
+            invoice_no: String(newSaleInvoice.invoice_id),
+            amount: Number(newSaleInvoice.total_amount || 0),
+            customer: customerName,
+            items_count: soldCount,
+            staff: staffName,
+            date: new Date(),
+            time: new Date(),
+          },
+          title: `New bill #${newSaleInvoice.invoice_id} · LKR ${total}`,
+          body: `${customerName} · ${soldCount} items sold · by ${staffName}`,
+          titleNoAmount: `New bill #${newSaleInvoice.invoice_id}`,
+          bodyNoAmount: `${customerName} · ${soldCount} items sold · by ${staffName}`,
+          data: { type: "invoice_created", invoice_id: String(newSaleInvoice.invoice_id) },
+          link: "/invoices?mode=manage",
+        });
+      } catch {
+        // Push failures must never affect bill creation
+      }
+    })();
+
+    return newSaleInvoice;
+  }
 
   const newInvoice = await models.sequelize.transaction(async (t) => {
     let subTotal = 0;
@@ -319,6 +508,7 @@ export const getAllInvoices = async (models, queryParams) => {
   const OPEN_STATUSES = ["Active", "PendingPayment"];
   if (queryParams.status === "Active") whereClause.status = { [Op.in]: OPEN_STATUSES };
   else if (queryParams.status) whereClause.status = queryParams.status;
+  if (queryParams.bill_kind) whereClause.bill_kind = queryParams.bill_kind;
 
   const [countsResult, findResult] = await Promise.all([
     Promise.all([
@@ -363,6 +553,11 @@ export const getAllInvoices = async (models, queryParams) => {
               attributes: ["equipment_name", "equipment_name_si", "serial_number", "image_url", "is_bulk_item"],
             },
           ],
+        },
+        {
+          model: models.InvoiceSaleLine,
+          as: "SaleLines",
+          required: false,
         },
         {
           model: models.Payment,
@@ -418,6 +613,11 @@ export const getInvoiceById = async (models, invoiceId) => {
             attributes: ["equipment_name", "equipment_name_si", "serial_number", "image_url", "is_bulk_item"],
           },
         ],
+      },
+      {
+        model: models.InvoiceSaleLine,
+        as: "SaleLines",
+        required: false,
       },
       { model: models.Payment },
       { model: models.InvoiceTrace },
