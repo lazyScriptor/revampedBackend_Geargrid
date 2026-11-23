@@ -271,6 +271,15 @@ describe("Retail R0 Foundations", () => {
             return rec;
           }),
           findByPk: vi.fn(async (hash) => tokens.get(hash) || null),
+          update: vi.fn(async (patch, { where }) => {
+            const rec = tokens.get(where.token_hash);
+            if (!rec || rec.used_at !== null) return [0];
+            if (where.expires_at?.[Op.gt] && !(new Date(rec.expires_at) > where.expires_at[Op.gt])) {
+              return [0];
+            }
+            Object.assign(rec, patch);
+            return [1];
+          }),
         },
         Notification: {
           create: vi.fn(async (data) => {
@@ -479,6 +488,30 @@ describe("Retail R0 Foundations", () => {
       await expect(
         consumeApprovalToken(models, res.approval_token, { type: "price_change", context, userId: 10, now }),
       ).rejects.toMatchObject({ statusCode: 409 });
+    });
+
+    it("allows only one winner when two concurrent consumeApprovalToken calls race", async () => {
+      const { models, manager } = await setupApprovalModels();
+      const now = new Date("2026-11-23T10:00:00Z");
+      const context = { product_id: 8, new_price: 450 };
+
+      const res = await approveHere(
+        models,
+        10,
+        { type: "price_change", context, approver_user_id: manager.user_id, pin: "2580" },
+        { now },
+      );
+
+      const [r1, r2] = await Promise.allSettled([
+        consumeApprovalToken(models, res.approval_token, { type: "price_change", context, userId: 10, now }),
+        consumeApprovalToken(models, res.approval_token, { type: "price_change", context, userId: 10, now }),
+      ]);
+
+      const fulfilled = [r1, r2].filter((r) => r.status === "fulfilled");
+      const rejected = [r1, r2].filter((r) => r.status === "rejected");
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      expect(rejected[0].reason.statusCode).toBe(409);
     });
 
     it("supports remote request -> decide -> token, record-only, and desk totals", async () => {

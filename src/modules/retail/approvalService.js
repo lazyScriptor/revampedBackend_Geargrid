@@ -674,6 +674,20 @@ export const consumeApprovalToken = async (
     throw new AppError("Approval token does not match the request context.", 403);
   }
 
-  await record.update({ used_at: now }, opts);
+  const [affectedRows] = await models.ApprovalToken.update(
+    { used_at: now },
+    {
+      where: {
+        token_hash: tokenHash,
+        used_at: null,
+        expires_at: { [Op.gt]: now },
+      },
+      ...(transaction ? { transaction } : {}),
+    },
+  );
+  if (affectedRows !== 1) {
+    throw new AppError("Approval token has already been used.", 409);
+  }
+  record.used_at = now;
   return record;
 };
