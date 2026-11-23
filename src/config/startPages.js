@@ -11,6 +11,8 @@ export const START_PAGES = [
   "maintenance",
   "messages",
   "locker",
+  // Retail shops: the Stock workspace (the web app shows it only when retail is on).
+  "stock",
 ];
 
 export const DEFAULT_START_PAGE = "invoices";
