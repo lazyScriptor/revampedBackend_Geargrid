@@ -38,6 +38,11 @@ const assertRequesterWithinLimit = (requesterUserId, now) => {
   }
 };
 
+const forgetRequesterAttempt = (requesterUserId) => {
+  const list = requesterFailures.get(Number(requesterUserId));
+  if (list && list.length) list.pop();
+};
+
 const recordRequesterFailure = (requesterUserId, now) => {
   const key = Number(requesterUserId);
   const cutoff = now.getTime() - REQUESTER_WINDOW_MS;
@@ -238,25 +243,53 @@ const issueApprovalToken = async (
   return { approval_token: rawToken, expires_at: expiresAt };
 };
 
-const recordFailedApproverAttempt = async (models, approver, now) => {
+// Each approval attempt is counted BEFORE the PIN/password is compared, in one atomic UPDATE that
+// only succeeds while the approver is not locked and has fewer than PIN_MAX_ATTEMPTS failures. So
+// however many guesses arrive at once, at most PIN_MAX_ATTEMPTS can ever reach bcrypt; the rest are
+// refused as locked. A success resets the counter; the 5th failure starts the 10-minute lock.
+const reserveApproverAttempt = async (models, approver, now) => {
+  if (models?.sequelize?.query) {
+    const [result] = await models.sequelize.query(
+      `UPDATE \`USERS\`
+       SET pin_failed_count = IF(pin_locked_until IS NOT NULL AND pin_locked_until <= ?, 1, pin_failed_count + 1),
+           pin_locked_until = IF(pin_locked_until IS NOT NULL AND pin_locked_until <= ?, NULL, pin_locked_until)
+       WHERE user_id = ?
+         AND ((pin_locked_until IS NOT NULL AND pin_locked_until <= ?)
+              OR (pin_locked_until IS NULL AND pin_failed_count < ?))`,
+      { replacements: [now, now, approver.user_id, now, PIN_MAX_ATTEMPTS] },
+    );
+    const affected = Number(result?.affectedRows ?? result?.changedRows ?? result ?? 0);
+    return affected === 1;
+  }
+  // Fake models in unit tests: same rule, not atomic.
+  const lockExpired = approver.pin_locked_until && new Date(approver.pin_locked_until) <= now;
+  if (!lockExpired && (approver.pin_locked_until || Number(approver.pin_failed_count || 0) >= PIN_MAX_ATTEMPTS)) {
+    return false;
+  }
+  await approver.update({
+    pin_failed_count: lockExpired ? 1 : Number(approver.pin_failed_count || 0) + 1,
+    pin_locked_until: lockExpired ? null : approver.pin_locked_until ?? null,
+  });
+  return true;
+};
+
+const lockApproverIfLimitReached = async (models, approver, now) => {
   if (models?.sequelize?.query) {
     await models.sequelize.query(
-      `UPDATE \`USERS\`
-       SET pin_locked_until = IF(pin_failed_count + 1 >= ?, DATE_ADD(?, INTERVAL 10 MINUTE), pin_locked_until),
-           pin_failed_count = pin_failed_count + 1
-       WHERE user_id = ?`,
-      { replacements: [PIN_MAX_ATTEMPTS, now, approver.user_id] },
+      `UPDATE \`USERS\` SET pin_locked_until = DATE_ADD(?, INTERVAL 10 MINUTE)
+       WHERE user_id = ? AND pin_failed_count >= ? AND pin_locked_until IS NULL`,
+      { replacements: [now, approver.user_id, PIN_MAX_ATTEMPTS] },
     );
-    return models.User.findByPk(approver.user_id);
+    return;
   }
-  const nextFailed = Number(approver.pin_failed_count || 0) + 1;
-  const patch = { pin_failed_count: nextFailed };
-  if (nextFailed >= PIN_MAX_ATTEMPTS) {
-    patch.pin_locked_until = new Date(now.getTime() + PIN_LOCK_MS);
+  const fresh = (await models.User.findByPk(approver.user_id)) || approver;
+  if (Number(fresh.pin_failed_count || 0) >= PIN_MAX_ATTEMPTS && !fresh.pin_locked_until) {
+    await fresh.update({ pin_locked_until: new Date(now.getTime() + PIN_LOCK_MS) });
   }
-  await approver.update(patch);
-  return approver;
 };
+
+const resetApproverAttempts = (approver) =>
+  approver.update({ pin_failed_count: 0, pin_locked_until: null });
 
 export const approveHere = async (
   models,
@@ -311,37 +344,28 @@ export const approveHere = async (
     throw new AppError("Selected user does not have permission to approve exceptions.", 403);
   }
 
-  if (approver.pin_locked_until && new Date(approver.pin_locked_until) > now) {
+  if (hasPin && !approver.approval_pin_hash) {
+    throw new AppError("Approver has not configured an approval PIN.", 400);
+  }
+
+  // Count the attempt first (see reserveApproverAttempt), for the approver and for the requester.
+  recordRequesterFailure(requesterUserId, now);
+  if (!(await reserveApproverAttempt(models, approver, now))) {
     throw new AppError(
       "Approvals for this manager are temporarily locked after too many failed attempts.",
       423,
     );
   }
 
-  if (hasPin) {
-    if (!approver.approval_pin_hash) {
-      throw new AppError("Approver has not configured an approval PIN.", 400);
-    }
-    const pinValid = await bcrypt.compare(String(pin), approver.approval_pin_hash);
-    if (!pinValid) {
-      recordRequesterFailure(requesterUserId, now);
-      await recordFailedApproverAttempt(models, approver, now);
-      throw new AppError("Invalid approval PIN.", 401);
-    }
-    if (Number(approver.pin_failed_count || 0) > 0 || approver.pin_locked_until) {
-      await approver.update({ pin_failed_count: 0, pin_locked_until: null });
-    }
-  } else {
-    const passValid = await bcrypt.compare(String(password), approver.password_hash);
-    if (!passValid) {
-      recordRequesterFailure(requesterUserId, now);
-      await recordFailedApproverAttempt(models, approver, now);
-      throw new AppError("Invalid approver password.", 401);
-    }
-    if (Number(approver.pin_failed_count || 0) > 0 || approver.pin_locked_until) {
-      await approver.update({ pin_failed_count: 0, pin_locked_until: null });
-    }
+  const valid = hasPin
+    ? await bcrypt.compare(String(pin), approver.approval_pin_hash)
+    : await bcrypt.compare(String(password), approver.password_hash);
+  if (!valid) {
+    await lockApproverIfLimitReached(models, approver, now);
+    throw new AppError(hasPin ? "Invalid approval PIN." : "Invalid approver password.", 401);
   }
+  forgetRequesterAttempt(requesterUserId);
+  await resetApproverAttempts(approver);
 
   return runInTransaction(models, async (transaction) => {
     const opts = transaction ? { transaction } : {};

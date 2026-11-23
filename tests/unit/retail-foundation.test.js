@@ -363,20 +363,29 @@ describe("Retail R0 Foundations", () => {
       ).rejects.toMatchObject({ statusCode: 423 });
     });
 
-    it("locks manager PIN atomically under 20 concurrent wrong attempts", async () => {
+    it("lets at most 5 of 20 concurrent wrong PINs reach the check, then locks the manager", async () => {
       const { models, manager } = await setupApprovalModels();
       const now = new Date("2026-11-23T10:00:00Z");
 
-      // Simulate atomic SQL UPDATE on USERS even when all 20 callers read pin_failed_count=0 first
+      // Emulates the two atomic UPDATEs in approvalService (each JS call runs to completion, like one SQL statement).
       models.sequelize = {
         query: vi.fn(async (sql, { replacements }) => {
-          if (sql.includes("UPDATE `USERS`")) {
-            const [maxAttempts, ts] = replacements;
-            const nextCount = Number(manager.pin_failed_count || 0) + 1;
-            if (nextCount >= maxAttempts && !manager.pin_locked_until) {
-              manager.pin_locked_until = new Date(new Date(ts).getTime() + 10 * 60 * 1000);
+          if (sql.includes("SET pin_failed_count = IF(")) {
+            const [t] = replacements;
+            const max = replacements[4];
+            const lockExpired = manager.pin_locked_until && manager.pin_locked_until <= t;
+            const open = lockExpired || (!manager.pin_locked_until && Number(manager.pin_failed_count || 0) < max);
+            if (!open) return [{ affectedRows: 0 }];
+            manager.pin_failed_count = lockExpired ? 1 : Number(manager.pin_failed_count || 0) + 1;
+            if (lockExpired) manager.pin_locked_until = null;
+            return [{ affectedRows: 1 }];
+          }
+          if (sql.includes("SET pin_locked_until = DATE_ADD(")) {
+            const [t, , max] = replacements;
+            if (Number(manager.pin_failed_count) >= max && !manager.pin_locked_until) {
+              manager.pin_locked_until = new Date(new Date(t).getTime() + 10 * 60 * 1000);
             }
-            manager.pin_failed_count = nextCount;
+            return [{ affectedRows: 1 }];
           }
           return [[]];
         }),
@@ -393,10 +402,26 @@ describe("Retail R0 Foundations", () => {
         ),
       );
 
+      const codes = results.map((r) => r.reason?.statusCode);
       expect(results.every((r) => r.status === "rejected")).toBe(true);
-      expect(manager.pin_failed_count).toBe(20);
+      // Only 5 guesses were ever compared; the other 15 were refused as locked or rate-limited.
+      expect(codes.filter((c) => c === 401)).toHaveLength(5);
+      expect(codes.filter((c) => c === 423 || c === 429)).toHaveLength(15);
+      expect(manager.pin_failed_count).toBe(5);
       expect(manager.pin_locked_until).toBeInstanceOf(Date);
       expect(manager.pin_locked_until.getTime()).toBe(now.getTime() + 10 * 60 * 1000);
+    });
+
+    it("unlocks after the 10-minute lock and counts again from 1", async () => {
+      const { models, manager } = await setupApprovalModels();
+      manager.pin_failed_count = 5;
+      manager.pin_locked_until = new Date("2026-11-23T10:10:00Z");
+      const later = new Date("2026-11-23T10:11:00Z");
+      await expect(
+        approveHere(models, 10, { type: "price_change", context: { product_id: 1 }, approver_user_id: manager.user_id, pin: "0000" }, { now: later }),
+      ).rejects.toMatchObject({ statusCode: 401 });
+      expect(manager.pin_failed_count).toBe(1);
+      expect(manager.pin_locked_until).toBeNull();
     });
 
     it("locks password approval after 5 failures and enforces per-requester 429 limit after 10 failures", async () => {
