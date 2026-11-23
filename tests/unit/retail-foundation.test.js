@@ -24,6 +24,7 @@ import {
   consumeApprovalToken,
   sha256Hex,
   hashContext,
+  clearRequesterFailureLimiter,
 } from "../../src/modules/retail/index.js";
 import { up as migrationUp } from "../../migrations/tenant/20261123200000-retail-foundation.js";
 import { getAllCustomers, getParentOptions } from "../../src/services/customerService.js";
@@ -54,6 +55,7 @@ describe("Retail R0 Foundations", () => {
   beforeEach(() => {
     emitToTenantMock.mockReset();
     emitToUserMock.mockReset();
+    clearRequesterFailureLimiter();
   });
 
   describe("Migration idempotency", () => {
@@ -361,6 +363,59 @@ describe("Retail R0 Foundations", () => {
       expect(manager.pin_failed_count).toBe(20);
       expect(manager.pin_locked_until).toBeInstanceOf(Date);
       expect(manager.pin_locked_until.getTime()).toBe(now.getTime() + 10 * 60 * 1000);
+    });
+
+    it("locks password approval after 5 failures and enforces per-requester 429 limit after 10 failures", async () => {
+      const { models, manager } = await setupApprovalModels();
+      const now = new Date("2026-11-23T10:00:00Z");
+
+      // 5 wrong passwords lock the manager
+      for (let i = 1; i <= 5; i++) {
+        await expect(
+          approveHere(
+            models,
+            10,
+            { type: "price_change", context: { product_id: 1 }, approver_user_id: manager.user_id, password: "wrong" },
+            { now },
+          ),
+        ).rejects.toMatchObject({ statusCode: 401 });
+      }
+      await expect(
+        approveHere(
+          models,
+          10,
+          { type: "price_change", context: { product_id: 1 }, approver_user_id: manager.user_id, password: "mgrPass1" },
+          { now: new Date(now.getTime() + 60_000) },
+        ),
+      ).rejects.toMatchObject({ statusCode: 423 });
+
+      // Reset manager lock and test per-requester 10-failure limit
+      manager.pin_failed_count = 0;
+      manager.pin_locked_until = null;
+      clearRequesterFailureLimiter();
+
+      for (let i = 1; i <= 10; i++) {
+        // Reset manager every 4 attempts so manager lock doesn't trigger before requester limit
+        if (i % 4 === 0) manager.pin_failed_count = 0;
+        await expect(
+          approveHere(
+            models,
+            10,
+            { type: "price_change", context: { product_id: 1 }, approver_user_id: manager.user_id, password: "wrong" },
+            { now },
+          ),
+        ).rejects.toMatchObject({ statusCode: 401 });
+      }
+
+      // 11th attempt from requester 10 is rejected with 429 even with correct password
+      await expect(
+        approveHere(
+          models,
+          10,
+          { type: "price_change", context: { product_id: 1 }, approver_user_id: manager.user_id, password: "mgrPass1" },
+          { now },
+        ),
+      ).rejects.toMatchObject({ statusCode: 429 });
     });
 
     it("refuses self-approval and enforces single-use, expiry, type and context on tokens", async () => {

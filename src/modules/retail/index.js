@@ -26,5 +26,6 @@ export {
   consumeApprovalToken,
   hashContext,
   sha256Hex,
+  clearRequesterFailureLimiter,
 } from "./approvalService.js";
 export { default as approvalRoutes } from "./routes/approvalRoutes.js";

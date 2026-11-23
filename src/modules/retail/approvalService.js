@@ -10,9 +10,41 @@ import { emitToTenant, emitToUser } from "../../sockets/emitters.js";
 const PIN_RE = /^\d{4,6}$/;
 const PIN_MAX_ATTEMPTS = 5;
 const PIN_LOCK_MS = 10 * 60 * 1000;
+const REQUESTER_MAX_FAILURES = 10;
+const REQUESTER_WINDOW_MS = 10 * 60 * 1000;
 const TOKEN_TTL_MS = 60 * 1000;
 const REQUEST_TTL_MS = 5 * 60 * 1000;
 const ADMIN_ROLE_NAMES = new Set(["admin", "owner", "superadmin", "super_admin"]);
+
+const requesterFailures = new Map();
+
+export const clearRequesterFailureLimiter = () => {
+  requesterFailures.clear();
+};
+
+const assertRequesterWithinLimit = (requesterUserId, now) => {
+  const cutoff = now.getTime() - REQUESTER_WINDOW_MS;
+  const list = (requesterFailures.get(Number(requesterUserId)) || []).filter((ts) => ts > cutoff);
+  if (list.length === 0) {
+    requesterFailures.delete(Number(requesterUserId));
+  } else {
+    requesterFailures.set(Number(requesterUserId), list);
+  }
+  if (list.length >= REQUESTER_MAX_FAILURES) {
+    throw new AppError(
+      "Too many failed approval attempts. Please try again in 10 minutes.",
+      429,
+    );
+  }
+};
+
+const recordRequesterFailure = (requesterUserId, now) => {
+  const key = Number(requesterUserId);
+  const cutoff = now.getTime() - REQUESTER_WINDOW_MS;
+  const list = (requesterFailures.get(key) || []).filter((ts) => ts > cutoff);
+  list.push(now.getTime());
+  requesterFailures.set(key, list);
+};
 
 export { COUNTER_EXCEPTION_TYPES };
 
@@ -269,6 +301,8 @@ export const approveHere = async (
     throw new AppError("Password approval is disabled; use PIN.", 400);
   }
 
+  assertRequesterWithinLimit(requesterUserId, now);
+
   const { user: approver, allowed } = await userHasApprovalsDecide(models, approverId);
   if (!approver) {
     throw new AppError("Approver not found or inactive.", 404);
@@ -277,18 +311,20 @@ export const approveHere = async (
     throw new AppError("Selected user does not have permission to approve exceptions.", 403);
   }
 
+  if (approver.pin_locked_until && new Date(approver.pin_locked_until) > now) {
+    throw new AppError(
+      "Approvals for this manager are temporarily locked after too many failed attempts.",
+      423,
+    );
+  }
+
   if (hasPin) {
-    if (approver.pin_locked_until && new Date(approver.pin_locked_until) > now) {
-      throw new AppError(
-        "PIN approvals are temporarily locked after too many failed attempts.",
-        423,
-      );
-    }
     if (!approver.approval_pin_hash) {
       throw new AppError("Approver has not configured an approval PIN.", 400);
     }
     const pinValid = await bcrypt.compare(String(pin), approver.approval_pin_hash);
     if (!pinValid) {
+      recordRequesterFailure(requesterUserId, now);
       await recordFailedApproverAttempt(models, approver, now);
       throw new AppError("Invalid approval PIN.", 401);
     }
@@ -298,7 +334,12 @@ export const approveHere = async (
   } else {
     const passValid = await bcrypt.compare(String(password), approver.password_hash);
     if (!passValid) {
+      recordRequesterFailure(requesterUserId, now);
+      await recordFailedApproverAttempt(models, approver, now);
       throw new AppError("Invalid approver password.", 401);
+    }
+    if (Number(approver.pin_failed_count || 0) > 0 || approver.pin_locked_until) {
+      await approver.update({ pin_failed_count: 0, pin_locked_until: null });
     }
   }
 
