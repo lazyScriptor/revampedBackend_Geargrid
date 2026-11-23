@@ -45,6 +45,11 @@ import RetailProductFactory from "./RetailProduct.js";
 import RetailProductUnitFactory from "./RetailProductUnit.js";
 import RetailBarcodeFactory from "./RetailBarcode.js";
 import RetailSearchAliasFactory from "./RetailSearchAlias.js";
+import RetailStockLevelFactory from "./RetailStockLevel.js";
+import RetailStockDocumentFactory from "./RetailStockDocument.js";
+import RetailStockDocumentLineFactory from "./RetailStockDocumentLine.js";
+import RetailStockMovementFactory from "./RetailStockMovement.js";
+import RetailSerialFactory from "./RetailSerial.js";
 
 export const initTenantModels = (tenantConnection) => {
   const User = UserFactory(tenantConnection);
@@ -94,6 +99,11 @@ export const initTenantModels = (tenantConnection) => {
   const RetailProductUnit = RetailProductUnitFactory(tenantConnection);
   const RetailBarcode = RetailBarcodeFactory(tenantConnection);
   const RetailSearchAlias = RetailSearchAliasFactory(tenantConnection);
+  const RetailStockLevel = RetailStockLevelFactory(tenantConnection);
+  const RetailStockDocument = RetailStockDocumentFactory(tenantConnection);
+  const RetailStockDocumentLine = RetailStockDocumentLineFactory(tenantConnection);
+  const RetailStockMovement = RetailStockMovementFactory(tenantConnection);
+  const RetailSerial = RetailSerialFactory(tenantConnection);
 
   // ==========================================
   // AUTH & USERS
@@ -329,6 +339,33 @@ export const initTenantModels = (tenantConnection) => {
   RetailBarcode.belongsTo(RetailProduct, { foreignKey: "product_id" });
   RetailBarcode.belongsTo(RetailProductUnit, { as: "Unit", foreignKey: "unit_id" });
 
+  // ── Retail POS stock & movements (R2) ──
+  RetailStockLevel.belongsTo(RetailProduct, { foreignKey: "product_id" });
+  RetailProduct.hasMany(RetailStockLevel, { as: "StockLevels", foreignKey: "product_id" });
+  RetailStockLevel.belongsTo(Warehouse, { foreignKey: "warehouse_id" });
+  Warehouse.hasMany(RetailStockLevel, { foreignKey: "warehouse_id" });
+
+  RetailStockDocument.belongsTo(Warehouse, { as: "Warehouse", foreignKey: "warehouse_id" });
+  RetailStockDocument.belongsTo(Warehouse, { as: "ToWarehouse", foreignKey: "to_warehouse_id" });
+  RetailStockDocument.belongsTo(User, { as: "User", foreignKey: "user_id" });
+  RetailStockDocument.hasMany(RetailStockDocumentLine, {
+    as: "Lines",
+    foreignKey: "doc_id",
+    onDelete: "CASCADE",
+  });
+  RetailStockDocumentLine.belongsTo(RetailStockDocument, { as: "Document", foreignKey: "doc_id" });
+  RetailStockDocumentLine.belongsTo(RetailProduct, { foreignKey: "product_id" });
+  RetailStockDocumentLine.belongsTo(RetailProductUnit, { as: "Unit", foreignKey: "unit_id" });
+
+  RetailStockMovement.belongsTo(RetailProduct, { foreignKey: "product_id" });
+  RetailStockMovement.belongsTo(Warehouse, { foreignKey: "warehouse_id" });
+  RetailStockMovement.belongsTo(RetailStockDocument, { as: "Document", foreignKey: "doc_id" });
+  RetailStockMovement.belongsTo(User, { as: "User", foreignKey: "user_id" });
+
+  RetailSerial.belongsTo(RetailProduct, { foreignKey: "product_id" });
+  RetailSerial.belongsTo(Warehouse, { foreignKey: "warehouse_id" });
+  RetailSerial.belongsTo(RetailStockDocument, { as: "ReceiveDoc", foreignKey: "receive_doc_id" });
+
   return {
     User,
     Role,
@@ -377,6 +414,11 @@ export const initTenantModels = (tenantConnection) => {
     RetailProductUnit,
     RetailBarcode,
     RetailSearchAlias,
+    RetailStockLevel,
+    RetailStockDocument,
+    RetailStockDocumentLine,
+    RetailStockMovement,
+    RetailSerial,
     sequelize: tenantConnection,
   };
 };
