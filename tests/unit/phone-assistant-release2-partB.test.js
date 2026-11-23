@@ -53,6 +53,7 @@ vi.mock("../../src/middlewares/authMiddleware.js", () => ({
     req.user = state.protectUser;
     next();
   },
+  requirePermission: () => (_req, _res, next) => next(),
 }));
 
 vi.mock("../../src/middlewares/planMiddleware.js", () => ({

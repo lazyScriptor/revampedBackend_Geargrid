@@ -3,6 +3,7 @@ import AppError from "../../../utils/AppError.js";
 import { parseJsonField } from "../../../utils/jsonFields.js";
 import { addCents, fromCents, splitByWeight, toCents } from "../money.js";
 import { getRetailSettings } from "../retailSettingsService.js";
+import { consumeApprovalToken, recordCounterException } from "../approvalService.js";
 import { escapeLike } from "../catalog/naming.js";
 
 export const ADJUST_REASONS = ["damaged", "lost", "own_use", "sample", "found", "other"];
@@ -1657,4 +1658,252 @@ export const checkStockIntegrity = async (models) => {
     mismatches,
     checked_at: new Date().toISOString(),
   };
+};
+
+const addMonthsToDateOnly = (date, months) => {
+  const d = new Date(date);
+  d.setUTCMonth(d.getUTCMonth() + Number(months || 0));
+  return dayInShopTz(d);
+};
+
+const resolveApprovalEntry = (approvals, type, productId = null) => {
+  if (!approvals) return null;
+  if (Array.isArray(approvals)) {
+    const match = approvals.find(
+      (a) =>
+        a &&
+        a.type === type &&
+        (productId == null || a.product_id == null || Number(a.product_id) === Number(productId)),
+    );
+    return match ? { token: match.token, context: match.context } : null;
+  }
+  if (productId != null && approvals[`${type}_by_product`]?.[productId]) {
+    const entry = approvals[`${type}_by_product`][productId];
+    return typeof entry === "string" ? { token: entry } : entry;
+  }
+  const entry = approvals[type];
+  if (!entry) return null;
+  return typeof entry === "string" ? { token: entry } : entry;
+};
+
+/**
+ * Deduct stock for retail sale lines inside an active DB transaction.
+ * Enforces negative-stock policy ("block" vs "warn", uncounted items never blocked),
+ * updates serialized items + warranty_end, writes SALE movements, and updates last_sold_at.
+ */
+export const sell = async (
+  models,
+  {
+    lines = [],
+    warehouseId = null,
+    invoiceId,
+    userId,
+    occurredAt = new Date(),
+    approvals = {},
+    transaction,
+    now = new Date(),
+  },
+) => {
+  if (!Array.isArray(lines) || lines.length === 0) {
+    return { sold: [], warehouse_id: null };
+  }
+
+  const opts = transaction ? { transaction } : {};
+  const wid = await resolveWarehouseId(models, warehouseId, userId, transaction);
+  const settings = await getRetailSettings(models);
+  const negativeBehavior = settings?.negativeStock || "warn";
+
+  const productIds = [...new Set(lines.map((l) => Number(l.product_id)).filter(Boolean))];
+  if (productIds.length === 0) {
+    return { sold: [], warehouse_id: wid };
+  }
+
+  const products = await models.RetailProduct.findAll({
+    where: { product_id: { [Op.in]: productIds } },
+    ...opts,
+  });
+  const productsById = new Map(products.map((p) => [Number(p.product_id), p]));
+
+  const trackedPairs = [];
+  for (const line of lines) {
+    const product = productsById.get(Number(line.product_id));
+    if (!product) {
+      throw new AppError(`Product ${line.product_id} not found.`, 404);
+    }
+    if (product.tracking === "counted" || product.tracking === "serial") {
+      trackedPairs.push({ product_id: Number(product.product_id), warehouse_id: wid });
+    }
+  }
+
+  const lockedLevels = await lockStockLevelsInOrder(models, trackedPairs, { transaction, now });
+  const consumedNegTokens = new Map();
+  const sold = [];
+
+  for (const line of lines) {
+    const pid = Number(line.product_id);
+    const product = productsById.get(pid);
+    const baseQty = round3(Number(line.base_qty || 0));
+    if (baseQty <= 0) {
+      throw new AppError(`Invalid sale quantity for product ${pid}.`, 400);
+    }
+
+    if (product.tracking === "untracked" || product.tracking === "service") {
+      sold.push({ sale_line_id: line.sale_line_id, product_id: pid, qty_after: null });
+      continue;
+    }
+
+    const level = lockedLevels.get(`${pid}:${wid}`);
+    const available = round3(Number(level?.qty_on_hand || 0));
+    const isUncounted = level?.counted_at === null || level?.counted_at === undefined;
+    const wouldGoNegative = available < baseQty;
+
+    let allowNegative = true;
+    if (wouldGoNegative && !isUncounted) {
+      if (negativeBehavior === "block") {
+        const entry = resolveApprovalEntry(approvals, "negative_stock", pid);
+        if (!entry?.token) {
+          const err = new AppError(
+            `Insufficient stock for ${product.name} (available ${available}, requested ${baseQty}).`,
+            409,
+          );
+          err.code = "out_of_stock";
+          err.data = {
+            code: "out_of_stock",
+            product_id: pid,
+            warehouse_id: wid,
+            available,
+            requested: baseQty,
+          };
+          throw err;
+        }
+
+        let consumed = consumedNegTokens.get(entry.token);
+        if (!consumed) {
+          // The manager approved selling this item without stock (the counter's context names the product).
+          consumed = await consumeApprovalToken(models, entry.token, {
+            type: "negative_stock",
+            verify: (ctx) => Number(ctx.product_id) === Number(pid),
+            userId,
+            transaction,
+            now,
+          });
+          consumedNegTokens.set(entry.token, consumed);
+        }
+
+        await models.CounterException.create(
+          {
+            type: "negative_stock",
+            status: "approved",
+            invoice_id: invoiceId,
+            sale_line_id: line.sale_line_id ?? null,
+            product_id: pid,
+            requested_by: userId,
+            approved_by: consumed.approver_user_id,
+            approved_at: now,
+            new_value: { product_id: pid, warehouse_id: wid, available, requested: baseQty },
+            amount_impact: 0,
+            summary: `Approved negative stock sale for ${product.name} (${available} -> ${round3(available - baseQty)})`,
+            created_at: now,
+          },
+          opts,
+        );
+        allowNegative = true;
+      } else {
+        // negativeBehavior === "warn"
+        allowNegative = true;
+        await recordCounterException(
+          models,
+          userId,
+          {
+            type: "negative_stock",
+            invoice_id: invoiceId,
+            sale_line_id: line.sale_line_id ?? null,
+            product_id: pid,
+            context: { product_id: pid, warehouse_id: wid, available, requested: baseQty },
+            summary: `Negative stock warning on sale of ${product.name} (${available} -> ${round3(available - baseQty)})`,
+          },
+          { now, transaction },
+        );
+      }
+    }
+
+    if (product.tracking === "serial") {
+      const serialNo = String(line.serial_number ?? line.serial_no ?? "").trim();
+      if (!serialNo) {
+        throw new AppError(`Serial number is required for ${product.name}.`, 400);
+      }
+      if (baseQty !== 1) {
+        throw new AppError(`Serialized item ${product.name} must be sold with base quantity 1 per line.`, 400);
+      }
+
+      const warrantyEnd =
+        Number(product.warranty_months) > 0
+          ? addMonthsToDateOnly(occurredAt, product.warranty_months)
+          : null;
+
+      const existingSerial = await models.RetailSerial.findOne({
+        where: { product_id: pid, serial_no: serialNo },
+        ...opts,
+      });
+
+      if (existingSerial) {
+        if (existingSerial.status !== "in_stock" || Number(existingSerial.warehouse_id) !== Number(wid)) {
+          const err = new AppError(`Serial ${serialNo} for ${product.name} is not available in stock.`, 409);
+          err.code = "out_of_stock";
+          err.data = { code: "out_of_stock", product_id: pid, serial_no: serialNo, warehouse_id: wid };
+          throw err;
+        }
+        await existingSerial.update(
+          {
+            status: "sold",
+            sale_line_id: line.sale_line_id ?? null,
+            sold_at: occurredAt,
+            warranty_end: warrantyEnd,
+          },
+          opts,
+        );
+      } else if (product.serial_capture === "sale") {
+        await models.RetailSerial.create(
+          {
+            product_id: pid,
+            serial_no: serialNo,
+            warehouse_id: wid,
+            status: "sold",
+            sale_line_id: line.sale_line_id ?? null,
+            sold_at: occurredAt,
+            warranty_end: warrantyEnd,
+          },
+          opts,
+        );
+      } else {
+        const err = new AppError(`Serial ${serialNo} for ${product.name} was not found in stock.`, 409);
+        err.code = "out_of_stock";
+        err.data = { code: "out_of_stock", product_id: pid, serial_no: serialNo, warehouse_id: wid };
+        throw err;
+      }
+    }
+
+    const qtyAfter = await applyStockChange(models, {
+      product_id: pid,
+      warehouse_id: wid,
+      delta: -baseQty,
+      allowNegative,
+      movementType: "SALE",
+      unit_cost: line.unit_cost ?? product.avg_cost ?? 0,
+      sale_line_id: line.sale_line_id ?? null,
+      user_id: userId,
+      occurred_at: occurredAt,
+      now,
+      transaction,
+    });
+
+    sold.push({ sale_line_id: line.sale_line_id, product_id: pid, qty_after: qtyAfter });
+  }
+
+  await models.RetailProduct.update(
+    { last_sold_at: occurredAt },
+    { where: { product_id: { [Op.in]: productIds } }, ...opts },
+  );
+
+  return { sold, warehouse_id: wid };
 };

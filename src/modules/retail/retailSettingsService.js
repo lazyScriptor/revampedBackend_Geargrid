@@ -99,7 +99,7 @@ export const mergeRetailSettings = (stored) => {
         ? raw.discountLimitPct
         : DEFAULT_RETAIL_SETTINGS.discountLimitPct,
     quickPad: Array.isArray(raw.quickPad)
-      ? raw.quickPad.map(Number).filter((n) => Number.isInteger(n) && n > 0)
+      ? raw.quickPad.map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 24)
       : [],
     namePattern:
       typeof raw.namePattern === "string" && raw.namePattern.trim()
@@ -215,6 +215,9 @@ export const validateRetailSettingsPatch = (body) => {
       throw new AppError("quickPad must be an array of product IDs.", 400);
     }
     const ids = body.quickPad.map(Number);
+    if (ids.length > 24) {
+      throw new AppError("quickPad can have at most 24 products.", 400);
+    }
     if (ids.some((id) => !Number.isInteger(id) || id <= 0)) {
       throw new AppError("quickPad must contain positive integer product IDs.", 400);
     }

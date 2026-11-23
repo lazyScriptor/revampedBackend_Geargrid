@@ -50,6 +50,7 @@ import RetailStockDocumentFactory from "./RetailStockDocument.js";
 import RetailStockDocumentLineFactory from "./RetailStockDocumentLine.js";
 import RetailStockMovementFactory from "./RetailStockMovement.js";
 import RetailSerialFactory from "./RetailSerial.js";
+import InvoiceSaleLineFactory from "./InvoiceSaleLine.js";
 
 export const initTenantModels = (tenantConnection) => {
   const User = UserFactory(tenantConnection);
@@ -104,6 +105,7 @@ export const initTenantModels = (tenantConnection) => {
   const RetailStockDocumentLine = RetailStockDocumentLineFactory(tenantConnection);
   const RetailStockMovement = RetailStockMovementFactory(tenantConnection);
   const RetailSerial = RetailSerialFactory(tenantConnection);
+  const InvoiceSaleLine = InvoiceSaleLineFactory(tenantConnection);
 
   // ==========================================
   // AUTH & USERS
@@ -366,6 +368,12 @@ export const initTenantModels = (tenantConnection) => {
   RetailSerial.belongsTo(Warehouse, { foreignKey: "warehouse_id" });
   RetailSerial.belongsTo(RetailStockDocument, { as: "ReceiveDoc", foreignKey: "receive_doc_id" });
 
+  Invoice.hasMany(InvoiceSaleLine, { as: "SaleLines", foreignKey: "invoice_id" });
+  InvoiceSaleLine.belongsTo(Invoice, { foreignKey: "invoice_id" });
+  InvoiceSaleLine.belongsTo(RetailProduct, { as: "Product", foreignKey: "product_id" });
+  InvoiceSaleLine.belongsTo(RetailProductUnit, { as: "Unit", foreignKey: "unit_id" });
+  InvoiceSaleLine.belongsTo(Warehouse, { as: "Warehouse", foreignKey: "warehouse_id" });
+
   return {
     User,
     Role,
@@ -419,6 +427,7 @@ export const initTenantModels = (tenantConnection) => {
     RetailStockDocumentLine,
     RetailStockMovement,
     RetailSerial,
+    InvoiceSaleLine,
     sequelize: tenantConnection,
   };
 };

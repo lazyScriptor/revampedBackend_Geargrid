@@ -6,6 +6,7 @@ import { COUNTER_EXCEPTION_TYPES } from "../../models/CounterException.js";
 import { getRetailSettings } from "./retailSettingsService.js";
 import { addCents, fromCents, toCents } from "./money.js";
 import { emitToTenant, emitToUser } from "../../sockets/emitters.js";
+import { getToSortDeskItems } from "./sales/saleLinesService.js";
 
 const PIN_RE = /^\d{4,6}$/;
 const PIN_MAX_ATTEMPTS = 5;
@@ -570,23 +571,26 @@ export const recordCounterException = async (
     amount_impact = 0,
     note = null,
   } = {},
-  { now = new Date() } = {},
+  { now = new Date(), transaction } = {},
 ) => {
   assertValidExceptionType(type);
 
-  const exception = await models.CounterException.create({
-    type,
-    status: "recorded",
-    invoice_id,
-    sale_line_id,
-    product_id,
-    requested_by: userId,
-    new_value: context ?? {},
-    amount_impact: Number(amount_impact) || 0,
-    summary: summary ? String(summary).slice(0, 500) : null,
-    note: note ? String(note).slice(0, 500) : null,
-    created_at: now,
-  });
+  const exception = await models.CounterException.create(
+    {
+      type,
+      status: "recorded",
+      invoice_id,
+      sale_line_id,
+      product_id,
+      requested_by: userId,
+      new_value: context ?? {},
+      amount_impact: Number(amount_impact) || 0,
+      summary: summary ? String(summary).slice(0, 500) : null,
+      note: note ? String(note).slice(0, 500) : null,
+      created_at: now,
+    },
+    transaction ? { transaction } : {},
+  );
 
   return { exception };
 };
@@ -599,6 +603,18 @@ export const getApprovalDesk = async (
   const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
   const offset = (safePage - 1) * safeLimit;
 
+  if (tab === "to_sort") {
+    const res = await getToSortDeskItems(models, { page: safePage, limit: safeLimit });
+    return {
+      tab: "to_sort",
+      total: res.pagination.total,
+      page: safePage,
+      limit: safeLimit,
+      items: res.items,
+      pagination: res.pagination,
+    };
+  }
+
   const where = {};
   if (tab === "waiting") {
     where.status = "waiting";
@@ -609,7 +625,7 @@ export const getApprovalDesk = async (
   } else if (tab === "records") {
     where.status = { [Op.ne]: "waiting" };
   } else {
-    throw new AppError("tab must be 'waiting' or 'records'.", 400);
+    throw new AppError("tab must be 'waiting', 'records', or 'to_sort'.", 400);
   }
 
   if (type) {
@@ -682,8 +698,10 @@ export const getApprovalDesk = async (
 export const consumeApprovalToken = async (
   models,
   token,
-  { type, context = {}, userId, transaction, now = new Date() },
+  { type, context = {}, verify = null, userId, transaction, now = new Date() },
 ) => {
+  // `verify(storedContext)` checks the facts that matter against what the manager approved (e.g. the
+  // same item at the same new price). Without it the request context must match the approval exactly.
   if (!token || typeof token !== "string") {
     throw new AppError("Approval token is required.", 403);
   }
@@ -708,7 +726,12 @@ export const consumeApprovalToken = async (
   if (Number(record.requester_user_id) !== Number(userId)) {
     throw new AppError("Approval token was issued for a different user.", 403);
   }
-  if (record.context_hash !== hashContext(context)) {
+  if (typeof verify === "function") {
+    const stored = typeof record.context === "string" ? JSON.parse(record.context || "{}") : record.context || {};
+    if (!verify(stored)) {
+      throw new AppError("Approval token does not match what the manager approved.", 403);
+    }
+  } else if (record.context_hash !== hashContext(context)) {
     throw new AppError("Approval token does not match the request context.", 403);
   }
 

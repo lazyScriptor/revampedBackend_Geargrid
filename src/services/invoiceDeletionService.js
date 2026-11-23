@@ -101,6 +101,9 @@ export const deleteInvoice = async (models, invoiceId, actor, { reason, note } =
     const invoice = await models.Invoice.unscoped().findByPk(invoiceId, { transaction: t, lock: t.LOCK.UPDATE });
     if (!invoice) throw new AppError("Invoice not found.", 404);
     if (invoice.is_deleted) throw new AppError("This invoice is already deleted.", 409);
+    if (invoice.bill_kind === "sale" || invoice.bill_kind === "mixed") {
+      throw new AppError("Sale bills can't be deleted yet.", 409);
+    }
     deletedInvoiceTotal = Number(invoice.total_amount || 0);
     deletedCustomerId = invoice.customer_id;
 

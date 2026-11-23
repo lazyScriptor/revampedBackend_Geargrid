@@ -7,6 +7,11 @@ import catchAsync from "../../../utils/catchAsync.js";
 import { ensureWalkInCustomer } from "../walkInService.js";
 import { getRetailSettings, updateRetailSettings } from "../retailSettingsService.js";
 import {
+  createAndLinkUnlistedSaleLines,
+  linkUnlistedSaleLines,
+  markUnlistedOneOff,
+} from "../sales/saleLinesService.js";
+import {
   addFamilyVariants,
   archiveProduct,
   createAlias,
@@ -626,6 +631,50 @@ router.get(
   catchAsync(async (req, res) => {
     const serials = await listSerials(getModels(req), req.query);
     res.status(200).json({ status: "success", data: { serials } });
+  }),
+);
+
+router.post(
+  "/desk/unlisted/link",
+  requirePermission("retail:confirm_unlisted"),
+  catchAsync(async (req, res) => {
+    const result = await linkUnlistedSaleLines(getModels(req), {
+      saleLineIds: req.body?.sale_line_ids,
+      productId: req.body?.product_id,
+      warehouseId: req.body?.warehouse_id ?? null,
+      approvals: req.body?.approval_tokens,
+      userId: req.user.userId,
+    });
+    res.status(200).json({ status: "success", data: result });
+  }),
+);
+
+router.post(
+  "/desk/unlisted/create",
+  requirePermission("retail:confirm_unlisted"),
+  catchAsync(async (req, res) => {
+    const result = await createAndLinkUnlistedSaleLines(getModels(req), {
+      saleLineIds: req.body?.sale_line_ids,
+      productPayload: req.body?.product || req.body?.item || req.body,
+      openingQty: req.body?.opening_qty ?? null,
+      openingCost: req.body?.opening_cost ?? null,
+      warehouseId: req.body?.warehouse_id ?? null,
+      approvals: req.body?.approval_tokens,
+      userId: req.user.userId,
+    });
+    res.status(201).json({ status: "success", data: result });
+  }),
+);
+
+router.post(
+  "/desk/unlisted/one-off",
+  requirePermission("retail:confirm_unlisted"),
+  catchAsync(async (req, res) => {
+    const result = await markUnlistedOneOff(getModels(req), {
+      saleLineIds: req.body?.sale_line_ids,
+      userId: req.user.userId,
+    });
+    res.status(200).json({ status: "success", data: result });
   }),
 );
 
