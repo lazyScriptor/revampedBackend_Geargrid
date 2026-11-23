@@ -327,6 +327,42 @@ describe("Retail R0 Foundations", () => {
       ).rejects.toMatchObject({ statusCode: 423 });
     });
 
+    it("locks manager PIN atomically under 20 concurrent wrong attempts", async () => {
+      const { models, manager } = await setupApprovalModels();
+      const now = new Date("2026-11-23T10:00:00Z");
+
+      // Simulate atomic SQL UPDATE on USERS even when all 20 callers read pin_failed_count=0 first
+      models.sequelize = {
+        query: vi.fn(async (sql, { replacements }) => {
+          if (sql.includes("UPDATE `USERS`")) {
+            const [maxAttempts, ts] = replacements;
+            const nextCount = Number(manager.pin_failed_count || 0) + 1;
+            if (nextCount >= maxAttempts && !manager.pin_locked_until) {
+              manager.pin_locked_until = new Date(new Date(ts).getTime() + 10 * 60 * 1000);
+            }
+            manager.pin_failed_count = nextCount;
+          }
+          return [[]];
+        }),
+      };
+
+      const results = await Promise.allSettled(
+        Array.from({ length: 20 }, () =>
+          approveHere(
+            models,
+            10,
+            { type: "price_change", context: { product_id: 1 }, approver_user_id: manager.user_id, pin: "0000" },
+            { now },
+          ),
+        ),
+      );
+
+      expect(results.every((r) => r.status === "rejected")).toBe(true);
+      expect(manager.pin_failed_count).toBe(20);
+      expect(manager.pin_locked_until).toBeInstanceOf(Date);
+      expect(manager.pin_locked_until.getTime()).toBe(now.getTime() + 10 * 60 * 1000);
+    });
+
     it("refuses self-approval and enforces single-use, expiry, type and context on tokens", async () => {
       const { models, manager, tokens } = await setupApprovalModels();
       const now = new Date("2026-11-23T10:00:00Z");

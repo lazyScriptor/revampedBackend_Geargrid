@@ -206,6 +206,26 @@ const issueApprovalToken = async (
   return { approval_token: rawToken, expires_at: expiresAt };
 };
 
+const recordFailedApproverAttempt = async (models, approver, now) => {
+  if (models?.sequelize?.query) {
+    await models.sequelize.query(
+      `UPDATE \`USERS\`
+       SET pin_locked_until = IF(pin_failed_count + 1 >= ?, DATE_ADD(?, INTERVAL 10 MINUTE), pin_locked_until),
+           pin_failed_count = pin_failed_count + 1
+       WHERE user_id = ?`,
+      { replacements: [PIN_MAX_ATTEMPTS, now, approver.user_id] },
+    );
+    return models.User.findByPk(approver.user_id);
+  }
+  const nextFailed = Number(approver.pin_failed_count || 0) + 1;
+  const patch = { pin_failed_count: nextFailed };
+  if (nextFailed >= PIN_MAX_ATTEMPTS) {
+    patch.pin_locked_until = new Date(now.getTime() + PIN_LOCK_MS);
+  }
+  await approver.update(patch);
+  return approver;
+};
+
 export const approveHere = async (
   models,
   requesterUserId,
@@ -269,12 +289,7 @@ export const approveHere = async (
     }
     const pinValid = await bcrypt.compare(String(pin), approver.approval_pin_hash);
     if (!pinValid) {
-      const nextFailed = Number(approver.pin_failed_count || 0) + 1;
-      const patch = { pin_failed_count: nextFailed };
-      if (nextFailed >= PIN_MAX_ATTEMPTS) {
-        patch.pin_locked_until = new Date(now.getTime() + PIN_LOCK_MS);
-      }
-      await approver.update(patch);
+      await recordFailedApproverAttempt(models, approver, now);
       throw new AppError("Invalid approval PIN.", 401);
     }
     if (Number(approver.pin_failed_count || 0) > 0 || approver.pin_locked_until) {
