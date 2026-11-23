@@ -65,7 +65,7 @@ const SUBCAT_BRANDS = {
 const PRICE_AND_UNIT_RULES = {
   "Drill bits": { base: 180, unit: "pcs", decimal: false },
   "Abrasives": { base: 220, unit: "pcs", decimal: false },
-  "Sandpaper": { base: 90, unit: "sheet", decimal: false },
+  "Sandpaper": { base: 90, unit: "sheet", decimal: false, flat: true },
   "Nails": { base: 650, unit: "kg", decimal: true, pack: { unit_name: "box", factor: 25 } },
   "Wood screws": { base: 12, unit: "pcs", decimal: false, pack: { unit_name: "box", factor: 100 } },
   "Drywall screws": { base: 10, unit: "pcs", decimal: false, pack: { unit_name: "box", factor: 100 } },
@@ -93,6 +93,8 @@ const PRICE_AND_UNIT_RULES = {
   "Power tools": { base: 16500, unit: "pcs", decimal: false },
   "Power tool accessories": { base: 850, unit: "pcs", decimal: false },
   "Safety": { base: 450, unit: "pair", decimal: false },
+  "Gloves": { base: 450, unit: "pair", decimal: false, flat: true },
+  "Safety boots": { base: 4800, unit: "pair", decimal: false, flat: true },
   "Safety glasses": { base: 550, unit: "pcs", decimal: false },
   "Helmets": { base: 1650, unit: "pcs", decimal: false },
   "Masks": { base: 180, unit: "pcs", decimal: false },
@@ -130,17 +132,13 @@ const makeEan13 = (seq) => {
 };
 
 const sizeScale = (variant, idx) => {
-  const frac = variant.match(/^(\d+)\/(\d+)/);
-  if (frac) return 0.75 + (Number(frac[1]) / Number(frac[2])) * 1.4;
-  const num = variant.match(/(\d+(?:\.\d+)?)/);
-  if (num) {
-    const v = Number(num[1]);
-    if (variant.toLowerCase().includes("ml")) return Math.max(0.45, v / 500);
-    if (variant.toLowerCase().endsWith("l")) return Math.max(1, v * 0.9);
-    if (v >= 100) return 0.8 + idx * 0.2;
-    return 0.75 + idx * 0.25;
-  }
-  return 1 + idx * 0.15;
+  // Sizes are listed smallest first, so price follows the position in the list. (Mixing a
+  // fraction rule with a position rule made 1" pipe cheaper than 1/2".)
+  const v = variant.toLowerCase();
+  const num = v.match(/(\d+(?:\.\d+)?)/);
+  if (num && v.includes("ml")) return Math.max(0.45, Number(num[1]) / 500);
+  if (num && /\d\s*l$/.test(v)) return Math.max(1, Number(num[1]) * 0.9);
+  return 0.8 + idx * 0.3;
 };
 
 const roundLkr = (n) => Math.max(10, Math.round(n / 10) * 10);
@@ -298,7 +296,7 @@ const roundLkr = (n) => Math.max(10, Math.round(n / 10) * 10);
         for (let idx = 0; idx < rawVariants.length; idx++) {
           const variant = String(rawVariants[idx]);
           const code = allocCode();
-          const sellPrice = roundLkr(rule.base * brandMult * sizeScale(variant, idx));
+          const sellPrice = roundLkr(rule.base * brandMult * (rule.flat ? 1 : sizeScale(variant, idx)));
           const contractorPrice = roundLkr(sellPrice * 0.9); // ~10% below retail
           const avgCost = Math.round(sellPrice * 0.74 * 100) / 100;
 
