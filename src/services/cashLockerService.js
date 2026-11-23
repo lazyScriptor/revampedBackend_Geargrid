@@ -13,13 +13,16 @@ import { parseTenantDay } from "../utils/dateRange.js";
 import { pickWhatsAppNumber } from "../utils/whatsappPhone.js";
 import { createNotification } from "./notificationService.js";
 import { createExpense } from "./expenseService.js";
+import {
+  PAYMENT_METHODS,
+  isCash,
+  normalizePaymentMethod,
+} from "../config/paymentMethods.js";
 
 const DEFAULT_TZ = "Asia/Colombo";
 export const DEFAULT_FLOAT = 1500;
-export const PAYMENT_METHODS = ["Cash", "Card", "Transfer", "Cheque"];
+export { PAYMENT_METHODS, isCash, normalizePaymentMethod };
 const CENT = 0.005;
-
-export const isCash = (method) => String(method || "").trim().toLowerCase() === "cash";
 export const money = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
 const parseJson = (v) => {
@@ -439,7 +442,10 @@ export const recordLockerExpense = (models, payload, userId) =>
  * a card or transfer saved as Cash, or the other way round). Older payments are already counted.
  */
 export const changePaymentMethod = async (models, { paymentId, method, userId }) => {
-  if (!PAYMENT_METHODS.includes(method)) throw new AppError(`Choose one of: ${PAYMENT_METHODS.join(", ")}.`, 400);
+  const canonicalMethod = normalizePaymentMethod(method);
+  if (!PAYMENT_METHODS.includes(canonicalMethod)) {
+    throw new AppError(`Choose one of: ${PAYMENT_METHODS.join(", ")}.`, 400);
+  }
   const payment = await models.Payment.findByPk(paymentId);
   if (!payment || payment.is_voided) throw new AppError("Payment not found.", 404);
   const last = await lastCount(models);

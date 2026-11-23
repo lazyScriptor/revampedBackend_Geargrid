@@ -83,3 +83,18 @@ export const getRecentWork = catchAsync(async (req, res) => {
   );
   res.status(200).json({ status: "success", data });
 });
+
+export const getUiPreferences = catchAsync(async (req, res) => {
+  const data = await meService.getMyUiPreferences(getModels(req), req.user.userId);
+  res.status(200).json({ status: "success", data });
+});
+
+export const putUiPreference = catchAsync(async (req, res) => {
+  const data = await meService.setMyUiPreference(
+    getModels(req),
+    req.user.userId,
+    req.params.key,
+    req.body?.value,
+  );
+  res.status(200).json({ status: "success", data });
+});

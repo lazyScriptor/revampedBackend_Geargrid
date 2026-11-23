@@ -53,7 +53,10 @@ describe("plan rules", () => {
     expect(Basic.features["accounting.invoices"]).toBe(true);
     expect(Basic.features["accounting.journal"]).toBe(false);
     expect(Basic.features.maintenance).toBe(false);
-    expect(FEATURE_KEYS.every((k) => Enterprise.features[k])).toBe(true);
+    expect(FEATURE_KEYS.filter((k) => k !== "retail").every((k) => Enterprise.features[k])).toBe(true);
+    expect(DEFAULT_PLANS.Basic.features.retail).toBe(false);
+    expect(DEFAULT_PLANS.Pro.features.retail).toBe(false);
+    expect(Enterprise.features.retail).toBe(false);
   });
   it("Workforce can't be on without Maintenance, in a plan or a shop exception", () => {
     const plans = normalizePlans({ Basic: { features: { workforce: true, maintenance: false } } });

@@ -19,6 +19,8 @@ import {
   UpdateMyPushPreferencesContract,
 } from "@geargrid/contracts";
 import { getMasterModels } from "../models/master/index.js";
+import catchAsync from "../utils/catchAsync.js";
+import { setMyApprovalPin } from "../modules/retail/index.js";
 
 const router = express.Router();
 
@@ -42,6 +44,19 @@ router.post("/avatar", upload.single("avatar"), meController.uploadAvatar);
 router.delete("/avatar", meController.deleteAvatar);
 router.get("/activity", meController.getActivity);
 router.get("/recent-work", meController.getRecentWork);
+router.get("/ui-preferences", meController.getUiPreferences);
+router.put("/ui-preferences/:key", meController.putUiPreference);
+router.put(
+  "/approval-pin",
+  catchAsync(async (req, res) => {
+    const data = await setMyApprovalPin(
+      resolveTenantModels(req),
+      req.user.userId,
+      req.body || {},
+    );
+    res.status(200).json({ status: "success", data });
+  }),
+);
 
 // Operator reusable signature — governed by @geargrid/contracts.
 registerContract(router, SetOperatorSignatureContract, {
