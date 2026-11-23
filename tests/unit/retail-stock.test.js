@@ -473,6 +473,53 @@ describe("Retail R2 Stock Engine", () => {
     });
   });
 
+  it("posting uses the item's current average cost, not one loaded before the lock", async () => {
+    const { models, prodRecords } = makeStockHarness({
+      products: [{ product_id: 1, code: "HW-00001", name: "Bit 6mm", tracking: "counted", avg_cost: 120 }],
+      levels: [{ product_id: 1, warehouse_id: 1, qty_on_hand: 10, counted_at: new Date() }],
+    });
+    // The first product read (before the lock) sees a stale avg_cost of 50, as if another delivery
+    // committed in between. The locked re-read (it has an `order`) sees the real 120.
+    const realFindAll = models.RetailProduct.findAll;
+    models.RetailProduct.findAll = vi.fn(async (q) => {
+      const rows = await realFindAll(q);
+      if (q?.order) return rows;
+      return rows.map((r) => makeRecord({ ...r.toJSON(), avg_cost: 50 }, "product_id"));
+    });
+    await createReceiveDocument(models, 1, {
+      warehouse_id: 1,
+      supplier_name: "Ceylon Hardware",
+      lines: [{ product_id: 1, qty: 10, unit_cost: 200 }],
+      post: true,
+    });
+    // (10 × 120 + 10 × 200) / 20 = 160. With the stale 50 it would have been 125.
+    const lockedRead = models.RetailProduct.findAll.mock.calls.find(([q]) => q?.order);
+    expect(lockedRead).toBeTruthy();
+    expect(prodRecords[0].avg_cost).toBe(160);
+  });
+
+  it("a draft with no chosen date is dated when posted, so posting it days later is not back-dating", async () => {
+    const { models, docs } = makeStockHarness({
+      products: [{ product_id: 1, code: "HW-00001", name: "Bit 6mm", tracking: "counted" }],
+      levels: [{ product_id: 1, warehouse_id: 1, qty_on_hand: 0, counted_at: new Date() }],
+    });
+    const monday = new Date("2026-11-16T09:00:00Z");
+    const wednesday = new Date("2026-11-18T10:00:00Z");
+    const draft = await createReceiveDocument(
+      models,
+      1,
+      { warehouse_id: 1, supplier_name: "Ceylon Hardware", lines: [{ product_id: 1, qty: 5, unit_cost: 100 }] },
+      { now: monday },
+    );
+    const docId = draft.doc_id ?? draft.document?.doc_id ?? docs[0].doc_id;
+    const stored = docs.find((d) => d.doc_id === docId) ?? docs[0];
+    stored.createdAt = monday; // the database sets this on insert
+    // The cashier (no retail:backdate) posts it on Wednesday: allowed, and dated Wednesday.
+    await postReceiveDocument(models, stored.doc_id, 1, {}, { now: wednesday });
+    expect(stored.status).toBe("posted");
+    expect(new Date(stored.occurred_at).getTime()).toBe(wednesday.getTime());
+  });
+
   it("never updates or deletes RETAIL_STOCK_MOVEMENTS anywhere in src/modules/retail", () => {
     const retailDir = path.resolve(import.meta.dirname, "../../src/modules/retail");
     const walk = (dir) => {

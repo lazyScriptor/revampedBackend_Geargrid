@@ -492,6 +492,18 @@ const postReceiveInTransaction = async (
 
   // Sum existing stock across ALL locations per product for weighted average cost
   const uniquePids = [...new Set(lines.map((l) => Number(l.product_id)))];
+
+  // Lock the products and re-read them, so two deliveries of the same item posted at the same time
+  // can't both start from the old avg_cost (the second would overwrite the first's result).
+  const productLock = transaction && models.sequelize?.constructor?.Transaction?.LOCK?.UPDATE;
+  const lockedProducts = await models.RetailProduct.findAll({
+    where: { product_id: { [Op.in]: uniquePids } },
+    order: [["product_id", "ASC"]],
+    ...(productLock ? { lock: productLock } : {}),
+    ...opts,
+  });
+  const lockedById = new Map((lockedProducts || []).map((p) => [Number(p.product_id), p]));
+
   const allLevels = await models.RetailStockLevel.findAll({
     where: { product_id: { [Op.in]: uniquePids } },
     attributes: ["product_id", "qty_on_hand"],
@@ -505,7 +517,8 @@ const postReceiveInTransaction = async (
   }
 
   for (const line of lines) {
-    const product = productsById.get(Number(line.product_id));
+    // The locked row: its avg_cost is current, and the new average is written back to it.
+    const product = lockedById.get(Number(line.product_id)) || productsById.get(Number(line.product_id));
     const baseQty = Number(line.base_qty);
     const receivedCost = Number(line.unit_cost);
 
@@ -806,7 +819,12 @@ export const postReceiveDocument = async (
   }
 
   const settings = await getRetailSettings(models);
-  await validateOccurredAt(models, existing.occurred_at, {
+  // A draft whose date is just its creation moment had no date chosen: it is dated when posted, so
+  // finishing Monday's draft on Wednesday is not back-dating. A date someone picked is kept and checked.
+  const dateWasDefaulted =
+    Math.abs(new Date(existing.occurred_at).getTime() - new Date(existing.createdAt).getTime()) < 2000;
+  const postOccurredAt = dateWasDefaulted ? now : existing.occurred_at;
+  await validateOccurredAt(models, postOccurredAt, {
     userId,
     effectivePermissions,
     settings,
@@ -853,7 +871,7 @@ export const postReceiveDocument = async (
     for (let i = 0; i < dbLines.length; i++) {
       await dbLines[i].update({ unit_cost: prepared[i].unit_cost }, opts);
     }
-    await doc.update({ total_cost: totalCost, status: "posted", posted_at: now }, opts);
+    await doc.update({ total_cost: totalCost, status: "posted", posted_at: now, occurred_at: postOccurredAt }, opts);
 
     await postReceiveInTransaction(models, doc, prepared, productsById, {
       userId,
