@@ -6,6 +6,22 @@ export const EXCEPTION_POLICY_MODES = ["off", "record", "approve"];
 export const NEGATIVE_STOCK_MODES = ["warn", "block"];
 export const APPROVAL_METHODS = ["pin", "password", "either"];
 export const APPROVAL_GRANT_MINUTES = [0, 1, 5, 10];
+export const ALLOWED_BASE_UNITS = [
+  "pcs",
+  "kg",
+  "g",
+  "m",
+  "ft",
+  "L",
+  "bag",
+  "box",
+  "roll",
+  "set",
+  "sheet",
+  "pair",
+];
+export const DECIMAL_BASE_UNITS = new Set(["kg", "g", "m", "ft", "L"]);
+export const DEFAULT_PACK_UNITS = ["box", "coil", "length", "tin", "pack", "carton", "bundle"];
 
 export const DEFAULT_EXCEPTION_POLICIES = {
   unlisted_item: "record",
@@ -30,8 +46,12 @@ export const DEFAULT_RETAIL_SETTINGS = {
   booksClosedUntil: null,
   discountLimitPct: 10,
   quickPad: [],
-  namePattern: "{brand} {subcategory} {name} {variant}",
+  namePattern: "{brand} {subcategory} {item} {variant}{unit}",
   codePrefix: "HW-",
+  units: {
+    base: [...ALLOWED_BASE_UNITS],
+    pack: [...DEFAULT_PACK_UNITS],
+  },
   defaultWarehouseId: null,
   showContractorPrice: true,
   belowCostWarning: true,
@@ -89,6 +109,14 @@ export const mergeRetailSettings = (stored) => {
       typeof raw.codePrefix === "string" && raw.codePrefix.trim()
         ? raw.codePrefix.trim().slice(0, 12)
         : DEFAULT_RETAIL_SETTINGS.codePrefix,
+    units: {
+      base: Array.isArray(raw.units?.base) && raw.units.base.length > 0
+        ? raw.units.base.map((u) => String(u).trim()).filter(Boolean)
+        : [...ALLOWED_BASE_UNITS],
+      pack: Array.isArray(raw.units?.pack) && raw.units.pack.length > 0
+        ? raw.units.pack.map((u) => String(u).trim()).filter(Boolean)
+        : [...DEFAULT_PACK_UNITS],
+    },
     defaultWarehouseId:
       Number.isInteger(Number(raw.defaultWarehouseId)) && Number(raw.defaultWarehouseId) > 0
         ? Number(raw.defaultWarehouseId)
@@ -211,6 +239,26 @@ export const validateRetailSettingsPatch = (body) => {
       throw new AppError("codePrefix is too long (max 12 characters).", 400);
     }
     patch.codePrefix = body.codePrefix.trim();
+  }
+
+  if (body.units !== undefined) {
+    if (!body.units || typeof body.units !== "object" || Array.isArray(body.units)) {
+      throw new AppError("units must be an object with base and/or pack arrays.", 400);
+    }
+    const cleanList = (arr, label) => {
+      if (!Array.isArray(arr) || arr.length === 0) {
+        throw new AppError(`units.${label} must be a non-empty array of strings.`, 400);
+      }
+      const out = arr.map((u) => String(u || "").trim()).filter(Boolean);
+      if (out.length !== arr.length || out.some((u) => u.length > 20)) {
+        throw new AppError(`units.${label} entries must be non-empty strings (max 20 chars).`, 400);
+      }
+      return [...new Set(out)];
+    };
+    patch.units = {
+      base: body.units.base !== undefined ? cleanList(body.units.base, "base") : [...ALLOWED_BASE_UNITS],
+      pack: body.units.pack !== undefined ? cleanList(body.units.pack, "pack") : [...DEFAULT_PACK_UNITS],
+    };
   }
 
   if (body.defaultWarehouseId !== undefined) {
