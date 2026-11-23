@@ -668,21 +668,55 @@ describe("Retail R0 Foundations", () => {
   });
 
   describe("Idempotency middleware", () => {
-    it("passes through with no header, replays on repeat, and returns 409 on payload conflict", async () => {
+    const makeIdempotencyStore = () => {
       const store = [];
-      const models = {
-        IdempotencyKey: {
-          findOne: vi.fn(async ({ where }) =>
-            store.find((r) => r.key === where.key && r.user_id === where.user_id && r.route === where.route) || null,
-          ),
-          create: vi.fn(async (data) => {
-            const rec = makeModelInstance(data);
-            store.push(rec);
-            return rec;
-          }),
-        },
+      const IdempotencyKey = {
+        findOne: vi.fn(async ({ where }) =>
+          store.find((r) => r.key === where.key && r.user_id === where.user_id && r.route === where.route) || null,
+        ),
+        create: vi.fn(async (data) => {
+          const dup = store.find((r) => r.key === data.key && r.user_id === data.user_id && r.route === data.route);
+          if (dup) {
+            const err = new Error("Duplicate entry");
+            err.name = "SequelizeUniqueConstraintError";
+            throw err;
+          }
+          const rec = makeModelInstance(data);
+          store.push(rec);
+          return rec;
+        }),
+        update: vi.fn(async (patch, { where }) => {
+          const rec = store.find(
+            (r) =>
+              r.key === where.key &&
+              r.user_id === where.user_id &&
+              r.route === where.route &&
+              r.response_status === where.response_status,
+          );
+          if (!rec) return [0];
+          Object.assign(rec, patch);
+          return [1];
+        }),
+        destroy: vi.fn(async ({ where }) => {
+          const idx = store.findIndex(
+            (r) =>
+              r.key === where.key &&
+              r.user_id === where.user_id &&
+              r.route === where.route &&
+              (where.response_status === undefined || r.response_status === where.response_status),
+          );
+          if (idx >= 0) {
+            store.splice(idx, 1);
+            return 1;
+          }
+          return 0;
+        }),
       };
+      return { store, models: { IdempotencyKey } };
+    };
 
+    it("passes through with no header, replays on repeat, and returns 409 on payload conflict", async () => {
+      const { store, models } = makeIdempotencyStore();
       const mw = idempotency({ resolveModels: () => models });
 
       // 1. No header -> passes through
@@ -690,7 +724,7 @@ describe("Retail R0 Foundations", () => {
       await mw({ headers: {}, method: "POST", baseUrl: "/api", path: "/invoices", user: { userId: 1 }, body: {} }, {}, nextNoHeader);
       expect(nextNoHeader).toHaveBeenCalledWith();
 
-      // 2. First request with header -> executes handler & stores response
+      // 2. First request with header -> reserves key, executes handler & stores 201 response
       const res1 = {
         statusCode: 201,
         status(code) {
@@ -716,6 +750,7 @@ describe("Retail R0 Foundations", () => {
       res1.json({ status: "success", invoice_id: 42 });
       await Promise.resolve();
       expect(store).toHaveLength(1);
+      expect(store[0].response_status).toBe(201);
 
       // 3. Repeat with same key and same body -> replays stored response without calling next
       const res2 = {
@@ -758,6 +793,65 @@ describe("Retail R0 Foundations", () => {
         next3,
       );
       expect(next3).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 409 }));
+    });
+
+    it("stops concurrent identical double-submits so the handler runs once, and cleans up non-2xx reservations", async () => {
+      const { store, models } = makeIdempotencyStore();
+      const mw = idempotency({ resolveModels: () => models });
+
+      let handlerRuns = 0;
+      const runRequest = async (key, statusCode) => {
+        const res = {
+          statusCode,
+          status(code) {
+            this.statusCode = code;
+            return this;
+          },
+          json: vi.fn((b) => b),
+        };
+        let nextErr = null;
+        let calledNext = false;
+        await mw(
+          {
+            headers: { "idempotency-key": key },
+            method: "POST",
+            baseUrl: "/api",
+            path: "/invoices",
+            user: { userId: 1 },
+            body: { customer_id: 5 },
+          },
+          res,
+          (err) => {
+            if (err) nextErr = err;
+            else {
+              calledNext = true;
+              handlerRuns += 1;
+            }
+          },
+        );
+        return { res, nextErr, calledNext };
+      };
+
+      // Two concurrent identical requests while first hasn't finished yet
+      const [r1, r2] = await Promise.all([
+        runRequest("race-key", 201),
+        runRequest("race-key", 201),
+      ]);
+      expect(handlerRuns).toBe(1);
+      const errors = [r1.nextErr, r2.nextErr].filter(Boolean);
+      expect(errors).toHaveLength(1);
+      expect(errors[0].statusCode).toBe(409);
+      expect(errors[0].message).toMatch(/already in progress/i);
+
+      // Non-2xx response deletes reservation so a retry can succeed
+      const failRun = await runRequest("retry-key", 422);
+      expect(failRun.calledNext).toBe(true);
+      failRun.res.json({ status: "fail" });
+      await Promise.resolve();
+      expect(store.find((r) => r.key === "retry-key")).toBeUndefined();
+
+      const retryRun = await runRequest("retry-key", 201);
+      expect(retryRun.calledNext).toBe(true);
     });
   });
 
