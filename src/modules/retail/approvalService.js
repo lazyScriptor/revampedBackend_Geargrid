@@ -484,15 +484,25 @@ export const decideApprovalRequest = async (
   }
 
   const result = await runInTransaction(models, async (transaction) => {
-    const opts = transaction ? { transaction } : {};
-    await exception.update(
+    const [affectedRows] = await models.CounterException.update(
       {
         status: approve ? "approved" : "declined",
         approved_by: approverUserId,
         resolved_at: now,
       },
-      opts,
+      {
+        where: {
+          exception_id: exception.exception_id,
+          status: "waiting",
+          [Op.or]: [{ expires_at: null }, { expires_at: { [Op.gt]: now } }],
+        },
+        ...(transaction ? { transaction } : {}),
+      },
     );
+
+    if (affectedRows !== 1) {
+      throw new AppError("This approval request has already been decided or expired.", 409);
+    }
 
     if (!approve) {
       return {

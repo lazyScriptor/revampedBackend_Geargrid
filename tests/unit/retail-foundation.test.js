@@ -249,6 +249,20 @@ describe("Retail R0 Foundations", () => {
             return rec;
           }),
           findByPk: vi.fn(async (id) => exceptions.find((e) => e.exception_id === Number(id)) || null),
+          update: vi.fn(async (patch, { where }) => {
+            const rec = exceptions.find((e) => e.exception_id === Number(where.exception_id));
+            if (!rec || rec.status !== where.status) return [0];
+            if (where[Op.or]) {
+              const notExpired = where[Op.or].some((cond) => {
+                if (cond.expires_at === null) return rec.expires_at === null || rec.expires_at === undefined;
+                if (cond.expires_at?.[Op.gt]) return rec.expires_at && new Date(rec.expires_at) > cond.expires_at[Op.gt];
+                return false;
+              });
+              if (!notExpired) return [0];
+            }
+            Object.assign(rec, patch);
+            return [1];
+          }),
           findAndCountAll: vi.fn(async ({ where }) => {
             const filtered = exceptions.filter((e) => {
               if (where.status === "waiting") return e.status === "waiting";
@@ -572,6 +586,30 @@ describe("Retail R0 Foundations", () => {
           { type: "below_cost", count: 1, amount_impact: 125.5 },
         ]),
       );
+    });
+
+    it("allows only one manager to win when two concurrent decideApprovalRequest calls race", async () => {
+      const { models, manager, tokens } = await setupApprovalModels();
+      const now = new Date("2026-11-23T10:00:00Z");
+
+      const reqRes = await requestRemoteApproval(
+        models,
+        10,
+        { type: "price_change", context: { product_id: 2 }, summary: "Race test" },
+        { tenantDbName: "geargrid_demo", now },
+      );
+
+      const [d1, d2] = await Promise.allSettled([
+        decideApprovalRequest(models, reqRes.exception_id, manager.user_id, { approve: true }, { tenantDbName: "geargrid_demo", now }),
+        decideApprovalRequest(models, reqRes.exception_id, manager.user_id, { approve: false }, { tenantDbName: "geargrid_demo", now }),
+      ]);
+
+      const fulfilled = [d1, d2].filter((r) => r.status === "fulfilled");
+      const rejected = [d1, d2].filter((r) => r.status === "rejected");
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      expect(rejected[0].reason.statusCode).toBe(409);
+      expect(tokens.size).toBe(1);
     });
   });
 
