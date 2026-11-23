@@ -1,6 +1,7 @@
 import * as categoryService from '../services/categoryService.js';
 import { getCachedTenantConnection } from '../config/database.js';
 import { initTenantModels } from '../models/index.js';
+import * as organizeService from '../services/categoryOrganizeService.js';
 import catchAsync from '../utils/catchAsync.js';
 
 const getModels = (req) => initTenantModels(getCachedTenantConnection(req.user.tenantDbName));
@@ -34,4 +35,15 @@ export const deleteCategory = catchAsync(async (req, res, next) => {
     status: "success", 
     message: "Category successfully deleted." 
   });
+});
+
+export const previewOrganize = catchAsync(async (req, res) => {
+  const groups = await organizeService.previewOrganize(getModels(req));
+  res.status(200).json({ status: 'success', data: { groups } });
+});
+
+export const applyOrganize = catchAsync(async (req, res) => {
+  const models = getModels(req);
+  const result = await organizeService.applyOrganize(models, models.Equipment.sequelize);
+  res.status(200).json({ status: 'success', data: result });
 });

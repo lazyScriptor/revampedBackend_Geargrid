@@ -59,8 +59,15 @@ export const getAllEquipment = async (models, queryParams) => {
   const whereClause = { is_archived: false };
 
   if (queryParams.status) whereClause.status = queryParams.status;
-  if (queryParams.category_id)
-    whereClause.category_id = queryParams.category_id;
+  if (queryParams.category_id) {
+    // Picking a family (Grinders) also shows the machines in its sizes/types.
+    const kids = await models.EquipmentCategory.findAll({
+      where: { parent_id: queryParams.category_id },
+      attributes: ["category_id"],
+      raw: true,
+    });
+    whereClause.category_id = kids.length ? [Number(queryParams.category_id), ...kids.map((k) => k.category_id)] : queryParams.category_id;
+  }
   if (queryParams.warehouse_id)
     whereClause.warehouse_id = queryParams.warehouse_id;
 
