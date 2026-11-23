@@ -29,3 +29,7 @@ export {
   clearRequesterFailureLimiter,
 } from "./approvalService.js";
 export { default as approvalRoutes } from "./routes/approvalRoutes.js";
+export * from "./catalog/naming.js";
+export { ensureStarterCatalog, loadStarterCatalogData } from "./catalog/starterService.js";
+export * from "./catalog/catalogService.js";
+export { searchFinder, browseFinder } from "./catalog/finderService.js";
