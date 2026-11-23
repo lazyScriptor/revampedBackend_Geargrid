@@ -265,7 +265,18 @@ describe("Retail R0 Foundations", () => {
           }),
           findAndCountAll: vi.fn(async ({ where }) => {
             const filtered = exceptions.filter((e) => {
-              if (where.status === "waiting") return e.status === "waiting";
+              if (where.status === "waiting") {
+                if (e.status !== "waiting") return false;
+                if (where[Op.or]) {
+                  const notExpired = where[Op.or].some((cond) => {
+                    if (cond.expires_at === null) return e.expires_at === null || e.expires_at === undefined;
+                    if (cond.expires_at?.[Op.gt]) return e.expires_at && new Date(e.expires_at) > cond.expires_at[Op.gt];
+                    return false;
+                  });
+                  if (!notExpired) return false;
+                }
+                return true;
+              }
               if (where.status && where.status[Op.ne] === "waiting") return e.status !== "waiting";
               return true;
             });
@@ -610,6 +621,33 @@ describe("Retail R0 Foundations", () => {
       expect(rejected).toHaveLength(1);
       expect(rejected[0].reason.statusCode).toBe(409);
       expect(tokens.size).toBe(1);
+    });
+
+    it("excludes expired waiting requests from getApprovalDesk tab=waiting", async () => {
+      const { models } = await setupApprovalModels();
+      const t0 = new Date("2026-11-23T10:00:00Z");
+
+      await requestRemoteApproval(
+        models,
+        10,
+        { type: "price_change", context: { product_id: 1 }, summary: "Expired one" },
+        { tenantDbName: "geargrid_demo", now: t0 },
+      );
+
+      // 4 minutes later -> still waiting
+      const stillActive = await getApprovalDesk(models, {
+        tab: "waiting",
+        now: new Date(t0.getTime() + 4 * 60 * 1000),
+      });
+      expect(stillActive.total).toBe(1);
+
+      // 6 minutes later -> expired (> 5 min TTL), excluded from waiting tab
+      const afterExpiry = await getApprovalDesk(models, {
+        tab: "waiting",
+        now: new Date(t0.getTime() + 6 * 60 * 1000),
+      });
+      expect(afterExpiry.total).toBe(0);
+      expect(afterExpiry.items).toHaveLength(0);
     });
   });
 

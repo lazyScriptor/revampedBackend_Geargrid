@@ -569,7 +569,7 @@ export const recordCounterException = async (
 
 export const getApprovalDesk = async (
   models,
-  { tab = "waiting", type, from, to, page = 1, limit = 20 } = {},
+  { tab = "waiting", type, from, to, page = 1, limit = 20, now = new Date() } = {},
 ) => {
   const safePage = Math.max(parseInt(page, 10) || 1, 1);
   const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
@@ -578,6 +578,10 @@ export const getApprovalDesk = async (
   const where = {};
   if (tab === "waiting") {
     where.status = "waiting";
+    where[Op.or] = [
+      { expires_at: null },
+      { expires_at: { [Op.gt]: now } },
+    ];
   } else if (tab === "records") {
     where.status = { [Op.ne]: "waiting" };
   } else {
