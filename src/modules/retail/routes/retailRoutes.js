@@ -34,6 +34,25 @@ import {
   userCanViewRetailCost,
 } from "../catalog/catalogService.js";
 import { browseFinder, searchFinder } from "../catalog/finderService.js";
+import {
+  checkStockIntegrity,
+  createReceiveDocument,
+  deleteReceiveDraft,
+  getStockDocumentById,
+  getStockLevelsDelta,
+  getStockSummary,
+  getSupplierItems,
+  listSerials,
+  listStockDocuments,
+  listStockMovements,
+  listSuppliers,
+  postAdjustDocument,
+  postCountDocument,
+  postOpeningDocument,
+  postReceiveDocument,
+  updateReceiveDraft,
+  updateStockLevelThresholds,
+} from "../stock/stockService.js";
 
 const router = express.Router();
 
@@ -359,6 +378,254 @@ router.get(
       status: "success",
       data: stripCostFields(catalog, showCost),
     });
+  }),
+);
+
+// ── Stock Receiving, Adjustments, Counts & Opening (R2) ─────────────────────
+router.post(
+  "/stock/receive",
+  requirePermission("retail:stock_receive"),
+  catchAsync(async (req, res) => {
+    const models = getModels(req);
+    const [document, showCost] = await Promise.all([
+      createReceiveDocument(models, req.user?.userId, req.body || {}, {
+        effectivePermissions: req.effectivePermissions,
+      }),
+      canViewCost(req, models),
+    ]);
+    res.status(201).json({
+      status: "success",
+      data: { document: stripCostFields(document, showCost) },
+    });
+  }),
+);
+
+router
+  .route("/stock/receive/:id")
+  .put(
+    requirePermission("retail:stock_receive"),
+    catchAsync(async (req, res) => {
+      const models = getModels(req);
+      const [document, showCost] = await Promise.all([
+        updateReceiveDraft(models, req.params.id, req.user?.userId, req.body || {}, {
+          effectivePermissions: req.effectivePermissions,
+        }),
+        canViewCost(req, models),
+      ]);
+      res.status(200).json({
+        status: "success",
+        data: { document: stripCostFields(document, showCost) },
+      });
+    }),
+  )
+  .delete(
+    requirePermission("retail:stock_receive"),
+    catchAsync(async (req, res) => {
+      const result = await deleteReceiveDraft(getModels(req), req.params.id);
+      res.status(200).json({ status: "success", data: result });
+    }),
+  );
+
+router.post(
+  "/stock/receive/:id/post",
+  requirePermission("retail:stock_receive"),
+  catchAsync(async (req, res) => {
+    const models = getModels(req);
+    const [document, showCost] = await Promise.all([
+      postReceiveDocument(models, req.params.id, req.user?.userId, req.body || {}, {
+        effectivePermissions: req.effectivePermissions,
+      }),
+      canViewCost(req, models),
+    ]);
+    res.status(200).json({
+      status: "success",
+      data: { document: stripCostFields(document, showCost) },
+    });
+  }),
+);
+
+router.post(
+  "/stock/adjust",
+  requirePermission("retail:stock_adjust"),
+  catchAsync(async (req, res) => {
+    const models = getModels(req);
+    const [document, showCost] = await Promise.all([
+      postAdjustDocument(models, req.user?.userId, req.body || {}, {
+        effectivePermissions: req.effectivePermissions,
+      }),
+      canViewCost(req, models),
+    ]);
+    res.status(201).json({
+      status: "success",
+      data: { document: stripCostFields(document, showCost) },
+    });
+  }),
+);
+
+router.post(
+  "/stock/count",
+  requirePermission("retail:stock_adjust"),
+  catchAsync(async (req, res) => {
+    const models = getModels(req);
+    const [document, showCost] = await Promise.all([
+      postCountDocument(models, req.user?.userId, req.body || {}, {
+        effectivePermissions: req.effectivePermissions,
+      }),
+      canViewCost(req, models),
+    ]);
+    res.status(201).json({
+      status: "success",
+      data: { document: stripCostFields(document, showCost) },
+    });
+  }),
+);
+
+router.post(
+  "/stock/opening",
+  requirePermission("retail:stock_adjust"),
+  catchAsync(async (req, res) => {
+    const models = getModels(req);
+    const [document, showCost] = await Promise.all([
+      postOpeningDocument(models, req.user?.userId, req.body || {}, {
+        effectivePermissions: req.effectivePermissions,
+      }),
+      canViewCost(req, models),
+    ]);
+    res.status(201).json({
+      status: "success",
+      data: { document: stripCostFields(document, showCost) },
+    });
+  }),
+);
+
+// ── Stock Lists, Levels, Movements, Summary, Serials & Integrity ────────────
+router.get(
+  "/stock/documents",
+  requirePermission("retail:view"),
+  catchAsync(async (req, res) => {
+    const models = getModels(req);
+    const [result, showCost] = await Promise.all([
+      listStockDocuments(models, req.query),
+      canViewCost(req, models),
+    ]);
+    res.status(200).json({
+      status: "success",
+      data: stripCostFields(result, showCost),
+    });
+  }),
+);
+
+router.get(
+  "/stock/documents/:id",
+  requirePermission("retail:view"),
+  catchAsync(async (req, res) => {
+    const models = getModels(req);
+    const [document, showCost] = await Promise.all([
+      getStockDocumentById(models, req.params.id),
+      canViewCost(req, models),
+    ]);
+    res.status(200).json({
+      status: "success",
+      data: { document: stripCostFields(document, showCost) },
+    });
+  }),
+);
+
+router.get(
+  "/stock/suppliers",
+  requirePermission("retail:view"),
+  catchAsync(async (req, res) => {
+    const suppliers = await listSuppliers(getModels(req), req.query);
+    res.status(200).json({ status: "success", data: { suppliers } });
+  }),
+);
+
+router.get(
+  "/finder/supplier-items",
+  requirePermission("retail:stock_receive"),
+  catchAsync(async (req, res) => {
+    const models = getModels(req);
+    const [items, showCost] = await Promise.all([
+      getSupplierItems(models, req.query),
+      canViewCost(req, models),
+    ]);
+    res.status(200).json({
+      status: "success",
+      data: { items: stripCostFields(items, showCost) },
+    });
+  }),
+);
+
+router.get(
+  "/stock/levels",
+  requirePermission("retail:view"),
+  catchAsync(async (req, res) => {
+    const data = await getStockLevelsDelta(getModels(req), req.query);
+    res.status(200).json({ status: "success", data });
+  }),
+);
+
+router.put(
+  "/stock/levels/:productId/:warehouseId",
+  requirePermission("retail:product_manage"),
+  catchAsync(async (req, res) => {
+    const level = await updateStockLevelThresholds(
+      getModels(req),
+      req.params.productId,
+      req.params.warehouseId,
+      req.body || {},
+    );
+    res.status(200).json({ status: "success", data: { level } });
+  }),
+);
+
+router.get(
+  "/stock/movements",
+  requirePermission("retail:view"),
+  catchAsync(async (req, res) => {
+    const models = getModels(req);
+    const [result, showCost] = await Promise.all([
+      listStockMovements(models, req.query),
+      canViewCost(req, models),
+    ]);
+    res.status(200).json({
+      status: "success",
+      data: stripCostFields(result, showCost),
+    });
+  }),
+);
+
+router.get(
+  "/stock/summary",
+  requirePermission("retail:view"),
+  catchAsync(async (req, res) => {
+    const models = getModels(req);
+    const [summary, showCost] = await Promise.all([
+      getStockSummary(models, req.query),
+      canViewCost(req, models),
+    ]);
+    res.status(200).json({
+      status: "success",
+      data: stripCostFields(summary, showCost),
+    });
+  }),
+);
+
+router.get(
+  "/stock/integrity",
+  requirePermission("config:manage"),
+  catchAsync(async (req, res) => {
+    const result = await checkStockIntegrity(getModels(req));
+    res.status(200).json({ status: "success", data: result });
+  }),
+);
+
+router.get(
+  "/serials",
+  requirePermission("retail:view"),
+  catchAsync(async (req, res) => {
+    const serials = await listSerials(getModels(req), req.query);
+    res.status(200).json({ status: "success", data: { serials } });
   }),
 );
 

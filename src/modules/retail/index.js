@@ -33,3 +33,4 @@ export * from "./catalog/naming.js";
 export { ensureStarterCatalog, loadStarterCatalogData } from "./catalog/starterService.js";
 export * from "./catalog/catalogService.js";
 export { searchFinder, browseFinder } from "./catalog/finderService.js";
+export * from "./stock/stockService.js";
