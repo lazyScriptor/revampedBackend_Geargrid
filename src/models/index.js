@@ -38,6 +38,13 @@ import CounterExceptionFactory from "./CounterException.js";
 import ApprovalTokenFactory from "./ApprovalToken.js";
 import IdempotencyKeyFactory from "./IdempotencyKey.js";
 import UserUiPreferenceFactory from "./UserUiPreference.js";
+import RetailCategoryFactory from "./RetailCategory.js";
+import RetailBrandFactory from "./RetailBrand.js";
+import RetailFamilyFactory from "./RetailFamily.js";
+import RetailProductFactory from "./RetailProduct.js";
+import RetailProductUnitFactory from "./RetailProductUnit.js";
+import RetailBarcodeFactory from "./RetailBarcode.js";
+import RetailSearchAliasFactory from "./RetailSearchAlias.js";
 
 export const initTenantModels = (tenantConnection) => {
   const User = UserFactory(tenantConnection);
@@ -80,6 +87,13 @@ export const initTenantModels = (tenantConnection) => {
   const ApprovalToken = ApprovalTokenFactory(tenantConnection);
   const IdempotencyKey = IdempotencyKeyFactory(tenantConnection);
   const UserUiPreference = UserUiPreferenceFactory(tenantConnection);
+  const RetailCategory = RetailCategoryFactory(tenantConnection);
+  const RetailBrand = RetailBrandFactory(tenantConnection);
+  const RetailFamily = RetailFamilyFactory(tenantConnection);
+  const RetailProduct = RetailProductFactory(tenantConnection);
+  const RetailProductUnit = RetailProductUnitFactory(tenantConnection);
+  const RetailBarcode = RetailBarcodeFactory(tenantConnection);
+  const RetailSearchAlias = RetailSearchAliasFactory(tenantConnection);
 
   // ==========================================
   // AUTH & USERS
@@ -284,6 +298,37 @@ export const initTenantModels = (tenantConnection) => {
   CounterException.hasMany(ApprovalToken, { foreignKey: "exception_id" });
   UserUiPreference.belongsTo(User, { foreignKey: "user_id" });
 
+  // ── Retail POS catalogue (R1) ──
+  RetailCategory.belongsTo(RetailCategory, { as: "Parent", foreignKey: "parent_id" });
+  RetailCategory.hasMany(RetailCategory, { as: "Children", foreignKey: "parent_id" });
+
+  RetailFamily.belongsTo(RetailCategory, { foreignKey: "category_id" });
+  RetailCategory.hasMany(RetailFamily, { foreignKey: "category_id" });
+  RetailFamily.belongsTo(RetailBrand, { foreignKey: "brand_id" });
+  RetailBrand.hasMany(RetailFamily, { foreignKey: "brand_id" });
+
+  RetailProduct.belongsTo(RetailFamily, { foreignKey: "family_id" });
+  RetailFamily.hasMany(RetailProduct, { foreignKey: "family_id" });
+  RetailProduct.belongsTo(RetailCategory, { foreignKey: "category_id" });
+  RetailCategory.hasMany(RetailProduct, { foreignKey: "category_id" });
+  RetailProduct.belongsTo(RetailBrand, { foreignKey: "brand_id" });
+  RetailBrand.hasMany(RetailProduct, { foreignKey: "brand_id" });
+
+  RetailProduct.hasMany(RetailProductUnit, {
+    as: "Units",
+    foreignKey: "product_id",
+    onDelete: "CASCADE",
+  });
+  RetailProductUnit.belongsTo(RetailProduct, { foreignKey: "product_id" });
+
+  RetailProduct.hasMany(RetailBarcode, {
+    as: "Barcodes",
+    foreignKey: "product_id",
+    onDelete: "CASCADE",
+  });
+  RetailBarcode.belongsTo(RetailProduct, { foreignKey: "product_id" });
+  RetailBarcode.belongsTo(RetailProductUnit, { as: "Unit", foreignKey: "unit_id" });
+
   return {
     User,
     Role,
@@ -325,6 +370,13 @@ export const initTenantModels = (tenantConnection) => {
     ApprovalToken,
     IdempotencyKey,
     UserUiPreference,
+    RetailCategory,
+    RetailBrand,
+    RetailFamily,
+    RetailProduct,
+    RetailProductUnit,
+    RetailBarcode,
+    RetailSearchAlias,
     sequelize: tenantConnection,
   };
 };
