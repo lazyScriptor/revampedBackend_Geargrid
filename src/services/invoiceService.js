@@ -1233,6 +1233,12 @@ export const updateInvoiceFees = async (models, invoiceId, payload, userId) => {
         throw new AppError("The discount is more than what is left of the rental part of this bill.", 409);
       }
       rentalPart.rental_total = Math.max(0, newRentalTotal);
+    } else if (kind === "sale") {
+      // A sale-only bill has only goods, so the discount change moves the goods total with it.
+      const newSaleTotal =
+        Math.round((Number(invoice.sale_total || 0) - (newDiscount - oldDiscount)) * 100) / 100;
+      if (newSaleTotal < 0) throw new AppError("The discount cannot be larger than the goods on this bill.", 409);
+      rentalPart.sale_total = newSaleTotal;
     }
 
     await invoice.update(

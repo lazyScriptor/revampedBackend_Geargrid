@@ -263,6 +263,21 @@ describe("R4-backend: rental_total stays right", () => {
     expect(bill.rental_total).toBe(800);
     expect(bill.total_amount).toBe(800);
   });
+
+  it("5f. a sale-only bill's discount edit moves sale_total with the total", async () => {
+    const h = makeShop();
+    const bill = await createDispatchInvoice(
+      h.models,
+      { customer_id: 5, sale_items: [{ product_id: 1, qty: 2 }], fees: { transport: 0, discount: 0 }, payment: { amount: 0, method: "Cash" } },
+      1,
+    );
+    const before = Number(bill.sale_total);
+    expect(Number(bill.total_amount)).toBe(before);
+    await updateInvoiceFees(h.models, bill.invoice_id, { discount_amount: 50 }, 1);
+    expect(Number(bill.sale_total)).toBe(before - 50);
+    expect(Number(bill.total_amount)).toBe(before - 50);
+    await expect(updateInvoiceFees(h.models, bill.invoice_id, { discount_amount: before + 1 }, 1)).rejects.toMatchObject({ statusCode: 400 });
+  });
 });
 
 describe("R4-backend: deleting and restoring bills with goods", () => {
