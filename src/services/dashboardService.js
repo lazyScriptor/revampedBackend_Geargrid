@@ -73,6 +73,27 @@ export const WIDGET_CATALOG = [
     default_w: 6, default_h: 4, min_w: 3, min_h: 3,
   },
   {
+    widget_key: "category_revenue",
+    display_name: "Revenue by Category",
+    description: "Revenue per equipment family (all Grinders, all Drills...) for the selected period",
+    required_permission: "inventory_permission",
+    default_w: 6, default_h: 4, min_w: 3, min_h: 3,
+  },
+  {
+    widget_key: "top_earning_machines",
+    display_name: "Top Earning Machines",
+    description: "The machines that earned the most in the selected period",
+    required_permission: "inventory_permission",
+    default_w: 6, default_h: 4, min_w: 3, min_h: 3,
+  },
+  {
+    widget_key: "idle_machines",
+    display_name: "Idle Machines",
+    description: "Machines with no rentals in the selected period, dearest first",
+    required_permission: "inventory_permission",
+    default_w: 6, default_h: 4, min_w: 3, min_h: 3,
+  },
+  {
     widget_key: "open_money",
     display_name: "Money Owed",
     description: "Open invoices with unpaid balances, aged by issue date",

@@ -1,6 +1,7 @@
 import * as reportService from "../services/reportService.js";
 import * as customerReportService from "../services/customerReportService.js";
 import * as equipmentReportService from "../services/equipmentReportService.js";
+import * as categoryReportService from "../services/categoryReportService.js";
 import * as invoiceReportService from "../services/invoiceReportService.js";
 import * as pdfService from "../services/pdfService.js";
 import * as excelService from "../services/excelService.js";
@@ -158,6 +159,14 @@ export const getOutstandingBalances = catchAsync(async (req, res) => {
 // ============================================================================
 export const getEquipmentMaintenanceByUnit = catchAsync(async (req, res) => {
   const data = await equipmentReportService.getEquipmentMaintenanceByUnit(getModels(req), tzFiltersFromReq(req));
+  res.status(200).json({ status: "success", data });
+});
+
+export const getEquipmentPerformance = catchAsync(async (req, res) => {
+  const data = await categoryReportService.getEquipmentPerformance(getModels(req), tzFiltersFromReq(req, {
+    startDate: req.query.startDate, endDate: req.query.endDate,
+    warehouseId: req.query.warehouseId, categoryId: req.query.categoryId,
+  }));
   res.status(200).json({ status: "success", data });
 });
 

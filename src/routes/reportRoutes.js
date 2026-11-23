@@ -45,6 +45,8 @@ router.get("/customers/outstanding", requireFeature("reports.customers"), requir
 
 router.get("/equipment/maintenance-by-unit", requireFeature("reports.equipment"), requirePermission("inventory_permission"), reportController.getEquipmentMaintenanceByUnit);
 
+router.get("/equipment/performance", requireFeature("reports.equipment"), requirePermission("inventory_permission"), reportController.getEquipmentPerformance);
+
 router.get("/invoices/aging", requireFeature("reports.invoices"), requirePermission("inventory_permission"), reportController.getInvoiceAging);
 router.get("/invoices/history", requireFeature("reports.invoices"), requirePermission("inventory_permission"), reportController.getRentalHistory);
 

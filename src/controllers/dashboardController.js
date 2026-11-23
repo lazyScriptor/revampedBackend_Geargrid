@@ -1,6 +1,7 @@
 import * as dashboardService from "../services/dashboardService.js";
 import { getCachedTenantConnection } from "../config/database.js";
 import { initTenantModels } from "../models/index.js";
+import * as categoryReportService from "../services/categoryReportService.js";
 import catchAsync from "../utils/catchAsync.js";
 import { resolveTenantTz } from "../utils/dateRange.js";
 
@@ -121,4 +122,17 @@ export const deletePreference = catchAsync(async (req, res) => {
 export const deleteTemplate = catchAsync(async (req, res) => {
   await dashboardService.deleteTemplate(getModels(req), parseInt(req.params.id));
   res.status(200).json({ status: "success", message: "Template deleted." });
+});
+
+// ============================================================================
+// EQUIPMENT INSIGHTS (category revenue, top earners, idle machines widgets)
+// ============================================================================
+export const getEquipmentInsights = catchAsync(async (req, res) => {
+  const { startDate, endDate, warehouseId } = req.query;
+  const data = await categoryReportService.getEquipmentPerformance(getModels(req), {
+    startDate, endDate, warehouseId, tenantTz: resolveTenantTz(req),
+  });
+  // Widgets only need the headline lists, not every machine.
+  const families = data.families.map(({ machinesList, types, ...f }) => ({ ...f, types: types.map(({ machinesList: _m, ...t }) => t) }));
+  res.status(200).json({ status: "success", data: { dateRange: data.dateRange, totals: data.totals, families, topEarners: data.topEarners, idleMachines: data.idleMachines.slice(0, 10) } });
 });

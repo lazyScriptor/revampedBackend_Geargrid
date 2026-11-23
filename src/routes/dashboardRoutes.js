@@ -17,6 +17,7 @@ router.get("/kpis",                 dashboardController.getKPIs);
 router.get("/utilization-sparkline",dashboardController.getUtilizationSparkline);
 router.get("/returns-today",        dashboardController.getReturnsDueToday);
 router.get("/maintenance-queue",    dashboardController.getMaintenanceQueue);
+router.get("/equipment-insights",   requirePermission("inventory_permission"), dashboardController.getEquipmentInsights);
 router.get(
   "/open-invoices",
   (req, res, next) =>
