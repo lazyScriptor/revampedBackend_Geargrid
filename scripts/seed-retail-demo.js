@@ -1,4 +1,5 @@
 import dotenv from "dotenv";
+import { Op } from "sequelize";
 
 dotenv.config({ override: false });
 
@@ -18,32 +19,131 @@ if (!LOCAL_HOSTS.has(host)) {
 const args = process.argv.slice(2);
 const dbName = args.find((a) => !a.startsWith("--"));
 const withPerf = args.includes("--perf");
+const withReset = args.includes("--reset");
 
 if (!dbName) {
-  console.error("Usage: NODE_ENV=development node scripts/seed-retail-demo.js <db_name> [--perf]");
+  console.error("Usage: NODE_ENV=development node scripts/seed-retail-demo.js <db_name> [--reset] [--perf]");
   process.exit(1);
 }
 
-const BRAND_NAMES = [
-  "SALI",
-  "Tolsen",
-  "Ingco",
-  "Bosch",
-  "Makita",
-  "Lanka Wall Tiles",
-  "S-lon",
-  "Anton",
-  "Kelani Cables",
-  "Dulux",
-  "Nippon",
-];
+const DEMO_MARKER = "[demo-seed]";
 
-const PACK_TEMPLATES = [
-  { match: /nail|screw|bolt|anchor|plug|hinge/i, unit_name: "box", factor: 100 },
-  { match: /wire|cable|hose/i, unit_name: "coil", factor: 90 },
-  { match: /pipe|conduit|steel bar/i, unit_name: "length", factor: 20 },
-  { match: /emulsion|enamel|primer|thinner/i, unit_name: "tin", factor: 4 },
-];
+// Realistic brand mapping per parent category / sub-category
+const SUBCAT_BRANDS = {
+  // Drill bits, abrasives, power tools, accessories, hand tools
+  "Drill bits": ["SALI", "Tolsen", "Ingco", "Bosch", "Makita"],
+  "Abrasives": ["SALI", "Tolsen", "Ingco", "Bosch", "Makita"],
+  "Power tools": ["Bosch", "Makita", "Ingco", "Tolsen"],
+  "Power tool accessories": ["SALI", "Bosch", "Makita", "Ingco"],
+  "Hand tools": ["Tolsen", "Ingco", "SALI"],
+  // Plumbing
+  "PVC pipes": ["S-lon", "Anton"],
+  "PVC fittings": ["S-lon", "Anton"],
+  "GI pipes & fittings": ["Anton", "Lanka"],
+  "Taps & valves": ["Anton", "Lanka"],
+  // Electrical
+  "Cables & wires": ["Kelani Cables"],
+  "Switches & sockets": ["Orange", "Lanka"],
+  "Breakers & DB": ["Orange", "Lanka"],
+  "Conduits & trunking": ["S-lon", "Anton"],
+  "Lighting": ["Orange", "Lanka"],
+  // Paint
+  "Paint & finishes": ["Dulux", "Nippon", "Robbialac"],
+  // Building materials
+  "Cement": ["Tokyo Cement", "Holcim"],
+  "Steel bars": ["Lanka"],
+  "Wire mesh": ["Lanka"],
+  // Fasteners, adhesives, safety, garden, locks
+  "Fasteners": ["Tolsen", "Ingco", "Lanka"],
+  "Adhesives & sealants": ["S-lon", "Anton", "Lanka"],
+  "Safety": ["Tolsen", "Ingco", "Lanka"],
+  "Garden": ["S-lon", "Tolsen", "Ingco"],
+  "Locks & hardware fittings": ["Tolsen", "Lanka"],
+};
+
+// Realistic base LKR price & unit rules per sub-category / parent
+const PRICE_AND_UNIT_RULES = {
+  "Drill bits": { base: 180, unit: "pcs", decimal: false },
+  "Abrasives": { base: 220, unit: "pcs", decimal: false },
+  "Sandpaper": { base: 90, unit: "sheet", decimal: false },
+  "Nails": { base: 650, unit: "kg", decimal: true, pack: { unit_name: "box", factor: 25 } },
+  "Wood screws": { base: 12, unit: "pcs", decimal: false, pack: { unit_name: "box", factor: 100 } },
+  "Drywall screws": { base: 10, unit: "pcs", decimal: false, pack: { unit_name: "box", factor: 100 } },
+  "Bolts & nuts": { base: 45, unit: "pcs", decimal: false, pack: { unit_name: "box", factor: 100 } },
+  "Wall plugs & anchors": { base: 15, unit: "pcs", decimal: false, pack: { unit_name: "box", factor: 100 } },
+  "PVC pipes": { base: 45, unit: "ft", decimal: true, pack: { unit_name: "length", factor: 20 } },
+  "PVC fittings": { base: 85, unit: "pcs", decimal: false },
+  "GI pipes & fittings": { base: 120, unit: "ft", decimal: true, pack: { unit_name: "length", factor: 20 } },
+  "Taps & valves": { base: 950, unit: "pcs", decimal: false },
+  "Cables & wires": { base: 95, unit: "m", decimal: true, pack: { unit_name: "coil", factor: 90 } },
+  "Switches & sockets": { base: 480, unit: "pcs", decimal: false },
+  "Breakers & DB": { base: 1450, unit: "pcs", decimal: false },
+  "Conduits & trunking": { base: 22, unit: "ft", decimal: true, pack: { unit_name: "length", factor: 20 } },
+  "Lighting": { base: 650, unit: "pcs", decimal: false },
+  "Emulsion": { base: 2400, unit: "tin", decimal: false },
+  "Enamel": { base: 1650, unit: "tin", decimal: false },
+  "Primers & thinners": { base: 1350, unit: "tin", decimal: false },
+  "Brushes & rollers": { base: 280, unit: "pcs", decimal: false },
+  "Silicone": { base: 950, unit: "pcs", decimal: false },
+  "PVC solvent cement": { base: 450, unit: "pcs", decimal: false },
+  "Wood glue": { base: 550, unit: "pcs", decimal: false },
+  "Epoxy": { base: 680, unit: "pcs", decimal: false },
+  "Tapes": { base: 220, unit: "roll", decimal: false },
+  "Hand tools": { base: 1200, unit: "pcs", decimal: false },
+  "Power tools": { base: 16500, unit: "pcs", decimal: false },
+  "Power tool accessories": { base: 850, unit: "pcs", decimal: false },
+  "Safety": { base: 450, unit: "pair", decimal: false },
+  "Safety glasses": { base: 550, unit: "pcs", decimal: false },
+  "Helmets": { base: 1650, unit: "pcs", decimal: false },
+  "Masks": { base: 180, unit: "pcs", decimal: false },
+  "Cement": { base: 2450, unit: "bag", decimal: false },
+  "Steel bars": { base: 1850, unit: "pcs", decimal: false },
+  "Wire mesh": { base: 4200, unit: "roll", decimal: false },
+  "Hose pipes": { base: 85, unit: "m", decimal: true, pack: { unit_name: "coil", factor: 90 } },
+  "Garden": { base: 1400, unit: "pcs", decimal: false },
+  "Padlocks": { base: 950, unit: "pcs", decimal: false },
+  "Door locks": { base: 3400, unit: "set", decimal: false },
+  "Hinges": { base: 320, unit: "pcs", decimal: false, pack: { unit_name: "box", factor: 25 } },
+  "Tower bolts": { base: 290, unit: "pcs", decimal: false },
+};
+
+const BRAND_MULTIPLIER = {
+  Bosch: 1.45,
+  Makita: 1.5,
+  Dulux: 1.25,
+  Nippon: 1.15,
+  Ingco: 1.1,
+  Tolsen: 1.05,
+  "S-lon": 1.1,
+  "Kelani Cables": 1.15,
+};
+
+/** Valid EAN-13 barcode with 479 Sri Lanka prefix and Modulo-10 check digit. */
+const makeEan13 = (seq) => {
+  const body = `479000${String(seq).padStart(6, "0")}`;
+  let sum = 0;
+  for (let i = 0; i < 12; i++) {
+    sum += Number(body[i]) * (i % 2 === 0 ? 1 : 3);
+  }
+  const check = (10 - (sum % 10)) % 10;
+  return `${body}${check}`;
+};
+
+const sizeScale = (variant, idx) => {
+  const frac = variant.match(/^(\d+)\/(\d+)/);
+  if (frac) return 0.75 + (Number(frac[1]) / Number(frac[2])) * 1.4;
+  const num = variant.match(/(\d+(?:\.\d+)?)/);
+  if (num) {
+    const v = Number(num[1]);
+    if (variant.toLowerCase().includes("ml")) return Math.max(0.45, v / 500);
+    if (variant.toLowerCase().endsWith("l")) return Math.max(1, v * 0.9);
+    if (v >= 100) return 0.8 + idx * 0.2;
+    return 0.75 + idx * 0.25;
+  }
+  return 1 + idx * 0.15;
+};
+
+const roundLkr = (n) => Math.max(10, Math.round(n / 10) * 10);
 
 (async () => {
   try {
@@ -51,7 +151,12 @@ const PACK_TEMPLATES = [
     const { initMasterModels } = await import("../src/models/master/index.js");
     const { initTenantModels } = await import("../src/models/index.js");
     const { ensureStarterCatalog } = await import("../src/modules/retail/catalog/starterService.js");
-    const { buildSearchText, generateName } = await import("../src/modules/retail/catalog/naming.js");
+    const { parseJsonField } = await import("../src/utils/jsonFields.js");
+    const {
+      buildSearchText,
+      generateName,
+      generateSinhalaName,
+    } = await import("../src/modules/retail/catalog/naming.js");
 
     await masterSequelize.authenticate();
     const { Tenant } = initMasterModels(masterSequelize);
@@ -71,14 +176,40 @@ const PACK_TEMPLATES = [
 
     await ensureStarterCatalog(models);
 
-    // Ensure brands exist
-    const brands = [];
-    for (const bName of BRAND_NAMES) {
+    if (withReset) {
+      const demoProducts = await models.RetailProduct.findAll({
+        where: { created_via: "import", description: DEMO_MARKER },
+        attributes: ["product_id", "family_id"],
+        raw: true,
+      });
+      const demoIds = demoProducts.map((p) => p.product_id);
+      if (demoIds.length > 0) {
+        await models.RetailBarcode.destroy({ where: { product_id: { [Op.in]: demoIds } } });
+        await models.RetailProductUnit.destroy({ where: { product_id: { [Op.in]: demoIds } } });
+        await models.RetailProduct.destroy({ where: { product_id: { [Op.in]: demoIds } } });
+      }
+      // Remove empty families left behind by demo products
+      const allFamilies = await models.RetailFamily.findAll({ attributes: ["family_id"], raw: true });
+      for (const f of allFamilies) {
+        const count = await models.RetailProduct.count({ where: { family_id: f.family_id } });
+        if (count === 0) {
+          await models.RetailFamily.destroy({ where: { family_id: f.family_id } });
+        }
+      }
+      console.log(`🔄 Reset removed ${demoIds.length} previous demo products.`);
+    }
+
+    // Ensure all realistic brands exist
+    const allBrandNames = [
+      ...new Set(Object.values(SUBCAT_BRANDS).flat()),
+    ];
+    const brandByName = new Map();
+    for (const bName of allBrandNames) {
       const [b] = await models.RetailBrand.findOrCreate({
         where: { name: bName },
         defaults: { name: bName, is_active: true },
       });
-      brands.push(b);
+      brandByName.set(bName, b);
     }
 
     const [categories, aliases, existingProducts] = await Promise.all([
@@ -102,70 +233,97 @@ const PACK_TEMPLATES = [
       return `HW-${String(maxCodeNum).padStart(5, "0")}`;
     };
 
-    const existingFamiliesCount = await models.RetailFamily.count();
     let createdFamilies = 0;
     let createdProducts = 0;
     let createdUnits = 0;
     let createdBarcodes = 0;
 
-    if (existingFamiliesCount === 0) {
-      const productRows = [];
-      const packCandidates = [];
+    const productRows = [];
+    const packCandidates = [];
+    let barcodeSeq = maxCodeNum + 1;
 
-      // Target ~300 families across sub-categories (~5 variants each = ~1,500 products)
-      let familySeq = 0;
-      while (createdFamilies < 300) {
-        const sub = subCats[familySeq % subCats.length];
-        const parent = catsById.get(sub.parent_id);
-        const brand = brands[(familySeq + Math.floor(familySeq / subCats.length)) % brands.length];
-        const seriesTag = familySeq >= subCats.length * brands.length ? ` Pro-${Math.floor(familySeq / (subCats.length * brands.length))}` : "";
-        familySeq += 1;
+    for (const sub of subCats) {
+      const parent = catsById.get(sub.parent_id);
+      const allowedBrands =
+        SUBCAT_BRANDS[sub.name] || SUBCAT_BRANDS[parent?.name] || ["Lanka"];
+      const rule =
+        PRICE_AND_UNIT_RULES[sub.name] ||
+        PRICE_AND_UNIT_RULES[parent?.name] || {
+          base: 500,
+          unit: sub.default_unit || "pcs",
+          decimal: false,
+        };
 
-        const sizes =
-          Array.isArray(sub.usual_sizes) && sub.usual_sizes.length > 0
-            ? sub.usual_sizes.slice(0, 5)
-            : ["Std", "Heavy", "Light", "Pro", "Eco"];
+      const parsedAttrs = parseJsonField(sub.attributes);
+      const parsedUsual = parseJsonField(sub.usual_sizes);
+      const variantAttr = Array.isArray(parsedAttrs)
+        ? parsedAttrs.find((a) => a.variant)
+        : null;
+      const rawVariants =
+        variantAttr?.values?.length > 0
+          ? variantAttr.values.map((v) =>
+              variantAttr.unit && !String(v).endsWith(variantAttr.unit) && variantAttr.unit !== "inch"
+                ? `${v}${variantAttr.unit}`
+                : String(v),
+            )
+          : Array.isArray(parsedUsual) && parsedUsual.length > 0
+            ? parsedUsual
+            : ["Standard"];
 
-        const familyName = `${brand.name} ${sub.name}${seriesTag}`.trim();
+      for (const bName of allowedBrands) {
+        const brand = brandByName.get(bName);
+        const familyName = generateName({
+          brand: brand.name,
+          itemName: sub.item_name || sub.name,
+          subCategory: sub.name,
+        });
+        const familyNameSi = generateSinhalaName({
+          brand: brand.name,
+          itemNameSi: sub.item_name_si || sub.name_si || "",
+          subCategorySi: sub.name_si || "",
+        });
+
         const family = await models.RetailFamily.create({
           name: familyName,
-          name_si: sub.name_si ? `${brand.name} ${sub.name_si}${seriesTag}` : null,
+          name_si: familyNameSi || null,
           category_id: sub.category_id,
           brand_id: brand.brand_id,
-          option_label: "Size",
+          option_label: variantAttr?.name || "Size",
           option_unit: null,
         });
         createdFamilies += 1;
 
-        const baseUnit = sub.default_unit || parent?.default_unit || "pcs";
-        const allowDecimal = ["kg", "g", "m", "ft", "L"].includes(baseUnit);
+        const brandMult = BRAND_MULTIPLIER[brand.name] || 1.0;
 
-        for (let idx = 0; idx < sizes.length; idx++) {
-          const variant = String(sizes[idx]);
+        for (let idx = 0; idx < rawVariants.length; idx++) {
+          const variant = String(rawVariants[idx]);
           const code = allocCode();
-          const sellPrice = Math.round((120 + ((familySeq * 37 + idx * 85) % 4800)) / 10) * 10;
-          const contractorPrice = Math.round((sellPrice * 0.9) / 10) * 10;
-          const avgCost = Math.round((sellPrice * 0.72) * 100) / 100;
+          const sellPrice = roundLkr(rule.base * brandMult * sizeScale(variant, idx));
+          const contractorPrice = roundLkr(sellPrice * 0.9); // ~10% below retail
+          const avgCost = Math.round(sellPrice * 0.74 * 100) / 100;
+
           const name = generateName({
             brand: brand.name,
-            category: parent?.name || "",
+            itemName: sub.item_name || sub.name,
             subCategory: sub.name,
-            itemWord: seriesTag.trim(),
             variant,
-            unit: "",
+          });
+          const nameSi = generateSinhalaName({
+            brand: brand.name,
+            itemNameSi: sub.item_name_si || sub.name_si || "",
+            subCategorySi: sub.name_si || "",
+            variant,
           });
 
-          const barcode = idx % 2 === 0 ? `890${String(maxCodeNum).padStart(10, "0")}` : null;
-          const packTpl = PACK_TEMPLATES.find((t) => t.match.test(sub.name));
-
+          const barcode = idx % 2 === 0 ? makeEan13(barcodeSeq++) : null;
           const searchText = buildSearchText(
-            { code, name, variant_label: variant },
+            { code, name, name_si: nameSi, variant_label: variant },
             {
               category: parent || sub,
               subCategory: parent ? sub : null,
               family,
               brand,
-              units: packTpl ? [packTpl.unit_name] : [],
+              units: rule.pack ? [rule.pack.unit_name] : [],
               barcodes: barcode ? [barcode] : [],
               aliases,
             },
@@ -174,73 +332,74 @@ const PACK_TEMPLATES = [
           productRows.push({
             code,
             name,
+            name_si: nameSi || null,
             family_id: family.family_id,
             variant_label: variant,
             category_id: sub.category_id,
             brand_id: brand.brand_id,
             tracking: "counted",
-            base_unit: baseUnit,
-            allow_decimal: allowDecimal,
+            base_unit: rule.unit,
+            allow_decimal: Boolean(rule.decimal),
             sell_price: sellPrice,
             contractor_price: contractorPrice,
             avg_cost: avgCost,
             last_cost: avgCost,
             reorder_level: 10,
+            description: DEMO_MARKER,
             is_active: true,
-            created_via: "catalog",
+            created_via: "import",
             search_text: searchText,
           });
-          packCandidates.push({ code, sellPrice, barcode, packTpl });
+          packCandidates.push({ code, sellPrice, barcode, pack: rule.pack });
         }
       }
+    }
 
-      // Bulk insert products in chunks of 500
-      for (let i = 0; i < productRows.length; i += 500) {
-        const chunk = productRows.slice(i, i + 500);
-        await models.RetailProduct.bulkCreate(chunk);
-        createdProducts += chunk.length;
-      }
+    for (let i = 0; i < productRows.length; i += 500) {
+      const chunk = productRows.slice(i, i + 500);
+      await models.RetailProduct.bulkCreate(chunk);
+      createdProducts += chunk.length;
+    }
 
-      const inserted = await models.RetailProduct.findAll({
-        where: { code: productRows.map((r) => r.code) },
-        attributes: ["product_id", "code"],
-        raw: true,
-      });
-      const idByCode = new Map(inserted.map((r) => [r.code, r.product_id]));
+    const inserted = await models.RetailProduct.findAll({
+      where: { code: productRows.map((r) => r.code) },
+      attributes: ["product_id", "code"],
+      raw: true,
+    });
+    const idByCode = new Map(inserted.map((r) => [r.code, r.product_id]));
 
-      const unitRows = [];
-      const barcodeRows = [];
-      for (const meta of packCandidates) {
-        const pid = idByCode.get(meta.code);
-        if (!pid) continue;
-        if (meta.packTpl) {
-          unitRows.push({
-            product_id: pid,
-            unit_name: meta.packTpl.unit_name,
-            factor: meta.packTpl.factor,
-            sell_price: Math.round(meta.sellPrice * meta.packTpl.factor * 0.95),
-            is_default_sale: false,
-          });
-        }
-        if (meta.barcode) {
-          barcodeRows.push({
-            barcode: meta.barcode,
-            product_id: pid,
-            unit_id: null,
-          });
-        }
+    const unitRows = [];
+    const barcodeRows = [];
+    for (const meta of packCandidates) {
+      const pid = idByCode.get(meta.code);
+      if (!pid) continue;
+      if (meta.pack) {
+        unitRows.push({
+          product_id: pid,
+          unit_name: meta.pack.unit_name,
+          factor: meta.pack.factor,
+          sell_price: roundLkr(meta.sellPrice * meta.pack.factor * 0.95),
+          is_default_sale: false,
+        });
       }
+      if (meta.barcode) {
+        barcodeRows.push({
+          barcode: meta.barcode,
+          product_id: pid,
+          unit_id: null,
+        });
+      }
+    }
 
-      for (let i = 0; i < unitRows.length; i += 500) {
-        const chunk = unitRows.slice(i, i + 500);
-        await models.RetailProductUnit.bulkCreate(chunk);
-        createdUnits += chunk.length;
-      }
-      for (let i = 0; i < barcodeRows.length; i += 500) {
-        const chunk = barcodeRows.slice(i, i + 500);
-        await models.RetailBarcode.bulkCreate(chunk);
-        createdBarcodes += chunk.length;
-      }
+    for (let i = 0; i < unitRows.length; i += 500) {
+      const chunk = unitRows.slice(i, i + 500);
+      await models.RetailProductUnit.bulkCreate(chunk);
+      createdUnits += chunk.length;
+    }
+    for (let i = 0; i < barcodeRows.length; i += 500) {
+      const chunk = barcodeRows.slice(i, i + 500);
+      await models.RetailBarcode.bulkCreate(chunk);
+      createdBarcodes += chunk.length;
     }
 
     let perfAdded = 0;
@@ -249,17 +408,23 @@ const PACK_TEMPLATES = [
       for (let i = 0; i < 10_000; i++) {
         const sub = subCats[i % subCats.length];
         const parent = catsById.get(sub.parent_id);
-        const brand = brands[i % brands.length];
+        const bName = (SUBCAT_BRANDS[sub.name] || SUBCAT_BRANDS[parent?.name] || ["Lanka"])[0];
+        const brand = brandByName.get(bName);
         const code = allocCode();
         const variant = `${(i % 20) + 1}mm`;
-        const name = `${brand.name} ${sub.name} Item-${i + 1} ${variant}`;
+        const name = generateName({
+          brand: brand.name,
+          itemName: sub.item_name || sub.name,
+          subCategory: sub.name,
+          variant,
+        });
         const searchText = buildSearchText(
           { code, name, variant_label: variant },
           { category: parent || sub, subCategory: parent ? sub : null, brand, aliases },
         );
         perfRows.push({
           code,
-          name,
+          name: `${name} #${i + 1}`,
           variant_label: variant,
           category_id: sub.category_id,
           brand_id: brand.brand_id,
@@ -269,8 +434,9 @@ const PACK_TEMPLATES = [
           sell_price: 250 + (i % 500),
           contractor_price: 225 + (i % 500),
           avg_cost: 180,
+          description: DEMO_MARKER,
           is_active: true,
-          created_via: "catalog",
+          created_via: "import",
           search_text: searchText,
         });
       }
