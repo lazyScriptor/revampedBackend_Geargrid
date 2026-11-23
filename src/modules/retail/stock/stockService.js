@@ -1779,10 +1779,10 @@ export const sell = async (
 
         let consumed = consumedNegTokens.get(entry.token);
         if (!consumed) {
-          const context = entry.context ?? { product_id: pid };
+          // The manager approved selling this item without stock (the counter's context names the product).
           consumed = await consumeApprovalToken(models, entry.token, {
             type: "negative_stock",
-            context,
+            verify: (ctx) => Number(ctx.product_id) === Number(pid),
             userId,
             transaction,
             now,

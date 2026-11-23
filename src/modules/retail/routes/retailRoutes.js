@@ -655,7 +655,7 @@ router.post(
   catchAsync(async (req, res) => {
     const result = await createAndLinkUnlistedSaleLines(getModels(req), {
       saleLineIds: req.body?.sale_line_ids,
-      productPayload: req.body?.product || req.body,
+      productPayload: req.body?.product || req.body?.item || req.body,
       openingQty: req.body?.opening_qty ?? null,
       openingCost: req.body?.opening_cost ?? null,
       warehouseId: req.body?.warehouse_id ?? null,

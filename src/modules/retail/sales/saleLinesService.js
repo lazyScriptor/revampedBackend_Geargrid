@@ -116,7 +116,7 @@ export const createSaleBillLinesAndTotals = async (
     }
     const consumed = await consumeApprovalToken(models, entry.token, {
       type,
-      context: entry.context ?? defaultContext,
+      ...(typeof defaultContext === "function" ? { verify: defaultContext } : { context: entry.context ?? defaultContext }),
       userId,
       transaction,
       now,
@@ -135,7 +135,13 @@ export const createSaleBillLinesAndTotals = async (
       throw new AppError("Each sale item must have a positive qty.", 400);
     }
 
-    const lineKind = raw?.line_kind || (raw?.product_id ? "catalog" : "unlisted");
+    // The counter calls a catalogue line "item" (plan §4.3); stored as "catalog".
+    const rawKind = raw?.line_kind === "item" ? "catalog" : raw?.line_kind;
+    const lineKind = rawKind || (raw?.product_id ? "catalog" : "unlisted");
+    // Approvals can ride on each line (the counter sends them per line) or in the shared map.
+    const lineTokens = raw?.approval_tokens && typeof raw.approval_tokens === "object" ? raw.approval_tokens : {};
+    const lineEntry = (type, pid) =>
+      lineTokens[type] ? { token: String(lineTokens[type]) } : resolveApprovalEntry(approvalTokens, type, pid);
     if (!["catalog", "unlisted", "sundry"].includes(lineKind)) {
       throw new AppError(`Invalid line_kind: ${lineKind}`, 400);
     }
@@ -193,7 +199,7 @@ export const createSaleBillLinesAndTotals = async (
         if (overrideCents < 0) {
           throw new AppError("Unit price cannot be negative.", 400);
         }
-        const entry = resolveApprovalEntry(approvalTokens, "price_change", pid);
+        const entry = lineEntry("price_change", pid);
         if (!entry?.token) {
           priceChanges.push({
             product_id: pid,
@@ -204,10 +210,12 @@ export const createSaleBillLinesAndTotals = async (
           });
           continue;
         }
-        const consumed = await consumeOnce("price_change", entry, {
-          product_id: pid,
-          unit_price: fromCents(overrideCents),
-        });
+        // The manager approved this item at this new price (the counter's context: product_id, unit_id, from, to).
+        const consumed = await consumeOnce("price_change", entry, (ctx) =>
+          Number(ctx.product_id) === Number(pid) &&
+          toCents(ctx.to ?? ctx.unit_price) === overrideCents &&
+          (ctx.unit_id == null || unit == null || Number(ctx.unit_id) === Number(unit.unit_id)),
+        );
         finalUnitPriceCents = overrideCents;
         priceSource = "approved_override";
         pendingExceptions.push({
@@ -242,7 +250,14 @@ export const createSaleBillLinesAndTotals = async (
         line_gross_cents: lineGrossCents,
         line_net_cents: lineNetCents,
         unit_cost: unitCost,
-        serial_number: raw?.serial_number ?? raw?.serial_no ?? null,
+        serial_number: (() => {
+          // The counter sends serials as a list; one serial-numbered unit per line.
+          if (Array.isArray(raw?.serials) && raw.serials.length > 1) {
+            throw new AppError("Sell serial-numbered items one per line.", 400);
+          }
+          return raw?.serial_number ?? raw?.serial_no ?? (Array.isArray(raw?.serials) ? raw.serials[0] ?? null : null);
+        })(),
+        approval_tokens: lineTokens,
         note: raw?.note ?? null,
       });
     } else {
@@ -260,7 +275,7 @@ export const createSaleBillLinesAndTotals = async (
         models,
         effectivePermissions,
         userId,
-        "retail:sell_unlisted",
+        "retail:add_unlisted",
         transaction,
       );
       let exceptionStatus = "recorded";
@@ -268,7 +283,7 @@ export const createSaleBillLinesAndTotals = async (
       let approvedAt = null;
 
       if (!canSellUnlisted) {
-        const entry = resolveApprovalEntry(approvalTokens, "unlisted_sale", null);
+        const entry = lineEntry("unlisted_item", null);
         if (!entry?.token) {
           const err = new AppError(
             "Selling unlisted or sundry items requires permission or manager approval.",
@@ -277,7 +292,10 @@ export const createSaleBillLinesAndTotals = async (
           err.code = "unlisted_approval_required";
           throw err;
         }
-        const consumed = await consumeOnce("unlisted_sale", entry, { description });
+        const consumed = await consumeOnce("unlisted_item", entry, (ctx) =>
+          String(ctx.description ?? "").trim().toLowerCase() === description.toLowerCase() &&
+          (ctx.unit_price == null || toCents(ctx.unit_price) === toCents(raw?.unit_price)),
+        );
         exceptionStatus = "approved";
         approvedBy = consumed.approver_user_id;
         approvedAt = now;
@@ -304,7 +322,7 @@ export const createSaleBillLinesAndTotals = async (
         serial_number: null,
         note: raw?.note ?? null,
         unlistedException: {
-          type: "unlisted_sale",
+          type: "unlisted_item",
           status: exceptionStatus,
           approved_by: approvedBy,
           approved_at: approvedAt,
@@ -336,7 +354,16 @@ export const createSaleBillLinesAndTotals = async (
   const discountPct = totalGrossCents > 0 ? (totalDiscountCents / totalGrossCents) * 100 : 0;
 
   if (discountPct > maxDiscountPct) {
-    const entry = resolveApprovalEntry(approvalTokens, "discount_over_limit", null);
+    // Discount approvals may come per line and for the bill; together they must cover the total
+    // discount actually given (each approval's context carries the amount the manager approved).
+    const discountTokens = new Set();
+    const shared = resolveApprovalEntry(approvalTokens, "discount_over_limit", null);
+    if (shared?.token) discountTokens.add(String(shared.token));
+    for (const raw of saleItems) {
+      const t = raw?.approval_tokens?.discount_over_limit;
+      if (t) discountTokens.add(String(t));
+    }
+    const entry = discountTokens.size ? { token: [...discountTokens][0] } : null;
     if (!entry?.token) {
       const err = new AppError(
         `Discount (${discountPct.toFixed(2)}%) exceeds cashier limit (${maxDiscountPct}%) and requires manager approval.`,
@@ -350,9 +377,23 @@ export const createSaleBillLinesAndTotals = async (
       };
       throw err;
     }
-    const consumed = await consumeOnce("discount_over_limit", entry, {
-      discount_amount: fromCents(totalDiscountCents),
-    });
+    let approvedCents = 0;
+    let consumed = null;
+    for (const token of discountTokens) {
+      consumed = await consumeOnce("discount_over_limit", { token }, (ctx) => {
+        approvedCents += toCents(ctx.discount ?? ctx.discount_amount ?? 0);
+        return true;
+      });
+    }
+    if (approvedCents + 1 < totalDiscountCents) {
+      const err = new AppError(
+        `The approved discount (Rs ${fromCents(approvedCents)}) is less than the discount given (Rs ${fromCents(totalDiscountCents)}).`,
+        403,
+      );
+      err.code = "discount_over_limit";
+      err.data = { code: "discount_over_limit", approved: fromCents(approvedCents), requested: fromCents(totalDiscountCents) };
+      throw err;
+    }
     pendingExceptions.push({
       type: "discount_over_limit",
       status: "approved",
@@ -451,7 +492,17 @@ export const createSaleBillLinesAndTotals = async (
       invoiceId,
       userId,
       occurredAt,
-      approvals: approvalTokens,
+      approvals: (() => {
+        // Per-line "sell anyway" approvals, keyed by product for the stock engine.
+        const merged = { ...(approvalTokens || {}) };
+        for (const raw of saleItems) {
+          const t = raw?.approval_tokens?.negative_stock;
+          if (t && raw?.product_id) {
+            merged.negative_stock_by_product = { ...(merged.negative_stock_by_product || {}), [Number(raw.product_id)]: String(t) };
+          }
+        }
+        return merged;
+      })(),
       transaction,
       now,
     });

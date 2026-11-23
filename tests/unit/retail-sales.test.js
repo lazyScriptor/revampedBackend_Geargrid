@@ -368,6 +368,7 @@ const makeSalesHarness = ({
       action,
       requester_user_id: requesterUserId,
       approver_user_id: approverUserId,
+      context, // stored as the real ApprovalToken row does; sales check approved facts against it
       context_hash: hashContext(context),
       used_at: null,
       expires_at: new Date(Date.now() + 60_000),
@@ -585,7 +586,7 @@ describe("R3-backend: Retail sales on a bill", () => {
       {
         customer_id: 5,
         sale_items: [{ line_kind: "unlisted", description: "Special Brass Valve", qty: 2, unit_price: 350 }],
-        effectivePermissions: ["retail:sell_unlisted"],
+        effectivePermissions: ["retail:add_unlisted"],
         settle_now: true,
         payment: { amount: 700, method: "Cash" },
       },
@@ -595,7 +596,7 @@ describe("R3-backend: Retail sales on a bill", () => {
     expect(Number(bill.total_amount)).toBe(700);
     expect(h.saleLineRecords[0].line_kind).toBe("unlisted");
     expect(h.movementRecords).toHaveLength(0);
-    expect(h.exceptionRecords.some((e) => e.type === "unlisted_sale")).toBe(true);
+    expect(h.exceptionRecords.some((e) => e.type === "unlisted_item")).toBe(true);
   });
 
   it("7. sundry line works without catalog product or stock", async () => {
@@ -608,7 +609,7 @@ describe("R3-backend: Retail sales on a bill", () => {
       {
         customer_id: 5,
         sale_items: [{ line_kind: "sundry", description: "Delivery / Cutting Fee", qty: 1, unit_price: 250 }],
-        effectivePermissions: ["retail:sell_unlisted"],
+        effectivePermissions: ["retail:add_unlisted"],
         settle_now: true,
         payment: { amount: 250, method: "Cash" },
       },
@@ -775,7 +776,7 @@ describe("R3-backend: Retail sales on a bill", () => {
         customer_id: 5,
         issued_date: saleDate,
         sale_items: [{ line_kind: "unlisted", description: "Brass Valve", qty: 2, unit_price: 350 }],
-        effectivePermissions: ["retail:sell_unlisted"],
+        effectivePermissions: ["retail:add_unlisted"],
         settle_now: true,
         payment: { amount: 700, method: "Cash" },
       },
@@ -806,7 +807,7 @@ describe("R3-backend: Retail sales on a bill", () => {
       {
         customer_id: 5,
         sale_items: [{ line_kind: "unlisted", description: "Custom Flange", qty: 2, unit_price: 500 }],
-        effectivePermissions: ["retail:sell_unlisted"],
+        effectivePermissions: ["retail:add_unlisted"],
         payment: { amount: 1000, method: "Cash" },
       },
       1,
@@ -842,7 +843,7 @@ describe("R3-backend: Retail sales on a bill", () => {
       {
         customer_id: 5,
         sale_items: [{ line_kind: "unlisted", description: "One-off Scrap", qty: 1, unit_price: 150 }],
-        effectivePermissions: ["retail:sell_unlisted"],
+        effectivePermissions: ["retail:add_unlisted"],
         payment: { amount: 150, method: "Cash" },
       },
       1,
@@ -881,6 +882,66 @@ describe("R3-backend: Retail sales on a bill", () => {
     await expect(
       updateRetailSettings(h.models, { quickPad: Array.from({ length: 25 }, (_, i) => i + 1) }),
     ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it("17. accepts exactly what the counter sends: item lines, per-line approvals, fees, change due", async () => {
+    const h = makeSalesHarness({
+      products: [
+        { product_id: 1, code: "S1", name: "SALI Steel Drill Bit 6mm", sell_price: 310, avg_cost: 230 },
+        { product_id: 2, code: "S2", name: "SALI Cutting Wheel 4\"", sell_price: 170, avg_cost: 120 },
+      ],
+      levels: [
+        { product_id: 1, warehouse_id: 1, qty_on_hand: 50, counted_at: new Date() },
+        { product_id: 2, warehouse_id: 1, qty_on_hand: 50, counted_at: new Date() },
+      ],
+      customers: [{ customer_id: 5, first_name: "Ali", price_level: "retail" }],
+      retailSettings: { discountLimitPct: 50 },
+    });
+    // Two price changes on one bill, each approved with the counter's own context shape.
+    const t1 = h.issueApprovalToken({ action: "price_change", context: { product_id: 1, unit_id: null, from: 310, to: 280 } });
+    const t2 = h.issueApprovalToken({ action: "price_change", context: { product_id: 2, unit_id: null, from: 170, to: 150 } });
+
+    const bill = await createDispatchInvoice(
+      h.models,
+      {
+        customer_id: 5,
+        items: [],
+        sale_items: [
+          { product_id: 1, line_kind: "item", qty: 2, unit_price: 280, line_discount: 0, approval_tokens: { price_change: t1 } },
+          { product_id: 2, line_kind: "item", qty: 1, unit_price: 150, line_discount: 0, approval_tokens: { price_change: t2 } },
+        ],
+        fees: { transport: 500, discount: 10, advance: 2000, advance_payment_method: "Cash" },
+        payment: { amount: 2000, method: "Cash" },
+        settle_now: true,
+      },
+      1,
+    );
+
+    // Goods 2×280 + 150 = 710, less bill discount 10 = 700, plus transport 500 = 1,200.
+    expect(Number(bill.total_amount)).toBe(1200);
+    expect(Number(bill.transport_fee)).toBe(500);
+    expect(Number(bill.sale_total)).toBe(700);
+    // Rs 2,000 tendered: only the total is recorded as paid; 800 is change.
+    expect(h.paymentRecords.reduce((a, p) => a + Number(p.payment_amount), 0)).toBe(1200);
+    expect(bill.dataValues?.change_due ?? bill.change_due).toBe(800);
+    expect(bill.status).toBe("Completed");
+    expect(h.saleLineRecords.map((l) => Number(l.unit_price))).toEqual([280, 150]);
+  });
+
+  it("18. an approval for one price does not cover a different price", async () => {
+    const h = makeSalesHarness({
+      products: [{ product_id: 1, code: "S1", name: "Bit", sell_price: 310 }],
+      levels: [{ product_id: 1, warehouse_id: 1, qty_on_hand: 5, counted_at: new Date() }],
+      customers: [{ customer_id: 5, first_name: "Ali" }],
+    });
+    const t = h.issueApprovalToken({ action: "price_change", context: { product_id: 1, from: 310, to: 280 } });
+    await expect(
+      createDispatchInvoice(
+        h.models,
+        { customer_id: 5, sale_items: [{ product_id: 1, line_kind: "item", qty: 1, unit_price: 200, approval_tokens: { price_change: t } }], payment: { amount: 200, method: "Cash" } },
+        1,
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
   });
 
   it("16. idempotent double submit of a sale bill creates only one bill", async () => {

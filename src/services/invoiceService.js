@@ -90,6 +90,7 @@ export const createDispatchInvoice = async (models, payload, userId) => {
   if (hasSaleItems) {
     let resolvedCustomerId = customer_id;
     let soldCount = sale_items.length;
+    let changeDue = 0;
 
     const newSaleInvoice = await models.sequelize.transaction(async (t) => {
       let customer;
@@ -122,7 +123,8 @@ export const createDispatchInvoice = async (models, payload, userId) => {
         invoiceId: bill.invoice_id,
         customer,
         saleItems: sale_items,
-        billDiscountAmount: discount ?? discount_amount ?? 0,
+        // The counter sends discount and transport inside `fees`, like rental bills.
+        billDiscountAmount: discount ?? discount_amount ?? fees?.discount ?? 0,
         approvalTokens: approval_tokens,
         userId,
         effectivePermissions,
@@ -132,23 +134,29 @@ export const createDispatchInvoice = async (models, payload, userId) => {
       });
 
       soldCount = saleResult.saleLines.length;
-      const paidAmount = Number(payment?.amount ?? fees?.advance ?? 0);
-      if (paidAmount < 0 || !Number.isFinite(paidAmount)) {
+      const transportFee = Math.max(0, Number(fees?.transport ?? payload.transport_fee ?? 0) || 0);
+      const billTotal = Math.round((saleResult.totalAmount + transportFee) * 100) / 100;
+      const tendered = Number(payment?.amount ?? fees?.advance ?? 0);
+      if (tendered < 0 || !Number.isFinite(tendered)) {
         throw new AppError("Invalid payment amount.", 400);
       }
 
-      if (customer.is_walk_in && paidAmount + 0.005 < saleResult.totalAmount) {
+      if (customer.is_walk_in && tendered + 0.005 < billTotal) {
         throw new AppError("Walk-in customers must pay in full at checkout.", 422);
       }
 
-      const isFullyPaid = paidAmount + 0.005 >= saleResult.totalAmount;
+      // Cash handed over beyond the total is change, not a payment: record at most the total.
+      const paidAmount = Math.min(tendered, billTotal);
+      changeDue = Math.max(0, Math.round((tendered - billTotal) * 100) / 100);
+      const isFullyPaid = paidAmount + 0.005 >= billTotal;
       const finalStatus = settle_now && isFullyPaid ? "Completed" : "PendingPayment";
 
       await bill.update(
         {
           sub_total: saleResult.subTotal,
           discount_amount: saleResult.discount,
-          total_amount: saleResult.totalAmount,
+          transport_fee: transportFee,
+          total_amount: billTotal,
           sale_total: saleResult.totalAmount,
           advance_paid: paidAmount,
           status: finalStatus,
@@ -246,6 +254,9 @@ export const createDispatchInvoice = async (models, payload, userId) => {
       }
     })();
 
+    // Change due is returned to the till, never stored as a payment.
+    if (newSaleInvoice?.setDataValue) newSaleInvoice.setDataValue("change_due", changeDue);
+    else if (newSaleInvoice) newSaleInvoice.change_due = changeDue;
     return newSaleInvoice;
   }
 

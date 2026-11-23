@@ -698,8 +698,10 @@ export const getApprovalDesk = async (
 export const consumeApprovalToken = async (
   models,
   token,
-  { type, context = {}, userId, transaction, now = new Date() },
+  { type, context = {}, verify = null, userId, transaction, now = new Date() },
 ) => {
+  // `verify(storedContext)` checks the facts that matter against what the manager approved (e.g. the
+  // same item at the same new price). Without it the request context must match the approval exactly.
   if (!token || typeof token !== "string") {
     throw new AppError("Approval token is required.", 403);
   }
@@ -724,7 +726,12 @@ export const consumeApprovalToken = async (
   if (Number(record.requester_user_id) !== Number(userId)) {
     throw new AppError("Approval token was issued for a different user.", 403);
   }
-  if (record.context_hash !== hashContext(context)) {
+  if (typeof verify === "function") {
+    const stored = typeof record.context === "string" ? JSON.parse(record.context || "{}") : record.context || {};
+    if (!verify(stored)) {
+      throw new AppError("Approval token does not match what the manager approved.", 403);
+    }
+  } else if (record.context_hash !== hashContext(context)) {
     throw new AppError("Approval token does not match the request context.", 403);
   }
 
