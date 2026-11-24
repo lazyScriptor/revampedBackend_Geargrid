@@ -6,6 +6,7 @@ import { initTenantModels } from "../../../models/index.js";
 import catchAsync from "../../../utils/catchAsync.js";
 import { ensureWalkInCustomer } from "../walkInService.js";
 import { getRetailSettings, updateRetailSettings } from "../retailSettingsService.js";
+import { findReturnableSales } from "../sales/saleReturnService.js";
 import {
   createAndLinkUnlistedSaleLines,
   linkUnlistedSaleLines,
@@ -85,6 +86,22 @@ router
       res.status(200).json({ status: "success", data: { settings } });
     }),
   );
+
+// Find the bill when the customer has no receipt (sold lines that can still be returned).
+router.get(
+  "/sale-returns/find",
+  requirePermission("retail:return"),
+  catchAsync(async (req, res) => {
+    const data = await findReturnableSales(getModels(req), {
+      q: req.query.q,
+      product_id: req.query.product_id,
+      customer_id: req.query.customer_id,
+      days: req.query.days,
+      limit: req.query.limit,
+    });
+    res.status(200).json({ status: "success", data });
+  }),
+);
 
 router.get(
   "/walk-in",

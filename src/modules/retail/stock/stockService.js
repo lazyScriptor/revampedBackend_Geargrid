@@ -1983,3 +1983,96 @@ export const voidSale = async (
   }
   return { voided, invoice_id: invoiceId };
 };
+
+/**
+ * Goods come back from a customer (a return of a sold line). One SALE_RETURN movement per counted
+ * or serial-numbered line, at the line's own cost (not today's average), so the average stays honest.
+ * A damaged return is followed at once by an ADJUST_OUT 'damaged' for the same quantity and cost, so
+ * the loss shows in the losses report. Serials go 'returned', then 'in_stock' (good) or 'written_off'
+ * (damaged). Lines of untracked, service, unsorted-unlisted or sundry items take no stock.
+ * Stock is only ever changed through applyStockChange; levels are locked in product order.
+ */
+export const returnSale = async (
+  models,
+  { lines = [], invoiceId = null, userId = null, occurredAt = new Date(), transaction, now = new Date() } = {},
+) => {
+  if (!Array.isArray(lines) || lines.length === 0) return { returned: [], invoice_id: invoiceId };
+  const opts = transaction ? { transaction } : {};
+
+  const productIds = [...new Set(lines.map((l) => Number(l.product_id)).filter(Boolean))];
+  const products = productIds.length
+    ? await models.RetailProduct.findAll({ where: { product_id: { [Op.in]: productIds } }, ...opts })
+    : [];
+  const productsById = new Map(products.map((p) => [Number(p.product_id), p]));
+
+  const tracked = lines.filter((l) => {
+    const p = productsById.get(Number(l.product_id));
+    return p && (p.tracking === "counted" || p.tracking === "serial");
+  });
+  await lockStockLevelsInOrder(
+    models,
+    tracked.map((l) => ({ product_id: l.product_id, warehouse_id: l.warehouse_id })),
+    { transaction },
+  );
+
+  const returned = [];
+  for (const line of tracked) {
+    const pid = Number(line.product_id);
+    const wid = Number(line.warehouse_id);
+    const product = productsById.get(pid);
+    const qty = round3(Number(line.base_qty || 0));
+    if (qty <= 0) throw new AppError(`Invalid return quantity for product ${pid}.`, 400);
+    const damaged = line.condition === "damaged";
+    const unitCost = line.unit_cost ?? product.avg_cost ?? 0;
+
+    if (product.tracking === "serial") {
+      const serialNo = String(line.serial_no ?? "").trim();
+      const serial = serialNo
+        ? await models.RetailSerial.findOne({ where: { product_id: pid, serial_no: serialNo }, ...opts })
+        : null;
+      if (!serial || serial.status !== "sold" || Number(serial.sale_line_id) !== Number(line.sale_line_id)) {
+        throw new AppError(`Serial ${serialNo || "(none)"} was not sold on this line.`, 409);
+      }
+      await serial.update({ status: "returned" }, opts);
+      if (damaged) {
+        await serial.update({ status: "written_off" }, opts);
+      } else {
+        await serial.update(
+          { status: "in_stock", sale_line_id: null, sold_at: null, warranty_end: null },
+          opts,
+        );
+      }
+    }
+
+    let qtyAfter = await applyStockChange(models, {
+      product_id: pid,
+      warehouse_id: wid,
+      delta: qty,
+      movementType: "SALE_RETURN",
+      unit_cost: unitCost,
+      sale_line_id: line.sale_line_id ?? null,
+      user_id: userId,
+      occurred_at: occurredAt,
+      now,
+      transaction,
+    });
+    if (damaged) {
+      qtyAfter = await applyStockChange(models, {
+        product_id: pid,
+        warehouse_id: wid,
+        delta: -qty,
+        allowNegative: true,
+        movementType: "ADJUST_OUT",
+        reason: "damaged",
+        unit_cost: unitCost,
+        sale_line_id: line.sale_line_id ?? null,
+        user_id: userId,
+        occurred_at: occurredAt,
+        now,
+        transaction,
+      });
+    }
+    returned.push({ sale_line_id: line.sale_line_id, product_id: pid, condition: line.condition, qty_after: qtyAfter });
+  }
+  return { returned, invoice_id: invoiceId };
+};

@@ -1,4 +1,5 @@
 import { DataTypes } from "sequelize";
+import { returnableBaseQty, returnableQty } from "../utils/saleReturnMath.js";
 
 export const SALE_LINE_KINDS = ["item", "unlisted", "sundry", "service"];
 export const SALE_PRICE_SOURCES = ["retail", "contractor", "trade", "manual"];
@@ -93,6 +94,14 @@ export default (sequelize) => {
       ],
     },
   );
+
+  // Computed for the Manage view: what can still be returned (in the line's own unit and in base units).
+  InvoiceSaleLine.prototype.toJSON = function toJSON() {
+    const plain = this.get({ plain: true });
+    plain.returnable_base_qty = returnableBaseQty(plain);
+    plain.returnable_qty = returnableQty(plain);
+    return plain;
+  };
 
   return InvoiceSaleLine;
 };

@@ -35,3 +35,4 @@ export * from "./catalog/catalogService.js";
 export { searchFinder, browseFinder } from "./catalog/finderService.js";
 export * from "./stock/stockService.js";
 export * from "./sales/saleLinesService.js";
+export * from "./sales/saleReturnService.js";
