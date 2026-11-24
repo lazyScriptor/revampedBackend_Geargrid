@@ -35,7 +35,11 @@ export const makeRecord = (data, pkField) => {
 export const matchesWhere = (row, where = {}) => {
   for (const [k, v] of Object.entries(where)) {
     if (k === String(Op.or) || k === String(Op.and)) continue;
-    if (v && typeof v === "object" && !Array.isArray(v) && !(v instanceof Date)) {
+    if (Array.isArray(v)) {
+      if (!v.includes(row[k])) return false; // a list means IN (...)
+      continue;
+    }
+    if (v && typeof v === "object" && !(v instanceof Date)) {
       if (Op.in in v && !v[Op.in].includes(row[k])) return false;
       if (Op.ne in v && row[k] === v[Op.ne]) return false;
       if (Op.gt in v && !(new Date(row[k]) > new Date(v[Op.gt]))) return false;
@@ -75,6 +79,8 @@ export const makeSalesHarness = ({
   let nextProductId = 500;
   let nextSerialId = 1;
   let nextCustomerId = 50;
+  let nextTraceId = 1;
+  let nextPrintLogId = 1;
 
   const prodRecords = products.map((p) =>
     makeRecord({ avg_cost: 0, last_cost: null, tracking: "counted", base_unit: "pcs", allow_decimal: false, warranty_months: 0, ...p }, "product_id"),
@@ -101,6 +107,7 @@ export const makeSalesHarness = ({
   const stockDocs = [];
   const stockDocLines = [];
   const idempotencyRecords = [];
+  const printLogRecords = [];
 
   const configRow = makeRecord({ custom_settings: { retail: { ...retailSettings } } });
 
@@ -337,10 +344,24 @@ export const makeSalesHarness = ({
     },
     InvoiceTrace: {
       create: vi.fn(async (data) => {
-        const rec = makeRecord(data);
+        const rec = makeRecord({ trace_id: nextTraceId++, createdAt: new Date(), occurred_at: new Date(), ...data }, "trace_id");
         traceRecords.push(rec);
         return rec;
       }),
+      findAll: vi.fn(async ({ where } = {}) => traceRecords.filter((t) => matchesWhere(t, where)).slice().reverse()),
+    },
+    // the print audit log, with the real model's rules (allowed doc types, required columns)
+    InvoicePrintLog: {
+      create: vi.fn(async (data) => {
+        await assertSavable("InvoicePrintLog", data);
+        const rec = makeRecord({ log_id: nextPrintLogId++, ...data }, "log_id");
+        rec.setDataValue = (k, v) => {
+          rec[k] = v;
+        };
+        printLogRecords.push(rec);
+        return rec;
+      }),
+      findAll: vi.fn(async ({ where } = {}) => printLogRecords.filter((r) => matchesWhere(r, where))),
     },
     CounterException: {
       create: vi.fn(async (data) => {
@@ -482,6 +503,8 @@ export const makeSalesHarness = ({
     paymentRecords,
     movementRecords,
     exceptionRecords,
+    traceRecords,
+    printLogRecords,
     issueApprovalToken,
   };
 };
