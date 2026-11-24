@@ -137,12 +137,26 @@ const netSoldQty = (l) => {
   return Math.max(0, round3((Number(l.qty) * left) / base));
 };
 
+/**
+ * How a line's remaining goods read to the customer. A pack line partly returned ("1.88 box") reads
+ * better in the base unit ("47 kg"), so a quantity that isn't whole packs is shown in base units.
+ */
+const soldQtyLabel = (l) => {
+  const qty = netSoldQty(l);
+  const factor = Number(l.unit_factor) || 1;
+  const baseUnit = l.Product?.base_unit || l.base_unit;
+  if (factor > 1 && baseUnit && Math.abs(qty - Math.round(qty)) > 1e-6) {
+    const leftBase = round3(Math.max(0, Number(l.base_qty) - Number(l.returned_base_qty || 0)));
+    return `${leftBase} ${baseUnit}`;
+  }
+  return `${qty}${l.unit_label ? ` ${l.unit_label}` : ""}`;
+};
+
 const soldRows = (saleLines) => {
   const rows = [];
   for (const l of saleLines || []) {
-    const qty = netSoldQty(l);
-    if (qty <= 0) continue;
-    rows.push(`• ${qty}${l.unit_label ? ` ${l.unit_label}` : ""} × ${l.description || "Item"}`);
+    if (netSoldQty(l) <= 0) continue;
+    rows.push(`• ${soldQtyLabel(l)} × ${l.description || "Item"}`);
   }
   return rows;
 };
@@ -353,7 +367,14 @@ const earliestPendingDue = (lines) => {
 
 /** Sold goods of the given bills (empty where the shop has no retail tables). */
 const loadSaleLines = async (models, invoiceIds) =>
-  models.InvoiceSaleLine?.findAll ? models.InvoiceSaleLine.findAll({ where: { invoice_id: invoiceIds }, order: [["sale_line_id", "ASC"]] }) : [];
+  models.InvoiceSaleLine?.findAll
+    ? models.InvoiceSaleLine.findAll({
+        where: { invoice_id: invoiceIds },
+        // the base unit names a partly returned pack ("47 kg" rather than "1.88 box")
+        ...(models.RetailProduct ? { include: [{ model: models.RetailProduct, as: "Product", attributes: ["product_id", "base_unit"], required: false }] } : {}),
+        order: [["sale_line_id", "ASC"]],
+      })
+    : [];
 
 export const composeMessage = async (models, { template_key, invoice_id, customer_id, language, custom_text } = {}) => {
   assertTemplateKey(template_key);

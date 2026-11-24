@@ -116,6 +116,10 @@ describe("R6-backend: WhatsApp variables for goods", () => {
     // half a box returned: 1 box left
     expect(buildItemsSoldList([goods({ returned_base_qty: 10, status: "partly_returned" })])).toBe('• 1 box × Tolsen Nail 2"');
     expect(buildItemsSoldList([])).toBe("");
+    // 3 of 50 kg returned from 2 boxes of 25: what's left isn't whole boxes, so it reads in kg
+    expect(
+      buildItemsSoldList([goods({ unit_factor: 25, base_qty: 50, returned_base_qty: 3, status: "partly_returned", Product: { base_unit: "kg" } })]),
+    ).toBe('• 47 kg × Tolsen Nail 2"');
   });
 
   it("items_sold uses the same cap and '+N more' rule as the rental list (en and si)", () => {
