@@ -1,4 +1,5 @@
 import { DataTypes } from "sequelize";
+import { returnableBaseQty, returnableQty, returnedTotalOf } from "../utils/saleReturnMath.js";
 
 export default (sequelize) => {
   const Invoice = sequelize.define(
@@ -123,6 +124,15 @@ export default (sequelize) => {
       const billedSub = Number(plain.sub_total) || 0;
       plain.billed_sub_total = billedSub;
       plain.sub_total = round2(billedSub + (Number(plain.accrued_rental) || 0));
+    }
+    // Value handed back for returned goods so far (sold lines, when they were loaded).
+    if (Array.isArray(plain.SaleLines)) {
+      plain.returned_total = returnedTotalOf(plain.SaleLines);
+      plain.SaleLines = plain.SaleLines.map((l) => ({
+        ...l,
+        returnable_base_qty: returnableBaseQty(l),
+        returnable_qty: returnableQty(l),
+      }));
     }
     return plain;
   };

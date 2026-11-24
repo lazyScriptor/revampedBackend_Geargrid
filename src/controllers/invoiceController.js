@@ -2,6 +2,7 @@ import * as invoiceService from "../services/invoiceService.js";
 import * as invoiceDeletion from "../services/invoiceDeletionService.js";
 import { getCachedTenantConnection } from "../config/database.js";
 import { initTenantModels } from "../models/index.js";
+import { returnSaleLines } from "../modules/retail/index.js";
 import catchAsync from "../utils/catchAsync.js";
 
 // Helper to grab the correct tenant's database models
@@ -166,6 +167,26 @@ export const restoreInvoice = catchAsync(async (req, res) => {
 export const getDeletedInvoices = catchAsync(async (req, res) => {
   const data = await invoiceDeletion.listDeletedInvoices(getModels(req), req.query);
   res.status(200).json({ status: "success", data });
+});
+
+// POST /invoices/:id/sale-returns — return sold items (retail). Refund now or keep as credit.
+export const returnSaleItems = catchAsync(async (req, res) => {
+  const models = getModels(req);
+  const { lines, settlement, reason, approval_tokens } = req.body || {};
+  const result = await returnSaleLines(models, Number(req.params.id), {
+    lines,
+    settlement,
+    reason,
+    approval_tokens,
+    userId: req.user.userId,
+    effectivePermissions: req.effectivePermissions,
+  });
+  const invoice = await invoiceService.getInvoiceById(models, Number(req.params.id));
+  res.status(200).json({
+    status: "success",
+    message: "Return recorded.",
+    data: { invoice, settlement: result.settlement, returned_value: result.returned_value, balance: result.balance },
+  });
 });
 
 // POST /invoices/:id/complete

@@ -45,6 +45,8 @@ export const DEFAULT_RETAIL_SETTINGS = {
   askManagerRemote: true,
   booksClosedUntil: null,
   discountLimitPct: 10,
+  // Days after the sale a return needs a reason or manager approval (0 = no limit).
+  returnDaysLimit: 30,
   quickPad: [],
   namePattern: "{brand} {item} {variant}{unit}",
   codePrefix: "HW-",
@@ -98,6 +100,10 @@ export const mergeRetailSettings = (stored) => {
       raw.discountLimitPct <= 100
         ? raw.discountLimitPct
         : DEFAULT_RETAIL_SETTINGS.discountLimitPct,
+    returnDaysLimit:
+      Number.isInteger(raw.returnDaysLimit) && raw.returnDaysLimit >= 0 && raw.returnDaysLimit <= 3650
+        ? raw.returnDaysLimit
+        : DEFAULT_RETAIL_SETTINGS.returnDaysLimit,
     quickPad: Array.isArray(raw.quickPad)
       ? raw.quickPad.map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 24)
       : [],
@@ -191,6 +197,14 @@ export const validateRetailSettingsPatch = (body) => {
       throw new AppError("discountLimitPct must be a number between 0 and 100.", 400);
     }
     patch.discountLimitPct = pct;
+  }
+
+  if (body.returnDaysLimit !== undefined) {
+    const days = Number(body.returnDaysLimit);
+    if (!Number.isInteger(days) || days < 0 || days > 3650) {
+      throw new AppError("returnDaysLimit must be a whole number of days between 0 and 3650 (0 = off).", 400);
+    }
+    patch.returnDaysLimit = days;
   }
 
   if (body.exceptions !== undefined) {
