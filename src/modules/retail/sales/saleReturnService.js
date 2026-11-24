@@ -150,7 +150,7 @@ const runReturn = async (models, invoiceId, { lines, settlement, reason, approva
       factor = Number(line.unit_factor) > 0 ? Number(line.unit_factor) : 1;
     } else if (raw.unit_id === null) {
       factor = 1;
-      unitLabel = "base";
+      unitLabel = (line.product_id && productsById.get(Number(line.product_id))?.base_unit) || "pcs";
     } else if (line.unit_id && Number(raw.unit_id) === Number(line.unit_id)) {
       factor = Number(line.unit_factor) > 0 ? Number(line.unit_factor) : 1;
     } else {
@@ -394,6 +394,7 @@ const runReturn = async (models, invoiceId, { lines, settlement, reason, approva
       description: p.line.description,
       qty: p.qty,
       unit: p.unitLabel,
+      unit_label: p.unitLabel,
       base_qty: p.baseQty,
       condition: p.condition,
       ...(p.serialNo ? { serial_no: p.serialNo } : {}),
@@ -408,6 +409,7 @@ const runReturn = async (models, invoiceId, { lines, settlement, reason, approva
       payment_id: payment?.payment_id ?? null,
     },
     reason: reasonText || null,
+    balance_after: fromCents(balanceAfterCents),
     bill_status: becameCompleted ? "Completed" : invoice.status,
   };
   await models.InvoiceTrace.create(

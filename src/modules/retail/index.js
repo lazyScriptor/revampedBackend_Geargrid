@@ -12,6 +12,7 @@ export {
   updateRetailSettings,
   mergeRetailSettings,
   validateRetailSettingsPatch,
+  mergeReceiptSettings,
 } from "./retailSettingsService.js";
 export { default as retailRoutes } from "./routes/retailRoutes.js";
 export {
@@ -36,3 +37,4 @@ export { searchFinder, browseFinder } from "./catalog/finderService.js";
 export * from "./stock/stockService.js";
 export * from "./sales/saleLinesService.js";
 export * from "./sales/saleReturnService.js";
+export { listSaleReturns, findSaleReturn, shapeSaleReturn } from "./sales/saleReturnHistory.js";

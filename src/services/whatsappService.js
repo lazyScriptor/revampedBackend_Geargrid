@@ -108,7 +108,13 @@ const equipmentLabel = (equipment, language) => {
  * Bullet list of machines. `pendingOnly` (return reminders) lists only what is still out,
  * with the outstanding quantity; otherwise the whole order.
  */
-export const buildItemsList = (lines, { language = "en", pendingOnly = false } = {}) => {
+const capRows = (rows, language) => {
+  if (rows.length <= MAX_ITEM_LINES) return rows.join("\n");
+  const hidden = rows.length - MAX_ITEM_LINES;
+  return [...rows.slice(0, MAX_ITEM_LINES), language === "si" ? `… තවත් ${hidden}ක්` : `… +${hidden} more`].join("\n");
+};
+
+const rentalRows = (lines, language, pendingOnly) => {
   const rows = [];
   for (const l of lines || []) {
     const qty = pendingOnly
@@ -117,10 +123,55 @@ export const buildItemsList = (lines, { language = "en", pendingOnly = false } =
     if (qty <= 0) continue;
     rows.push(`• ${qty} × ${equipmentLabel(l.Equipment || l.equipment, language)}`);
   }
-  if (rows.length <= MAX_ITEM_LINES) return rows.join("\n");
-  const hidden = rows.length - MAX_ITEM_LINES;
-  return [...rows.slice(0, MAX_ITEM_LINES), language === "si" ? `… තවත් ${hidden}ක්` : `… +${hidden} more`].join("\n");
+  return rows;
 };
+
+const round3 = (n) => Math.round((Number(n) || 0) * 1000) / 1000;
+
+/** Goods still with the customer, in the unit they were sold in: sold minus returned. Voided and fully returned lines come out as 0. */
+const netSoldQty = (l) => {
+  if (!l || l.status === "voided" || l.status === "returned") return 0;
+  const base = Number(l.base_qty);
+  if (!(base > 0)) return Math.max(0, round3(l.qty));
+  const left = Math.max(0, base - Number(l.returned_base_qty || 0));
+  return Math.max(0, round3((Number(l.qty) * left) / base));
+};
+
+/**
+ * How a line's remaining goods read to the customer. A pack line partly returned ("1.88 box") reads
+ * better in the base unit ("47 kg"), so a quantity that isn't whole packs is shown in base units.
+ */
+const soldQtyLabel = (l) => {
+  const qty = netSoldQty(l);
+  const factor = Number(l.unit_factor) || 1;
+  const baseUnit = l.Product?.base_unit || l.base_unit;
+  if (factor > 1 && baseUnit && Math.abs(qty - Math.round(qty)) > 1e-6) {
+    const leftBase = round3(Math.max(0, Number(l.base_qty) - Number(l.returned_base_qty || 0)));
+    return `${leftBase} ${baseUnit}`;
+  }
+  return `${qty}${l.unit_label ? ` ${l.unit_label}` : ""}`;
+};
+
+const soldRows = (saleLines) => {
+  const rows = [];
+  for (const l of saleLines || []) {
+    if (netSoldQty(l) <= 0) continue;
+    rows.push(`• ${soldQtyLabel(l)} × ${l.description || "Item"}`);
+  }
+  return rows;
+};
+
+const soldUnits = (saleLines) => round3((saleLines || []).reduce((s, l) => s + netSoldQty(l), 0));
+
+/**
+ * Bullet list of machines. `pendingOnly` (return reminders) lists only what is still out,
+ * with the outstanding quantity; otherwise the whole order.
+ */
+export const buildItemsList = (lines, { language = "en", pendingOnly = false } = {}) =>
+  capRows(rentalRows(lines, language, pendingOnly), language);
+
+/** Bullet list of goods sold on a bill, net of returns ("• 2 box × Tolsen Nail 2\""). Same cap as buildItemsList. */
+export const buildItemsSoldList = (saleLines, { language = "en" } = {}) => capRows(soldRows(saleLines), language);
 
 const pendingUnits = (lines) =>
   (lines || []).reduce(
@@ -233,21 +284,40 @@ export const updateSettings = async (models, { shop_phone, default_language }) =
  * @param {object} p
  * @param {'receipt'|'pending'} p.mode  receipt = whole order; pending = only what is still out
  */
-export const buildVars = ({ shop, customer, invoice, lines, paid, language, dueDate, today }) => {
+/** What the machines come to (after discount). Older rental bills carry no rental_total: use the rental subtotal. */
+const rentTotalOf = (invoice) => {
+  const stored = Number(invoice?.rental_total);
+  if (stored > 0) return stored;
+  return invoice?.bill_kind === "sale" ? 0 : Number(invoice?.sub_total) || 0;
+};
+
+export const buildVars = ({ shop, customer, invoice, lines, saleLines = [], paid, language, dueDate, today }) => {
   const total = liveTotalOf(invoice);
   const paidAmt = Number(paid || 0);
   const advance = Number(invoice?.advance_paid || 0);
   const pendingOnly = !!dueDate;
   const lateDays = dueDate && today ? Math.max(0, daysBetween(dueDate, today)) : 0;
+  // On a sale or mixed bill, {{items}} reads rentals first, then the goods, so templates written for
+  // rentals read right on every bill kind. Return reminders are about machines still out: rentals only.
+  const goods = pendingOnly ? [] : soldRows(saleLines);
+  const hasGoods = (saleLines || []).length > 0;
+  const rentTotal = invoice ? rentTotalOf(invoice) : 0;
   return {
     customer_name: customerDisplayName(customer),
     shop_name: shop.shop_name,
     shop_phone: shop.shop_phone,
     invoice_number: invoice ? invoiceNumber(invoice.invoice_id) : "",
     issued_date: invoice ? formatDate(invoice.issued_date, shop.timezone) : "",
-    items: buildItemsList(lines, { language, pendingOnly }),
-    item_count: String(pendingOnly ? pendingUnits(lines) : (lines || []).reduce((s, l) => s + Number(l.borrow_quantity || 0), 0)),
+    items: capRows([...rentalRows(lines, language, pendingOnly), ...goods], language),
+    items_sold: buildItemsSoldList(saleLines, { language }),
+    item_count: String(
+      pendingOnly
+        ? pendingUnits(lines)
+        : (lines || []).reduce((s, l) => s + Number(l.borrow_quantity || 0), 0) + soldUnits(saleLines),
+    ),
     total: invoice ? formatMoney(total) : "",
+    sale_total: invoice && hasGoods ? formatMoney(Number(invoice.sale_total || 0)) : "",
+    rent_total: invoice && rentTotal > 0 ? formatMoney(rentTotal) : "",
     paid: invoice ? formatMoney(paidAmt) : "",
     balance: invoice ? formatMoney(Math.max(0, total - paidAmt)) : "",
     advance: advance > 0 ? formatMoney(advance) : "",
@@ -295,6 +365,17 @@ const earliestPendingDue = (lines) => {
   return min;
 };
 
+/** Sold goods of the given bills (empty where the shop has no retail tables). */
+const loadSaleLines = async (models, invoiceIds) =>
+  models.InvoiceSaleLine?.findAll
+    ? models.InvoiceSaleLine.findAll({
+        where: { invoice_id: invoiceIds },
+        // the base unit names a partly returned pack ("47 kg" rather than "1.88 box")
+        ...(models.RetailProduct ? { include: [{ model: models.RetailProduct, as: "Product", attributes: ["product_id", "base_unit"], required: false }] } : {}),
+        order: [["sale_line_id", "ASC"]],
+      })
+    : [];
+
 export const composeMessage = async (models, { template_key, invoice_id, customer_id, language, custom_text } = {}) => {
   assertTemplateKey(template_key);
   const meta = TEMPLATE_META[template_key];
@@ -304,6 +385,7 @@ export const composeMessage = async (models, { template_key, invoice_id, custome
 
   let invoice = null;
   let lines = [];
+  let saleLines = [];
   let paid = 0;
   if (invoice_id) {
     invoice = await models.Invoice.findByPk(invoice_id);
@@ -312,6 +394,7 @@ export const composeMessage = async (models, { template_key, invoice_id, custome
       where: { invoice_id },
       include: [{ model: models.Equipment, attributes: ["equipment_name", "equipment_name_si", "serial_number"] }],
     });
+    saleLines = await loadSaleLines(models, [invoice_id]);
     const payments = await models.Payment.findAll({ where: { invoice_id, is_voided: false } });
     paid = payments.reduce((s, p) => s + Number(p.payment_amount || 0), 0);
   }
@@ -330,7 +413,7 @@ export const composeMessage = async (models, { template_key, invoice_id, custome
 
   const returnMessage = ["return_due_tomorrow", "return_due_today", "overdue_return"].includes(template_key);
   const dueDate = returnMessage ? earliestPendingDue(lines) : null;
-  const vars = buildVars({ shop, customer, invoice, lines, paid, language: lang, dueDate, today });
+  const vars = buildVars({ shop, customer, invoice, lines, saleLines, paid, language: lang, dueDate, today });
 
   // A custom message is whatever staff typed; everything else is the shop's template filled in.
   const typed = template_key === "custom" && custom_text !== undefined && custom_text !== null ? String(custom_text).trim() : "";
@@ -454,13 +537,13 @@ export const setOptOut = async (models, customerId, optOut) => {
 // One query per section, each with its own cap. A single shared LIMIT let a pile of old, never-closed
 // invoices fill the result and push out everything due today and tomorrow (found at 40k invoices).
 const returnsSql = (having, order) => `
-  SELECT i.invoice_id, i.customer_id, ${liveTotalExpr("i")} AS total_amount, i.advance_paid, i.issued_date,
+  SELECT i.invoice_id, i.customer_id, ${liveTotalExpr("i")} AS total_amount, i.advance_paid, i.issued_date, i.sale_total, i.rental_total, i.sub_total, i.bill_kind,
          DATE_FORMAT(MIN(l.expected_return_date), '%Y-%m-%d') AS due_date
   FROM INVOICE_LINES l
   JOIN INVOICES i ON i.invoice_id = l.invoice_id
   WHERE i.is_deleted = 0 AND i.status = 'Active' AND l.track_overdue = 1
     AND (l.borrow_quantity - l.good_returned_qty - l.defective_returned_qty) > 0
-  GROUP BY i.invoice_id, i.customer_id, i.total_amount, i.accrued_charges, i.advance_paid, i.issued_date
+  GROUP BY i.invoice_id, i.customer_id, i.total_amount, i.accrued_charges, i.advance_paid, i.issued_date, i.sale_total, i.rental_total, i.sub_total, i.bill_kind
   HAVING ${having}
   ORDER BY ${order}
   LIMIT ${WORKLIST_LIMIT + 1}`;
@@ -470,7 +553,7 @@ const DUE_TODAY_SQL = returnsSql("MIN(l.expected_return_date) = :today", "i.invo
 const DUE_TOMORROW_SQL = returnsSql("MIN(l.expected_return_date) = :tomorrow", "i.invoice_id ASC");
 
 const PAYMENTS_SQL = `
-  SELECT i.invoice_id, i.customer_id, ${liveTotalExpr("i")} AS total_amount, i.advance_paid, i.issued_date,
+  SELECT i.invoice_id, i.customer_id, ${liveTotalExpr("i")} AS total_amount, i.advance_paid, i.issued_date, i.sale_total, i.rental_total, i.sub_total, i.bill_kind,
          COALESCE(p.total_paid, 0) AS total_paid
   FROM INVOICES i
   LEFT JOIN ${PAID_PER_INVOICE_SQL} p ON p.invoice_id = i.invoice_id
@@ -518,7 +601,7 @@ export const getWorklist = async (models, { language, now = new Date() } = {}) =
   const empty = { generated_at: now.toISOString(), today, truncated, summary: { overdue_returns: 0, returns_due_today: 0, returns_due_tomorrow: 0, payments_pending: 0, balance_pending: 0 }, sections: { overdue_returns: [], returns_due_today: [], returns_due_tomorrow: [], payments_pending: [] } };
   if (!invoiceIds.length) return empty;
 
-  const [customers, lines, logs, templateMap] = await Promise.all([
+  const [customers, lines, saleLines, logs, templateMap] = await Promise.all([
     models.Customer.findAll({
       where: { customer_id: customerIds },
       attributes: ["customer_id", "first_name", "last_name", "company_name", "customer_type", "phone_number", "whatsapp_opt_out"],
@@ -527,6 +610,7 @@ export const getWorklist = async (models, { language, now = new Date() } = {}) =
       where: { invoice_id: invoiceIds },
       include: [{ model: models.Equipment, attributes: ["equipment_name", "equipment_name_si", "serial_number"] }],
     }),
+    loadSaleLines(models, invoiceIds),
     models.WhatsappMessageLog.findAll({
       where: {
         createdAt: { [Op.gte]: new Date(now.getTime() - LANGUAGE_MEMORY_DAYS * 86400000) },
@@ -543,6 +627,11 @@ export const getWorklist = async (models, { language, now = new Date() } = {}) =
     if (!linesByInvoice.has(l.invoice_id)) linesByInvoice.set(l.invoice_id, []);
     linesByInvoice.get(l.invoice_id).push(l);
   }
+  const saleLinesByInvoice = new Map();
+  for (const l of saleLines) {
+    if (!saleLinesByInvoice.has(l.invoice_id)) saleLinesByInvoice.set(l.invoice_id, []);
+    saleLinesByInvoice.get(l.invoice_id).push(l);
+  }
   const lastByInvoice = new Map();
   const languageByCustomer = new Map();
   for (const lg of logs) {
@@ -556,7 +645,7 @@ export const getWorklist = async (models, { language, now = new Date() } = {}) =
     const lang = language || languageByCustomer.get(row.customer_id) || shop.default_language;
     const total = liveTotalOf(row);
     const paidAmt = paid === null ? 0 : Number(paid);
-    const vars = buildVars({ shop, customer, invoice: row, lines: invLines, paid: paidAmt, language: lang, dueDate, today });
+    const vars = buildVars({ shop, customer, invoice: row, lines: invLines, saleLines: saleLinesByInvoice.get(row.invoice_id) || [], paid: paidAmt, language: lang, dueDate, today });
     const body = renderTemplate(templateBody(templateMap, key, lang), vars);
     const number = pickWhatsAppNumber(customer?.phone_number);
     const link = buildWaLink(number.valid ? number.digits : "", body);

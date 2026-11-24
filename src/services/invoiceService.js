@@ -711,6 +711,8 @@ export const getInvoiceById = async (models, invoiceId) => {
       },
       { model: models.Payment },
       { model: models.InvoiceTrace },
+      // who issued the bill: the cashier named on receipts (read by Invoice.toJSON as `issued_by`)
+      ...(models.User ? [{ model: models.User, attributes: ["user_id", "first_name", "last_name", "username"], required: false }] : []),
     ],
     order: [[models.InvoiceTrace, "createdAt", "DESC"]],
   });

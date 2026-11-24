@@ -58,6 +58,26 @@ export const DEFAULT_RETAIL_SETTINGS = {
   showContractorPrice: true,
   belowCostWarning: true,
   receiptFooter: "",
+  // How receipts and return slips look (plan §7.7, §7.10). Texts are plain, max 300 chars.
+  receipt: {
+    shortSaleReceipt: true,
+    saleFooter: "",
+    showItemsSoldOnRentalReceipt: true,
+    showCashier: true,
+    returnSlipFooter: "",
+  },
+};
+
+export const RECEIPT_FOOTER_MAX = 300;
+const RECEIPT_BOOLEANS = ["shortSaleReceipt", "showItemsSoldOnRentalReceipt", "showCashier"];
+const RECEIPT_TEXTS = ["saleFooter", "returnSlipFooter"];
+
+export const mergeReceiptSettings = (raw) => {
+  const r = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  const out = { ...DEFAULT_RETAIL_SETTINGS.receipt };
+  for (const k of RECEIPT_BOOLEANS) if (typeof r[k] === "boolean") out[k] = r[k];
+  for (const k of RECEIPT_TEXTS) if (typeof r[k] === "string") out[k] = r[k].slice(0, RECEIPT_FOOTER_MAX);
+  return out;
 };
 
 const normalizeStoredExceptions = (raw) => {
@@ -139,6 +159,7 @@ export const mergeRetailSettings = (stored) => {
       typeof raw.receiptFooter === "string"
         ? raw.receiptFooter.slice(0, 500)
         : DEFAULT_RETAIL_SETTINGS.receiptFooter,
+    receipt: mergeReceiptSettings(raw.receipt),
   };
 };
 
@@ -314,6 +335,28 @@ export const validateRetailSettingsPatch = (body) => {
     patch.receiptFooter = body.receiptFooter;
   }
 
+  if (body.receipt !== undefined) {
+    if (!body.receipt || typeof body.receipt !== "object" || Array.isArray(body.receipt)) {
+      throw new AppError("receipt must be an object.", 400);
+    }
+    const next = {};
+    for (const [k, v] of Object.entries(body.receipt)) {
+      if (RECEIPT_BOOLEANS.includes(k)) {
+        if (typeof v !== "boolean") throw new AppError(`receipt.${k} must be a boolean.`, 400);
+        next[k] = v;
+      } else if (RECEIPT_TEXTS.includes(k)) {
+        if (typeof v !== "string") throw new AppError(`receipt.${k} must be a string.`, 400);
+        if (v.length > RECEIPT_FOOTER_MAX) {
+          throw new AppError(`receipt.${k} is too long (max ${RECEIPT_FOOTER_MAX} characters).`, 400);
+        }
+        next[k] = v;
+      } else {
+        throw new AppError(`Unknown receipt setting: ${k}`, 400);
+      }
+    }
+    patch.receipt = next;
+  }
+
   return patch;
 };
 
@@ -339,6 +382,10 @@ export const updateRetailSettings = async (models, body) => {
     exceptions: {
       ...current.exceptions,
       ...(patch.exceptions || {}),
+    },
+    receipt: {
+      ...current.receipt,
+      ...(patch.receipt || {}),
     },
   };
 

@@ -47,6 +47,7 @@ router.delete("/:id", requirePermission("invoice:delete", "invoice:delete:any"),
 router.post("/:id/restore", requirePermission("invoice:restore"), invoiceController.restoreInvoice);
 
 router.get("/:id", requirePermission("invoice:view"), invoiceController.getInvoiceById); // <-- NEW
+router.get("/:id/sale-returns", requirePermission("invoice:view"), invoiceController.getSaleReturns);
 router.get("/:id/print-logs", requirePermission("invoice:print_log:view"), printLogController.getInvoicePrintLogs);
 
 // 2. OMS Actions
