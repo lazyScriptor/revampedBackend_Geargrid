@@ -125,6 +125,11 @@ export default (sequelize) => {
       plain.billed_sub_total = billedSub;
       plain.sub_total = round2(billedSub + (Number(plain.accrued_rental) || 0));
     }
+    // The cashier named on receipts (the bill read includes the issuing user).
+    if (plain.User) {
+      const full = [plain.User.first_name, plain.User.last_name].filter(Boolean).join(" ").trim();
+      plain.issued_by = { user_id: plain.User.user_id, name: full || plain.User.username || null, username: plain.User.username || null };
+    }
     // Value handed back for returned goods so far (sold lines, when they were loaded).
     if (Array.isArray(plain.SaleLines)) {
       plain.returned_total = returnedTotalOf(plain.SaleLines);

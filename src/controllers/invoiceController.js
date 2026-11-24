@@ -2,7 +2,7 @@ import * as invoiceService from "../services/invoiceService.js";
 import * as invoiceDeletion from "../services/invoiceDeletionService.js";
 import { getCachedTenantConnection } from "../config/database.js";
 import { initTenantModels } from "../models/index.js";
-import { returnSaleLines } from "../modules/retail/index.js";
+import { returnSaleLines, listSaleReturns } from "../modules/retail/index.js";
 import catchAsync from "../utils/catchAsync.js";
 
 // Helper to grab the correct tenant's database models
@@ -166,6 +166,12 @@ export const restoreInvoice = catchAsync(async (req, res) => {
 
 export const getDeletedInvoices = catchAsync(async (req, res) => {
   const data = await invoiceDeletion.listDeletedInvoices(getModels(req), req.query);
+  res.status(200).json({ status: "success", data });
+});
+
+// GET /invoices/:id/sale-returns — the bill's returns of sold items, newest first (for the return slip)
+export const getSaleReturns = catchAsync(async (req, res) => {
+  const data = await listSaleReturns(getModels(req), Number(req.params.id));
   res.status(200).json({ status: "success", data });
 });
 
