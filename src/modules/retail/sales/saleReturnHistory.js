@@ -16,16 +16,19 @@ const personName = (u) => {
 };
 
 /** One trace -> the shape the slip needs. Older traces may lack fields; the sale line fills them in. */
-export const shapeSaleReturn = (trace, { saleLineById = new Map(), userById = new Map() } = {}) => {
+export const shapeSaleReturn = (trace, { saleLineById = new Map(), userById = new Map(), productById = new Map() } = {}) => {
   const payload = parseJsonField(trace.state_payload, {}) || {};
   const settlement = parseJsonField(payload.settlement, {}) || {};
   const lines = (Array.isArray(payload.lines) ? payload.lines : []).map((l) => {
     const sale = saleLineById.get(Number(l.sale_line_id)) || {};
+    // R5's first traces wrote "base" for a return counted in the item's smallest unit: name that unit
+    let unit = l.unit_label || l.unit || sale.unit_label || "";
+    if (unit === "base") unit = productById.get(Number(sale.product_id))?.base_unit || "pcs";
     return {
       sale_line_id: l.sale_line_id === undefined || l.sale_line_id === null ? null : Number(l.sale_line_id),
       description: l.description || sale.description || "",
       qty: num(l.qty),
-      unit_label: l.unit_label || l.unit || sale.unit_label || "",
+      unit_label: unit,
       condition: l.condition || "good",
       value: num(l.value),
     };
@@ -69,9 +72,14 @@ export const listSaleReturns = async (models, invoiceId) => {
   ]);
   const userById = new Map(users.map((u) => [Number(u.user_id), u]));
   const saleLineById = new Map(saleLines.map((l) => [Number(l.sale_line_id), l]));
+  const productIds = [...new Set(saleLines.map((l) => Number(l.product_id)).filter((n) => n > 0))];
+  const products = productIds.length && models.RetailProduct?.findAll
+    ? await models.RetailProduct.findAll({ where: { product_id: productIds }, attributes: ["product_id", "base_unit"] })
+    : [];
+  const productById = new Map(products.map((p) => [Number(p.product_id), p]));
 
   return traces
-    .map((t) => shapeSaleReturn(t, { saleLineById, userById }))
+    .map((t) => shapeSaleReturn(t, { saleLineById, userById, productById }))
     .sort((a, b) => new Date(b.returned_at || 0) - new Date(a.returned_at || 0) || b.return_id - a.return_id);
 };
 

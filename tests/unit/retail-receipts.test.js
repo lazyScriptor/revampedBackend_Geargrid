@@ -388,6 +388,19 @@ describe("R6-backend: GET /invoices/:id/sale-returns", () => {
     expect(out[1].value).toBe(400);
   });
 
+  it("a return counted in the item's smallest unit shows that unit, not 'base' (new and older traces)", async () => {
+    const h = makeShop();
+    const bill = await saleBill(h);
+    await ret(h, bill.invoice_id, [{ sale_line_id: 2, qty: 3, unit_id: null }]);
+    expect(h.traceRecords.find((t) => t.event_action === "SALE_RETURN").state_payload.lines[0].unit_label).toBe("pcs");
+    await h.models.InvoiceTrace.create({
+      invoice_id: bill.invoice_id, actor_user_id: 1, event_category: "RETAIL", event_action: "SALE_RETURN",
+      state_payload: { lines: [{ sale_line_id: 2, description: 'Tolsen Nail 2"', qty: 3, unit: "base", base_qty: 3, value: 54 }], value: 54, settlement: { mode: "refund", refunded: 54, credited: 0 } },
+    });
+    const out = await listSaleReturns(h.models, bill.invoice_id);
+    expect(out.map((r) => r.lines[0].unit_label)).toEqual(["pcs", "pcs"]);
+  });
+
   it("new returns write what the slip needs into the trace; a bill with no returns gives []; unknown bill is 404", async () => {
     const h = makeShop();
     const bill = await saleBill(h);
