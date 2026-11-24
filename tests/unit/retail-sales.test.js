@@ -50,6 +50,23 @@ describe("R3-backend: Retail sales on a bill", () => {
     expect(Number(h.movementRecords[0].qty_change)).toBe(-20);
   });
 
+  it("1b. a retail customer buying a pack pays the pack's own price, saved as a retail price", async () => {
+    const h = makeSalesHarness({
+      products: [{ product_id: 1, code: "S1", name: "Nail 2in", sell_price: 1000, avg_cost: 600 }],
+      units: [{ unit_id: 11, product_id: 1, unit_name: "box", factor: 25, sell_price: 22800 }],
+      levels: [{ product_id: 1, warehouse_id: 1, qty_on_hand: 100 }],
+    });
+    const bill = await createDispatchInvoice(
+      h.models,
+      { walk_in: true, sale_items: [{ product_id: 1, unit_id: 11, qty: 2 }], settle_now: true, payment: { amount: 45600, method: "Cash" } },
+      1,
+    );
+    expect(Number(bill.total_amount)).toBe(45600);
+    // the column allows only retail/contractor/trade/manual (a real database refuses anything else)
+    expect(h.saleLineRecords[0].price_source).toBe("retail");
+    expect(Number(h.levelRecords[0].qty_on_hand)).toBe(50);
+  });
+
   it("2. price_changed 409 when stale or unapproved, and approved override consumes token once", async () => {
     const h = makeSalesHarness({
       products: [{ product_id: 1, code: "S1", name: "Cement", sell_price: 2400, avg_cost: 2000 }],

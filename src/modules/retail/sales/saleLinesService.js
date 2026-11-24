@@ -64,7 +64,7 @@ const resolveServerUnitPriceCents = (product, unit, customer) => {
   if (unit && unit.sell_price != null) {
     return {
       unitPriceCents: toCents(unit.sell_price),
-      priceSource: "pack",
+      priceSource: "retail", // the pack's own shelf price; the column allows retail/contractor/trade/manual
     };
   }
   return {
