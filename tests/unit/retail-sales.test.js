@@ -1,0 +1,610 @@
+import express from "express";
+import request from "supertest";
+import { describe, expect, it, vi } from "vitest";
+import { makeSalesHarness } from "../helpers/retailHarness.js";
+import { createDispatchInvoice } from "../../src/services/invoiceService.js";
+import {
+  checkStockIntegrity,
+  createAndLinkUnlistedSaleLines,
+  getApprovalDesk,
+  hashContext,
+  linkUnlistedSaleLines,
+  markUnlistedOneOff,
+  sha256Hex,
+  updateRetailSettings,
+} from "../../src/modules/retail/index.js";
+import { idempotency } from "../../src/middlewares/idempotency.js";
+
+describe("R3-backend: Retail sales on a bill", () => {
+  it("1. sale-only bill with packs and contractor price computes server totals & deducts base_qty", async () => {
+    const h = makeSalesHarness({
+      products: [
+        { product_id: 1, code: "S1", name: "Bolt 6mm", sell_price: 20, contractor_price: 15, avg_cost: 10 },
+      ],
+      units: [{ unit_id: 11, product_id: 1, unit_name: "box", factor: 10, sell_price: 180 }],
+      levels: [{ product_id: 1, warehouse_id: 1, qty_on_hand: 50 }],
+      customers: [{ customer_id: 5, first_name: "Ali", price_level: "contractor", is_walk_in: false }],
+    });
+
+    const bill = await createDispatchInvoice(
+      h.models,
+      {
+        customer_id: 5,
+        sale_items: [{ product_id: 1, unit_id: 11, qty: 2 }],
+        settle_now: true,
+        payment: { amount: 300, method: "Cash" },
+        job_site: "Kandy Site",
+        customer_po: "PO-88",
+      },
+      1,
+    );
+
+    expect(bill.bill_kind).toBe("sale");
+    expect(bill.status).toBe("Completed");
+    expect(Number(bill.total_amount)).toBe(300); // 2 boxes * 10 * 15 contractor price
+    expect(Number(bill.sale_total)).toBe(300);
+    expect(h.saleLineRecords[0].price_source).toBe("contractor");
+    expect(Number(h.saleLineRecords[0].base_qty)).toBe(20);
+    expect(Number(h.levelRecords[0].qty_on_hand)).toBe(30);
+    expect(h.movementRecords[0].type).toBe("SALE");
+    expect(Number(h.movementRecords[0].qty_change)).toBe(-20);
+  });
+
+  it("1b. a retail customer buying a pack pays the pack's own price, saved as a retail price", async () => {
+    const h = makeSalesHarness({
+      products: [{ product_id: 1, code: "S1", name: "Nail 2in", sell_price: 1000, avg_cost: 600 }],
+      units: [{ unit_id: 11, product_id: 1, unit_name: "box", factor: 25, sell_price: 22800 }],
+      levels: [{ product_id: 1, warehouse_id: 1, qty_on_hand: 100 }],
+    });
+    const bill = await createDispatchInvoice(
+      h.models,
+      { walk_in: true, sale_items: [{ product_id: 1, unit_id: 11, qty: 2 }], settle_now: true, payment: { amount: 45600, method: "Cash" } },
+      1,
+    );
+    expect(Number(bill.total_amount)).toBe(45600);
+    // the column allows only retail/contractor/trade/manual (a real database refuses anything else)
+    expect(h.saleLineRecords[0].price_source).toBe("retail");
+    expect(Number(h.levelRecords[0].qty_on_hand)).toBe(50);
+  });
+
+  it("2. price_changed 409 when stale or unapproved, and approved override consumes token once", async () => {
+    const h = makeSalesHarness({
+      products: [{ product_id: 1, code: "S1", name: "Cement", sell_price: 2400, avg_cost: 2000 }],
+      levels: [{ product_id: 1, warehouse_id: 1, qty_on_hand: 20 }],
+      customers: [{ customer_id: 5, first_name: "Ali", price_level: "retail" }],
+    });
+
+    await expect(
+      createDispatchInvoice(
+        h.models,
+        {
+          customer_id: 5,
+          sale_items: [{ product_id: 1, qty: 1, expected_unit_price: 2300 }],
+          payment: { amount: 2300, method: "Cash" },
+        },
+        1,
+      ),
+    ).rejects.toMatchObject({ statusCode: 409, code: "price_changed" });
+
+    const token = h.issueApprovalToken({
+      action: "price_change",
+      context: { product_id: 1, unit_price: 2250 },
+    });
+
+    const bill = await createDispatchInvoice(
+      h.models,
+      {
+        customer_id: 5,
+        sale_items: [{ product_id: 1, qty: 2, unit_price: 2250 }],
+        approval_tokens: { price_change: token },
+        settle_now: true,
+        payment: { amount: 4500, method: "Cash" },
+      },
+      1,
+    );
+
+    expect(Number(bill.total_amount)).toBe(4500);
+    expect(h.saleLineRecords[0].price_source).toBe("manual");
+    expect(h.exceptionRecords.some((e) => e.type === "price_change" && e.status === "approved")).toBe(true);
+
+    // Token cannot be reused
+    await expect(
+      createDispatchInvoice(
+        h.models,
+        {
+          customer_id: 5,
+          sale_items: [{ product_id: 1, qty: 1, unit_price: 2250 }],
+          approval_tokens: { price_change: token },
+          payment: { amount: 2250, method: "Cash" },
+        },
+        1,
+      ),
+    ).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it("3. discount over cashierMaxDiscountPct requires manager approval", async () => {
+    const h = makeSalesHarness({
+      products: [{ product_id: 1, code: "S1", name: "Saw", sell_price: 1000 }],
+      levels: [{ product_id: 1, warehouse_id: 1, qty_on_hand: 10 }],
+      customers: [{ customer_id: 5, first_name: "Ali" }],
+      retailSettings: { discountLimitPct: 5 },
+    });
+
+    await expect(
+      createDispatchInvoice(
+        h.models,
+        {
+          customer_id: 5,
+          sale_items: [{ product_id: 1, qty: 1 }],
+          discount: 100, // 10% > 5%
+          payment: { amount: 900, method: "Cash" },
+        },
+        1,
+      ),
+    ).rejects.toMatchObject({ statusCode: 403, code: "discount_over_limit" });
+
+    const token = h.issueApprovalToken({
+      action: "discount_over_limit",
+      context: { discount_amount: 100 },
+    });
+
+    const bill = await createDispatchInvoice(
+      h.models,
+      {
+        customer_id: 5,
+        sale_items: [{ product_id: 1, qty: 1 }],
+        discount: 100,
+        approval_tokens: { discount_over_limit: token },
+        settle_now: true,
+        payment: { amount: 900, method: "Cash" },
+      },
+      1,
+    );
+
+    expect(Number(bill.total_amount)).toBe(900);
+    expect(Number(h.saleLineRecords[0].bill_discount_share)).toBe(100);
+    expect(h.exceptionRecords.some((e) => e.type === "discount_over_limit")).toBe(true);
+  });
+
+  it("4. walk-in must pay in full (422 if short)", async () => {
+    const h = makeSalesHarness({
+      products: [{ product_id: 1, code: "S1", name: "Tape", sell_price: 500 }],
+      levels: [{ product_id: 1, warehouse_id: 1, qty_on_hand: 10 }],
+    });
+
+    await expect(
+      createDispatchInvoice(
+        h.models,
+        {
+          walk_in: true,
+          sale_items: [{ product_id: 1, qty: 1 }],
+          payment: { amount: 400, method: "Cash" },
+        },
+        1,
+      ),
+    ).rejects.toMatchObject({ statusCode: 422 });
+  });
+
+  it("5. settle_now -> Completed; credit sale -> PendingPayment", async () => {
+    const h = makeSalesHarness({
+      products: [{ product_id: 1, code: "S1", name: "Hammer", sell_price: 1000 }],
+      levels: [{ product_id: 1, warehouse_id: 1, qty_on_hand: 10 }],
+      customers: [{ customer_id: 5, first_name: "Builder", is_walk_in: false }],
+    });
+
+    const creditBill = await createDispatchInvoice(
+      h.models,
+      {
+        customer_id: 5,
+        sale_items: [{ product_id: 1, qty: 1 }],
+        settle_now: false,
+        payment: { amount: 0, method: "Cash" },
+      },
+      1,
+    );
+    expect(creditBill.status).toBe("PendingPayment");
+
+    const cashBill = await createDispatchInvoice(
+      h.models,
+      {
+        customer_id: 5,
+        sale_items: [{ product_id: 1, qty: 1 }],
+        settle_now: true,
+        payment: { amount: 1000, method: "Cash" },
+      },
+      1,
+    );
+    expect(cashBill.status).toBe("Completed");
+  });
+
+  it("6. unlisted line creates COUNTER_EXCEPTIONS and takes no stock", async () => {
+    const h = makeSalesHarness({
+      customers: [{ customer_id: 5, first_name: "Ali" }],
+    });
+
+    const bill = await createDispatchInvoice(
+      h.models,
+      {
+        customer_id: 5,
+        sale_items: [{ line_kind: "unlisted", description: "Special Brass Valve", qty: 2, unit_price: 350 }],
+        effectivePermissions: ["retail:add_unlisted"],
+        settle_now: true,
+        payment: { amount: 700, method: "Cash" },
+      },
+      1,
+    );
+
+    expect(Number(bill.total_amount)).toBe(700);
+    expect(h.saleLineRecords[0].line_kind).toBe("unlisted");
+    expect(h.movementRecords).toHaveLength(0);
+    expect(h.exceptionRecords.some((e) => e.type === "unlisted_item")).toBe(true);
+  });
+
+  it("7. sundry line works without catalog product or stock", async () => {
+    const h = makeSalesHarness({
+      customers: [{ customer_id: 5, first_name: "Ali" }],
+    });
+
+    const bill = await createDispatchInvoice(
+      h.models,
+      {
+        customer_id: 5,
+        sale_items: [{ line_kind: "sundry", description: "Delivery / Cutting Fee", qty: 1, unit_price: 250 }],
+        effectivePermissions: ["retail:add_unlisted"],
+        settle_now: true,
+        payment: { amount: 250, method: "Cash" },
+      },
+      1,
+    );
+
+    expect(Number(bill.total_amount)).toBe(250);
+    expect(h.saleLineRecords[0].line_kind).toBe("sundry");
+    expect(h.movementRecords).toHaveLength(0);
+  });
+
+  it("8. serial sale marks serial sold and sets warranty_end", async () => {
+    const h = makeSalesHarness({
+      products: [
+        {
+          product_id: 1,
+          code: "DRILL-1",
+          name: "Bosch Drill",
+          tracking: "serial",
+          warranty_months: 12,
+          sell_price: 15000,
+          avg_cost: 11000,
+        },
+      ],
+      levels: [{ product_id: 1, warehouse_id: 1, qty_on_hand: 1 }],
+      serials: [{ product_id: 1, serial_no: "SN-999", warehouse_id: 1, status: "in_stock" }],
+      customers: [{ customer_id: 5, first_name: "Ali" }],
+    });
+
+    await createDispatchInvoice(
+      h.models,
+      {
+        customer_id: 5,
+        sale_items: [{ product_id: 1, qty: 1, serial_number: "SN-999" }],
+        settle_now: true,
+        payment: { amount: 15000, method: "Cash" },
+      },
+      1,
+    );
+
+    expect(h.serialRecords[0].status).toBe("sold");
+    expect(h.serialRecords[0].warranty_end).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(Number(h.levelRecords[0].qty_on_hand)).toBe(0);
+  });
+
+  it("9. block vs warn vs not-counted, with negative_stock approval", async () => {
+    // a) block refuses without approval
+    const hBlock = makeSalesHarness({
+      products: [{ product_id: 1, code: "S1", name: "Wire", sell_price: 100 }],
+      levels: [{ product_id: 1, warehouse_id: 1, qty_on_hand: 0, counted_at: new Date() }],
+      customers: [{ customer_id: 5, first_name: "Ali" }],
+      retailSettings: { negativeStock: "block" },
+    });
+
+    await expect(
+      createDispatchInvoice(
+        hBlock.models,
+        { customer_id: 5, sale_items: [{ product_id: 1, qty: 1 }], payment: { amount: 100, method: "Cash" } },
+        1,
+      ),
+    ).rejects.toMatchObject({ statusCode: 409, code: "out_of_stock" });
+
+    // b) block succeeds with negative_stock approval token
+    const negToken = hBlock.issueApprovalToken({ action: "negative_stock", context: { product_id: 1 } });
+    await createDispatchInvoice(
+      hBlock.models,
+      {
+        customer_id: 5,
+        sale_items: [{ product_id: 1, qty: 1 }],
+        approval_tokens: { negative_stock: negToken },
+        payment: { amount: 100, method: "Cash" },
+      },
+      1,
+    );
+    expect(Number(hBlock.levelRecords[0].qty_on_hand)).toBe(-1);
+
+    // c) warn allows negative and records exception
+    const hWarn = makeSalesHarness({
+      products: [{ product_id: 1, code: "S1", name: "Wire", sell_price: 100 }],
+      levels: [{ product_id: 1, warehouse_id: 1, qty_on_hand: 0, counted_at: new Date() }],
+      customers: [{ customer_id: 5, first_name: "Ali" }],
+      retailSettings: { negativeStock: "warn" },
+    });
+    await createDispatchInvoice(
+      hWarn.models,
+      { customer_id: 5, sale_items: [{ product_id: 1, qty: 1 }], payment: { amount: 100, method: "Cash" } },
+      1,
+    );
+    expect(Number(hWarn.levelRecords[0].qty_on_hand)).toBe(-1);
+    expect(hWarn.exceptionRecords.some((e) => e.type === "negative_stock")).toBe(true);
+
+    // d) not-counted item (counted_at: null) is never blocked even under block
+    const hUncounted = makeSalesHarness({
+      products: [{ product_id: 1, code: "S1", name: "Wire", sell_price: 100 }],
+      levels: [{ product_id: 1, warehouse_id: 1, qty_on_hand: 0, counted_at: null }],
+      customers: [{ customer_id: 5, first_name: "Ali" }],
+      retailSettings: { negativeStock: "block" },
+    });
+    await createDispatchInvoice(
+      hUncounted.models,
+      { customer_id: 5, sale_items: [{ product_id: 1, qty: 2 }], payment: { amount: 200, method: "Cash" } },
+      1,
+    );
+    expect(Number(hUncounted.levelRecords[0].qty_on_hand)).toBe(-2);
+  });
+
+  it("10. concurrent last-unit sale under block: only one wins", async () => {
+    const h = makeSalesHarness({
+      products: [{ product_id: 1, code: "S1", name: "Last Unit", sell_price: 500 }],
+      levels: [{ product_id: 1, warehouse_id: 1, qty_on_hand: 1, counted_at: new Date() }],
+      customers: [{ customer_id: 5, first_name: "Ali" }],
+      retailSettings: { negativeStock: "block" },
+    });
+
+    const results = await Promise.allSettled([
+      createDispatchInvoice(
+        h.models,
+        { customer_id: 5, sale_items: [{ product_id: 1, qty: 1 }], payment: { amount: 500, method: "Cash" } },
+        1,
+      ),
+      createDispatchInvoice(
+        h.models,
+        { customer_id: 5, sale_items: [{ product_id: 1, qty: 1 }], payment: { amount: 500, method: "Cash" } },
+        1,
+      ),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    const rejected = results.filter((r) => r.status === "rejected");
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0].reason.code).toBe("out_of_stock");
+    expect(Number(h.levelRecords[0].qty_on_hand)).toBe(0);
+  });
+
+  it("11. records unit_cost from avg_cost for profit reports", async () => {
+    const h = makeSalesHarness({
+      products: [{ product_id: 1, code: "S1", name: "Paint", sell_price: 1200, avg_cost: 845.5 }],
+      levels: [{ product_id: 1, warehouse_id: 1, qty_on_hand: 5 }],
+      customers: [{ customer_id: 5, first_name: "Ali" }],
+    });
+
+    await createDispatchInvoice(
+      h.models,
+      { customer_id: 5, sale_items: [{ product_id: 1, qty: 2 }], payment: { amount: 2400, method: "Cash" } },
+      1,
+    );
+
+    expect(Number(h.saleLineRecords[0].unit_cost)).toBe(845.5);
+    expect(Number(h.movementRecords[0].unit_cost)).toBe(845.5);
+  });
+
+  it("12. desk link takes stock dated at sale time and keeps bill totals", async () => {
+    const saleDate = new Date("2026-11-20T09:00:00Z");
+    const h = makeSalesHarness({
+      products: [{ product_id: 1, code: "S1", name: "Brass Valve", sell_price: 400, avg_cost: 220 }],
+      levels: [{ product_id: 1, warehouse_id: 1, qty_on_hand: 10 }],
+      customers: [{ customer_id: 5, first_name: "Ali" }],
+    });
+
+    const bill = await createDispatchInvoice(
+      h.models,
+      {
+        customer_id: 5,
+        issued_date: saleDate,
+        sale_items: [{ line_kind: "unlisted", description: "Brass Valve", qty: 2, unit_price: 350 }],
+        effectivePermissions: ["retail:add_unlisted"],
+        settle_now: true,
+        payment: { amount: 700, method: "Cash" },
+      },
+      1,
+    );
+
+    const desk = await getApprovalDesk(h.models, { tab: "to_sort" });
+    expect(desk.items).toHaveLength(1);
+
+    await linkUnlistedSaleLines(h.models, {
+      saleLineIds: [h.saleLineRecords[0].sale_line_id],
+      productId: 1,
+      userId: 2,
+    });
+
+    expect(Number(bill.total_amount)).toBe(700); // Bill totals never change
+    expect(Number(h.levelRecords[0].qty_on_hand)).toBe(8);
+    expect(new Date(h.movementRecords[0].occurred_at).toISOString()).toBe(saleDate.toISOString());
+  });
+
+  it("13. desk create + opening creates product, posts opening stock, and links line", async () => {
+    const h = makeSalesHarness({
+      customers: [{ customer_id: 5, first_name: "Ali" }],
+    });
+
+    await createDispatchInvoice(
+      h.models,
+      {
+        customer_id: 5,
+        sale_items: [{ line_kind: "unlisted", description: "Custom Flange", qty: 2, unit_price: 500 }],
+        effectivePermissions: ["retail:add_unlisted"],
+        payment: { amount: 1000, method: "Cash" },
+      },
+      1,
+    );
+
+    const res = await createAndLinkUnlistedSaleLines(h.models, {
+      saleLineIds: [h.saleLineRecords[0].sale_line_id],
+      productPayload: {
+        name: "Custom Flange",
+        category_id: 1,
+        sell_price: 500,
+        avg_cost: 300,
+        tracking: "counted",
+      },
+      openingQty: 10,
+      openingCost: 300,
+      userId: 2,
+    });
+
+    expect(res.product.created_via).toBe("from_unlisted");
+    expect(Number(h.levelRecords[0].qty_on_hand)).toBe(8); // 10 opening - 2 sold
+    const integrity = await checkStockIntegrity(h.models);
+    expect(integrity.ok).toBe(true);
+  });
+
+  it("14. desk one-off clears unlisted line from To Sort desk", async () => {
+    const h = makeSalesHarness({
+      customers: [{ customer_id: 5, first_name: "Ali" }],
+    });
+
+    await createDispatchInvoice(
+      h.models,
+      {
+        customer_id: 5,
+        sale_items: [{ line_kind: "unlisted", description: "One-off Scrap", qty: 1, unit_price: 150 }],
+        effectivePermissions: ["retail:add_unlisted"],
+        payment: { amount: 150, method: "Cash" },
+      },
+      1,
+    );
+
+    await markUnlistedOneOff(h.models, {
+      saleLineIds: [h.saleLineRecords[0].sale_line_id],
+      userId: 2,
+    });
+
+    const desk = await getApprovalDesk(h.models, { tab: "to_sort" });
+    expect(desk.items).toHaveLength(0);
+  });
+
+  it("15. quickPad max 24 enforced", async () => {
+    const h = makeSalesHarness();
+
+    await expect(
+      updateRetailSettings(h.models, { quickPad: Array.from({ length: 25 }, (_, i) => i + 1) }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it("17. accepts exactly what the counter sends: item lines, per-line approvals, fees, change due", async () => {
+    const h = makeSalesHarness({
+      products: [
+        { product_id: 1, code: "S1", name: "SALI Steel Drill Bit 6mm", sell_price: 310, avg_cost: 230 },
+        { product_id: 2, code: "S2", name: "SALI Cutting Wheel 4\"", sell_price: 170, avg_cost: 120 },
+      ],
+      levels: [
+        { product_id: 1, warehouse_id: 1, qty_on_hand: 50, counted_at: new Date() },
+        { product_id: 2, warehouse_id: 1, qty_on_hand: 50, counted_at: new Date() },
+      ],
+      customers: [{ customer_id: 5, first_name: "Ali", price_level: "retail" }],
+      retailSettings: { discountLimitPct: 50 },
+    });
+    // Two price changes on one bill, each approved with the counter's own context shape.
+    const t1 = h.issueApprovalToken({ action: "price_change", context: { product_id: 1, unit_id: null, from: 310, to: 280 } });
+    const t2 = h.issueApprovalToken({ action: "price_change", context: { product_id: 2, unit_id: null, from: 170, to: 150 } });
+
+    const bill = await createDispatchInvoice(
+      h.models,
+      {
+        customer_id: 5,
+        items: [],
+        sale_items: [
+          { product_id: 1, line_kind: "item", qty: 2, unit_price: 280, line_discount: 0, approval_tokens: { price_change: t1 } },
+          { product_id: 2, line_kind: "item", qty: 1, unit_price: 150, line_discount: 0, approval_tokens: { price_change: t2 } },
+        ],
+        fees: { transport: 500, discount: 10, advance: 2000, advance_payment_method: "Cash" },
+        discount_reason: { key: "regular_customer" },
+        payment: { amount: 2000, method: "Cash" },
+        settle_now: true,
+      },
+      1,
+    );
+
+    // Goods 2×280 + 150 = 710, less bill discount 10 = 700, plus transport 500 = 1,200.
+    expect(Number(bill.total_amount)).toBe(1200);
+    expect(Number(bill.transport_fee)).toBe(500);
+    expect(Number(bill.sale_total)).toBe(700);
+    // Rs 2,000 tendered: only the total is recorded as paid; 800 is change.
+    expect(h.paymentRecords.reduce((a, p) => a + Number(p.payment_amount), 0)).toBe(1200);
+    expect(bill.dataValues?.change_due ?? bill.change_due).toBe(800);
+    expect(bill.status).toBe("Completed");
+    expect(h.saleLineRecords.map((l) => Number(l.unit_price))).toEqual([280, 150]);
+  });
+
+  it("18. an approval for one price does not cover a different price", async () => {
+    const h = makeSalesHarness({
+      products: [{ product_id: 1, code: "S1", name: "Bit", sell_price: 310 }],
+      levels: [{ product_id: 1, warehouse_id: 1, qty_on_hand: 5, counted_at: new Date() }],
+      customers: [{ customer_id: 5, first_name: "Ali" }],
+    });
+    const t = h.issueApprovalToken({ action: "price_change", context: { product_id: 1, from: 310, to: 280 } });
+    await expect(
+      createDispatchInvoice(
+        h.models,
+        { customer_id: 5, sale_items: [{ product_id: 1, line_kind: "item", qty: 1, unit_price: 200, approval_tokens: { price_change: t } }], payment: { amount: 200, method: "Cash" } },
+        1,
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  it("16. idempotent double submit of a sale bill creates only one bill", async () => {
+    const h = makeSalesHarness({
+      products: [{ product_id: 1, code: "S1", name: "Bolt", sell_price: 250 }],
+      levels: [{ product_id: 1, warehouse_id: 1, qty_on_hand: 10 }],
+      customers: [{ customer_id: 5, first_name: "Ali" }],
+    });
+
+    const app = express();
+    app.use(express.json());
+    app.use((req, _res, next) => {
+      req.user = { userId: 1, tenantDbName: "geargrid_test" };
+      req.tenantModels = h.models;
+      next();
+    });
+    app.post("/api/invoices", idempotency(), async (req, res, next) => {
+      try {
+        const invoice = await createDispatchInvoice(h.models, req.body, req.user.userId);
+        res.status(201).json({ status: "success", data: { invoice } });
+      } catch (err) {
+        next(err);
+      }
+    });
+
+    const payload = {
+      customer_id: 5,
+      sale_items: [{ product_id: 1, qty: 2 }],
+      settle_now: true,
+      payment: { amount: 500, method: "Cash" },
+    };
+
+    const res1 = await request(app).post("/api/invoices").set("Idempotency-Key", "sale-idem-1").send(payload);
+    const res2 = await request(app).post("/api/invoices").set("Idempotency-Key", "sale-idem-1").send(payload);
+
+    expect(res1.status).toBe(201);
+    expect(res2.status).toBe(201);
+    expect(res1.body.data.invoice.invoice_id).toBe(res2.body.data.invoice.invoice_id);
+    expect(h.invoiceRecords).toHaveLength(1);
+    expect(Number(h.levelRecords[0].qty_on_hand)).toBe(8);
+  });
+});

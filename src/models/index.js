@@ -36,11 +36,28 @@ import CallRecordingFactory from "./CallRecording.js";
 import CallRecordingListenFactory from "./CallRecordingListen.js";
 import DeviceAuditLogFactory from "./DeviceAuditLog.js";
 import PushTemplateFactory from "./PushTemplate.js";
+import CounterExceptionFactory from "./CounterException.js";
+import ApprovalTokenFactory from "./ApprovalToken.js";
+import IdempotencyKeyFactory from "./IdempotencyKey.js";
+import UserUiPreferenceFactory from "./UserUiPreference.js";
+import RetailCategoryFactory from "./RetailCategory.js";
+import RetailBrandFactory from "./RetailBrand.js";
+import RetailFamilyFactory from "./RetailFamily.js";
+import RetailProductFactory from "./RetailProduct.js";
+import RetailProductUnitFactory from "./RetailProductUnit.js";
+import RetailBarcodeFactory from "./RetailBarcode.js";
+import RetailSearchAliasFactory from "./RetailSearchAlias.js";
+import RetailStockLevelFactory from "./RetailStockLevel.js";
+import RetailStockDocumentFactory from "./RetailStockDocument.js";
+import RetailStockDocumentLineFactory from "./RetailStockDocumentLine.js";
+import RetailStockMovementFactory from "./RetailStockMovement.js";
+import RetailSerialFactory from "./RetailSerial.js";
+import InvoiceSaleLineFactory from "./InvoiceSaleLine.js";
 import ActivityEventFactory from "./ActivityEvent.js";
 import ActivityEventCommentFactory from "./ActivityEventComment.js";
 import ActivityEventReadFactory from "./ActivityEventRead.js";
 import CustomerSettlementFactory from "./CustomerSettlement.js";
-import IdempotencyKeyFactory from "./IdempotencyKey.js";
+import SettlementIdempotencyKeyFactory from "./SettlementIdempotencyKey.js";
 
 export const initTenantModels = (tenantConnection) => {
   const User = UserFactory(tenantConnection);
@@ -81,11 +98,28 @@ export const initTenantModels = (tenantConnection) => {
   const CallRecordingListen = CallRecordingListenFactory(tenantConnection);
   const DeviceAuditLog = DeviceAuditLogFactory(tenantConnection);
   const PushTemplate = PushTemplateFactory(tenantConnection);
+  const CounterException = CounterExceptionFactory(tenantConnection);
+  const ApprovalToken = ApprovalTokenFactory(tenantConnection);
+  const IdempotencyKey = IdempotencyKeyFactory(tenantConnection);
+  const UserUiPreference = UserUiPreferenceFactory(tenantConnection);
+  const RetailCategory = RetailCategoryFactory(tenantConnection);
+  const RetailBrand = RetailBrandFactory(tenantConnection);
+  const RetailFamily = RetailFamilyFactory(tenantConnection);
+  const RetailProduct = RetailProductFactory(tenantConnection);
+  const RetailProductUnit = RetailProductUnitFactory(tenantConnection);
+  const RetailBarcode = RetailBarcodeFactory(tenantConnection);
+  const RetailSearchAlias = RetailSearchAliasFactory(tenantConnection);
+  const RetailStockLevel = RetailStockLevelFactory(tenantConnection);
+  const RetailStockDocument = RetailStockDocumentFactory(tenantConnection);
+  const RetailStockDocumentLine = RetailStockDocumentLineFactory(tenantConnection);
+  const RetailStockMovement = RetailStockMovementFactory(tenantConnection);
+  const RetailSerial = RetailSerialFactory(tenantConnection);
+  const InvoiceSaleLine = InvoiceSaleLineFactory(tenantConnection);
   const ActivityEvent = ActivityEventFactory(tenantConnection);
   const ActivityEventComment = ActivityEventCommentFactory(tenantConnection);
   const ActivityEventRead = ActivityEventReadFactory(tenantConnection);
   const CustomerSettlement = CustomerSettlementFactory(tenantConnection);
-  const IdempotencyKey = IdempotencyKeyFactory(tenantConnection);
+  const SettlementIdempotencyKey = SettlementIdempotencyKeyFactory(tenantConnection);
 
   // ==========================================
   // AUTH & USERS
@@ -295,6 +329,76 @@ export const initTenantModels = (tenantConnection) => {
   CashLockerCount.belongsTo(User, { as: "CountedBy", foreignKey: "counted_by_user_id" });
   CashLockerCount.belongsTo(User, { as: "ReviewedBy", foreignKey: "reviewed_by_user_id" });
 
+  // ── Retail POS foundations (R0): counter exceptions & approvals ──
+  CounterException.belongsTo(User, { as: "Requester", foreignKey: "requested_by" });
+  CounterException.belongsTo(User, { as: "Approver", foreignKey: "approved_by" });
+  ApprovalToken.belongsTo(CounterException, { foreignKey: "exception_id" });
+  CounterException.hasMany(ApprovalToken, { foreignKey: "exception_id" });
+  UserUiPreference.belongsTo(User, { foreignKey: "user_id" });
+
+  // ── Retail POS catalogue (R1) ──
+  RetailCategory.belongsTo(RetailCategory, { as: "Parent", foreignKey: "parent_id" });
+  RetailCategory.hasMany(RetailCategory, { as: "Children", foreignKey: "parent_id" });
+
+  RetailFamily.belongsTo(RetailCategory, { foreignKey: "category_id" });
+  RetailCategory.hasMany(RetailFamily, { foreignKey: "category_id" });
+  RetailFamily.belongsTo(RetailBrand, { foreignKey: "brand_id" });
+  RetailBrand.hasMany(RetailFamily, { foreignKey: "brand_id" });
+
+  RetailProduct.belongsTo(RetailFamily, { foreignKey: "family_id" });
+  RetailFamily.hasMany(RetailProduct, { foreignKey: "family_id" });
+  RetailProduct.belongsTo(RetailCategory, { foreignKey: "category_id" });
+  RetailCategory.hasMany(RetailProduct, { foreignKey: "category_id" });
+  RetailProduct.belongsTo(RetailBrand, { foreignKey: "brand_id" });
+  RetailBrand.hasMany(RetailProduct, { foreignKey: "brand_id" });
+
+  RetailProduct.hasMany(RetailProductUnit, {
+    as: "Units",
+    foreignKey: "product_id",
+    onDelete: "CASCADE",
+  });
+  RetailProductUnit.belongsTo(RetailProduct, { foreignKey: "product_id" });
+
+  RetailProduct.hasMany(RetailBarcode, {
+    as: "Barcodes",
+    foreignKey: "product_id",
+    onDelete: "CASCADE",
+  });
+  RetailBarcode.belongsTo(RetailProduct, { foreignKey: "product_id" });
+  RetailBarcode.belongsTo(RetailProductUnit, { as: "Unit", foreignKey: "unit_id" });
+
+  // ── Retail POS stock & movements (R2) ──
+  RetailStockLevel.belongsTo(RetailProduct, { foreignKey: "product_id" });
+  RetailProduct.hasMany(RetailStockLevel, { as: "StockLevels", foreignKey: "product_id" });
+  RetailStockLevel.belongsTo(Warehouse, { foreignKey: "warehouse_id" });
+  Warehouse.hasMany(RetailStockLevel, { foreignKey: "warehouse_id" });
+
+  RetailStockDocument.belongsTo(Warehouse, { as: "Warehouse", foreignKey: "warehouse_id" });
+  RetailStockDocument.belongsTo(Warehouse, { as: "ToWarehouse", foreignKey: "to_warehouse_id" });
+  RetailStockDocument.belongsTo(User, { as: "User", foreignKey: "user_id" });
+  RetailStockDocument.hasMany(RetailStockDocumentLine, {
+    as: "Lines",
+    foreignKey: "doc_id",
+    onDelete: "CASCADE",
+  });
+  RetailStockDocumentLine.belongsTo(RetailStockDocument, { as: "Document", foreignKey: "doc_id" });
+  RetailStockDocumentLine.belongsTo(RetailProduct, { foreignKey: "product_id" });
+  RetailStockDocumentLine.belongsTo(RetailProductUnit, { as: "Unit", foreignKey: "unit_id" });
+
+  RetailStockMovement.belongsTo(RetailProduct, { foreignKey: "product_id" });
+  RetailStockMovement.belongsTo(Warehouse, { foreignKey: "warehouse_id" });
+  RetailStockMovement.belongsTo(RetailStockDocument, { as: "Document", foreignKey: "doc_id" });
+  RetailStockMovement.belongsTo(User, { as: "User", foreignKey: "user_id" });
+
+  RetailSerial.belongsTo(RetailProduct, { foreignKey: "product_id" });
+  RetailSerial.belongsTo(Warehouse, { foreignKey: "warehouse_id" });
+  RetailSerial.belongsTo(RetailStockDocument, { as: "ReceiveDoc", foreignKey: "receive_doc_id" });
+
+  Invoice.hasMany(InvoiceSaleLine, { as: "SaleLines", foreignKey: "invoice_id" });
+  InvoiceSaleLine.belongsTo(Invoice, { foreignKey: "invoice_id" });
+  InvoiceSaleLine.belongsTo(RetailProduct, { as: "Product", foreignKey: "product_id" });
+  InvoiceSaleLine.belongsTo(RetailProductUnit, { as: "Unit", foreignKey: "unit_id" });
+  InvoiceSaleLine.belongsTo(Warehouse, { as: "Warehouse", foreignKey: "warehouse_id" });
   // ── Activity feed ──
   ActivityEvent.belongsTo(Invoice, { foreignKey: "invoice_id", constraints: false });
   Invoice.hasMany(ActivityEvent, { foreignKey: "invoice_id", constraints: false });
@@ -357,11 +461,28 @@ export const initTenantModels = (tenantConnection) => {
     CallRecordingListen,
     DeviceAuditLog,
     PushTemplate,
+    CounterException,
+    ApprovalToken,
+    IdempotencyKey,
+    UserUiPreference,
+    RetailCategory,
+    RetailBrand,
+    RetailFamily,
+    RetailProduct,
+    RetailProductUnit,
+    RetailBarcode,
+    RetailSearchAlias,
+    RetailStockLevel,
+    RetailStockDocument,
+    RetailStockDocumentLine,
+    RetailStockMovement,
+    RetailSerial,
+    InvoiceSaleLine,
     ActivityEvent,
     ActivityEventComment,
     ActivityEventRead,
     CustomerSettlement,
-    IdempotencyKey,
+    SettlementIdempotencyKey,
     sequelize: tenantConnection,
   };
 };

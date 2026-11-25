@@ -4,6 +4,7 @@ import * as reviewController from "../controllers/invoiceReviewController.js";
 import * as printLogController from "../controllers/invoicePrintLogController.js";
 import * as invoiceService from "../services/invoiceService.js";
 import { protect, requirePermission } from "../middlewares/authMiddleware.js";
+import { idempotency } from "../middlewares/idempotency.js";
 import { refuseDamagedWithoutMaintenance, requireFeature } from "../middlewares/planMiddleware.js";
 import { registerContract } from "../utils/contractAdapter.js";
 import { getCachedTenantConnection } from "../config/database.js";
@@ -28,7 +29,7 @@ router.use(freshAccruals);
 
 // 1. Core Invoicing
 router.get("/", requirePermission("invoice:view"), invoiceController.getInvoices);
-router.post("/", requirePermission("invoice:create"), invoiceController.createInvoice);
+router.post("/", requirePermission("invoice:create"), idempotency(), invoiceController.createInvoice);
 
 // 2. Bill Printing Audit Logs — declared before /:id so /print-logs doesn't collide with /:id
 router.post("/print-logs", printLogController.createPrintLog);
@@ -46,6 +47,7 @@ router.delete("/:id", requirePermission("invoice:delete", "invoice:delete:any"),
 router.post("/:id/restore", requirePermission("invoice:restore"), invoiceController.restoreInvoice);
 
 router.get("/:id", requirePermission("invoice:view"), invoiceController.getInvoiceById); // <-- NEW
+router.get("/:id/sale-returns", requirePermission("invoice:view"), invoiceController.getSaleReturns);
 router.get("/:id/print-logs", requirePermission("invoice:print_log:view"), printLogController.getInvoicePrintLogs);
 
 // 2. OMS Actions
@@ -53,6 +55,7 @@ router.post("/:id/return-preview", requirePermission("invoice:action:process_ret
 router.post("/:id/return", requirePermission("invoice:action:process_return"), refuseDamagedWithoutMaintenance, invoiceController.processReturnInvoice);
 router.post("/:id/payments", requirePermission("invoice:action:add_payment"), invoiceController.addPayment); // <-- NEW
 router.post("/:id/complete", requirePermission("invoice:action:process_return"), invoiceController.completeInvoice);
+router.post("/:id/sale-returns", requirePermission("retail:return"), idempotency(), invoiceController.returnSaleItems);
 router.post("/:id/reopen", requirePermission("invoice:edit"), invoiceController.reopenInvoice);
 // Governed by @geargrid/contracts: VaultToggleContract.
 // Request/response shape, path, and method all live in shared/geargrid-contracts

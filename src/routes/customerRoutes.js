@@ -13,7 +13,7 @@ import {
 import { protect, requirePermission } from '../middlewares/authMiddleware.js';
 import { freshAccruals } from "../services/accrualService.js";
 import * as settlementController from '../controllers/customerSettlementController.js';
-import { idempotency } from '../middlewares/idempotency.js';
+import { settlementIdempotency } from '../middlewares/settlementIdempotency.js';
 
 const router = express.Router();
 
@@ -76,7 +76,7 @@ router.post(
 router.post(
   '/:id/settlement',
   requirePermission("invoice:action:process_return", "invoice:action:add_payment"),
-  idempotency({ scope: (req) => `POST:/api/customers/${req.params.id}/settlement` }),
+  settlementIdempotency({ scope: (req) => `POST:/api/customers/${req.params.id}/settlement` }),
   settlementController.save,
 );
 router.post(

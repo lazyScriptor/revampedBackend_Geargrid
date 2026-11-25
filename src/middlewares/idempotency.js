@@ -1,124 +1,166 @@
+import crypto from "node:crypto";
+import AppError from "../utils/AppError.js";
 import { getCachedTenantConnection } from "../config/database.js";
 import { initTenantModels } from "../models/index.js";
 import { parseJsonField } from "../utils/jsonFields.js";
 
-const TTL_MS = 24 * 60 * 60 * 1000;
+const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+
+const canonicalize = (value) => {
+  if (value === null || value === undefined) return null;
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "object") {
+    const sorted = {};
+    for (const key of Object.keys(value).sort()) {
+      if (value[key] !== undefined) {
+        sorted[key] = canonicalize(value[key]);
+      }
+    }
+    return sorted;
+  }
+  return value;
+};
+
+export const hashRequestBody = (body) =>
+  crypto.createHash("sha256").update(JSON.stringify(canonicalize(body ?? {}))).digest("hex");
+
+const defaultResolveModels = (req) => {
+  if (req.tenantModels) return req.tenantModels;
+  if (!req.user?.tenantDbName) return null;
+  return initTenantModels(getCachedTenantConnection(req.user.tenantDbName));
+};
+
+const isUniqueConstraintError = (err) =>
+  err?.name === "SequelizeUniqueConstraintError" ||
+  err?.original?.code === "ER_DUP_ENTRY" ||
+  err?.parent?.code === "ER_DUP_ENTRY" ||
+  err?.code === "ER_DUP_ENTRY";
 
 /**
- * Idempotency middleware for mutating endpoints.
- * - Reads `Idempotency-Key` header.
- * - Reserves the key first (`status = 'processing'`).
- * - Concurrent duplicate while still processing -> 409.
- * - Completed key within 24h -> replays stored 2xx response.
- * - Only 2xx responses are stored; non-2xx releases the reservation.
+ * Idempotency-Key middleware for mutating routes.
+ * - No Idempotency-Key header -> passes through unchanged.
+ * - Reserves key with response_status = 0 BEFORE next() to stop concurrent double-submits.
+ * - In-progress (response_status = 0) -> 409 "Request already in progress."
+ * - Completed 2xx within 24 h with same body hash -> replays stored response.
+ * - Completed within 24 h with different body hash -> 409 Conflict.
+ * - Non-2xx response -> deletes reservation so retries can succeed.
  */
-export const idempotency = ({
-  scope = (req) => `${req.method}:${req.baseUrl}${req.route?.path || req.path}`,
-  resolveModels = (req) =>
-    req.tenantModels ||
-    (req.user?.tenantDbName
-      ? initTenantModels(getCachedTenantConnection(req.user.tenantDbName))
-      : null),
-} = {}) => {
+export const idempotency = ({ resolveModels = defaultResolveModels } = {}) => {
   return async (req, res, next) => {
-    const rawKey = req.get("Idempotency-Key");
-    const key = rawKey ? String(rawKey).trim() : "";
-    if (!key) return next();
-
-    if (key.length > 128) {
-      return res.status(400).json({
-        status: "fail",
-        message: "Idempotency-Key header must be 128 characters or fewer.",
-      });
+    const rawKey = req.get?.("Idempotency-Key") ?? req.headers?.["idempotency-key"];
+    if (!rawKey || !String(rawKey).trim()) {
+      return next();
     }
 
+    const key = String(rawKey).trim().slice(0, 128);
     const models = resolveModels(req);
-    if (!models?.IdempotencyKey) return next();
+    if (!models?.IdempotencyKey) {
+      return next();
+    }
 
-    const scopeStr = String(typeof scope === "function" ? scope(req) : scope).slice(0, 120);
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + TTL_MS);
+    const userId = Number(req.user?.userId ?? req.user?.id ?? 0);
+    const route = `${req.method} ${req.baseUrl || ""}${req.path || ""}`;
+    const requestHash = hashRequestBody(req.body);
+    const now = Date.now();
 
-    let record = null;
+    const reserve = () =>
+      models.IdempotencyKey.create({
+        key,
+        user_id: userId,
+        route,
+        request_hash: requestHash,
+        response_status: 0,
+        response_body: null,
+        created_at: new Date(now),
+      });
+
     try {
-      record = await models.IdempotencyKey.create({
-        scope: scopeStr,
-        idempotency_key: key,
-        status: "processing",
-        created_at: now,
-        expires_at: expiresAt,
-      });
+      await reserve();
     } catch (err) {
-      const isUnique =
-        err?.name === "SequelizeUniqueConstraintError" ||
-        err?.original?.code === "ER_DUP_ENTRY" ||
-        err?.parent?.code === "ER_DUP_ENTRY";
-      if (!isUnique) return next(err);
-
-      const existing = await models.IdempotencyKey.findOne({
-        where: { scope: scopeStr, idempotency_key: key },
-      });
-
-      if (!existing) {
-        return res.status(409).json({
-          status: "fail",
-          code: "idempotency_in_progress",
-          message: "Request with this Idempotency-Key is already in progress.",
-        });
+      if (!isUniqueConstraintError(err)) {
+        return next(err);
       }
 
-      if (existing.expires_at && new Date(existing.expires_at).getTime() <= now.getTime()) {
-        // Expired: reclaim
-        await existing.update({
-          status: "processing",
-          response_status: null,
-          response_body: null,
-          created_at: now,
-          expires_at: expiresAt,
+      try {
+        const existing = await models.IdempotencyKey.findOne({
+          where: { key, user_id: userId, route },
         });
-        record = existing;
-      } else if (existing.status === "processing") {
-        return res.status(409).json({
-          status: "fail",
-          code: "idempotency_in_progress",
-          message: "Request with this Idempotency-Key is already in progress.",
-        });
-      } else {
-        const storedBody = parseJsonField(existing.response_body, existing.response_body);
-        return res.status(existing.response_status || 200).json(storedBody);
+
+        if (!existing) {
+          // Concurrent request just deleted a failed reservation; try once more
+          try {
+            await reserve();
+          } catch (retryErr) {
+            if (isUniqueConstraintError(retryErr)) {
+              return next(new AppError("Request already in progress.", 409));
+            }
+            return next(retryErr);
+          }
+        } else {
+          const ageMs = now - new Date(existing.created_at).getTime();
+          if (ageMs >= IDEMPOTENCY_TTL_MS) {
+            await existing.destroy();
+            try {
+              await reserve();
+            } catch (retryErr) {
+              if (isUniqueConstraintError(retryErr)) {
+                return next(new AppError("Request already in progress.", 409));
+              }
+              return next(retryErr);
+            }
+          } else if (Number(existing.response_status) === 0) {
+            return next(new AppError("Request already in progress.", 409));
+          } else if (existing.request_hash !== requestHash) {
+            return next(
+              new AppError(
+                "Idempotency-Key was already used with a different request payload.",
+                409,
+              ),
+            );
+          } else {
+            const storedBody = parseJsonField(existing.response_body);
+            return res.status(existing.response_status).json(storedBody);
+          }
+        }
+      } catch (lookupErr) {
+        return next(lookupErr);
       }
     }
 
-    let finalized = false;
-    const finalize = async (statusCode, body) => {
-      if (finalized) return;
-      finalized = true;
-      try {
-        if (statusCode >= 200 && statusCode < 300) {
-          await record.update({
-            status: "completed",
-            response_status: statusCode,
-            response_body: body ?? null,
-          });
-        } else {
-          await record.destroy();
-        }
-      } catch {
-        // Best-effort cleanup
+    let settled = false;
+    const finalize = (status, body) => {
+      if (settled) return;
+      settled = true;
+      if (status >= 200 && status < 300) {
+        return Promise.resolve(
+          models.IdempotencyKey.update(
+            { response_status: status, response_body: body ?? null },
+            { where: { key, user_id: userId, route, response_status: 0 } },
+          ),
+        ).catch(() => {});
       }
+      return Promise.resolve(
+        models.IdempotencyKey.destroy({
+          where: { key, user_id: userId, route, response_status: 0 },
+        }),
+      ).catch(() => {});
     };
 
-    const origJson = res.json.bind(res);
+    const originalJson = res.json.bind(res);
     res.json = (body) => {
-      void finalize(res.statusCode, body);
-      return origJson(body);
+      const status = res.statusCode || 200;
+      finalize(status, body);
+      return originalJson(body);
     };
 
-    res.on("close", () => {
-      if (!finalized) {
-        void finalize(res.statusCode >= 200 && res.statusCode < 300 ? res.statusCode : 500, null);
-      }
-    });
+    if (typeof res.on === "function") {
+      res.on("finish", () => {
+        if (!settled) {
+          finalize(res.statusCode || 500, null);
+        }
+      });
+    }
 
     return next();
   };

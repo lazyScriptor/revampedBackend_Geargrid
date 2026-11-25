@@ -1,4 +1,5 @@
 import { DataTypes } from "sequelize";
+import { returnableBaseQty, returnableQty, returnedTotalOf } from "../utils/saleReturnMath.js";
 
 export default (sequelize) => {
   const Invoice = sequelize.define(
@@ -80,6 +81,24 @@ export default (sequelize) => {
       source_contact_id: { type: DataTypes.INTEGER, allowNull: true },
       contact_reviewed_at: { type: DataTypes.DATE, allowNull: true },
       contact_reviewed_by: { type: DataTypes.INTEGER, allowNull: true },
+      // ── Retail POS foundations (R0) ──────────────────────────────────────
+      bill_kind: {
+        type: DataTypes.ENUM("rental", "sale", "mixed"),
+        allowNull: false,
+        defaultValue: "rental",
+      },
+      sale_total: {
+        type: DataTypes.DECIMAL(12, 2),
+        allowNull: false,
+        defaultValue: 0,
+      },
+      rental_total: {
+        type: DataTypes.DECIMAL(12, 2),
+        allowNull: false,
+        defaultValue: 0,
+      },
+      job_site: { type: DataTypes.STRING(120), allowNull: true },
+      customer_po: { type: DataTypes.STRING(60), allowNull: true },
     },
     {
       tableName: "INVOICES",
@@ -107,6 +126,20 @@ export default (sequelize) => {
       const billedSub = Number(plain.sub_total) || 0;
       plain.billed_sub_total = billedSub;
       plain.sub_total = round2(billedSub + (Number(plain.accrued_rental) || 0));
+    }
+    // The cashier named on receipts (the bill read includes the issuing user).
+    if (plain.User) {
+      const full = [plain.User.first_name, plain.User.last_name].filter(Boolean).join(" ").trim();
+      plain.issued_by = { user_id: plain.User.user_id, name: full || plain.User.username || null, username: plain.User.username || null };
+    }
+    // Value handed back for returned goods so far (sold lines, when they were loaded).
+    if (Array.isArray(plain.SaleLines)) {
+      plain.returned_total = returnedTotalOf(plain.SaleLines);
+      plain.SaleLines = plain.SaleLines.map((l) => ({
+        ...l,
+        returnable_base_qty: returnableBaseQty(l),
+        returnable_qty: returnableQty(l),
+      }));
     }
     return plain;
   };

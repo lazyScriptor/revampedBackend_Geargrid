@@ -7,6 +7,7 @@ import { lineAccrual, refreshAccruals } from "./accrualService.js";
 import { touchCustomerBrief } from "./customerBriefService.js";
 import { notifyEvent } from "./pushEventService.js";
 import { isUserAdmin, userHasPermission } from "./userService.js";
+import { createSaleBillLinesAndTotals, ensureWalkInCustomer, fromCents, toCents } from "../modules/retail/index.js";
 import { recordActivity, resolveUserActivityVisibility } from "./activityService.js";
 import { validateReason } from "./activitySettingsService.js";
 import { parseJsonField } from "../utils/jsonFields.js";
@@ -82,7 +83,23 @@ const resolvePastOrTodayDate = (value, label, now = new Date()) => {
 
 // --- 1. DISPATCH ENGINE (With Row-Level Locks) ---
 export const createDispatchInvoice = async (models, payload, userId) => {
-  const { customer_id, items, fees = {}, borrowed_on_behalf_of_customer_id } = payload;
+  const {
+    customer_id,
+    items,
+    borrowed_on_behalf_of_customer_id,
+    sale_items,
+    job_site,
+    customer_po,
+    settle_now,
+    approval_tokens,
+    payment,
+    walk_in,
+    discount,
+    discount_amount,
+    warehouse_id,
+    effectivePermissions,
+  } = payload;
+  const fees = payload.fees || {};
   const issuedDate = resolveIssuedDate(payload.issued_date);
   const discountAmt = Number(fees?.discount || 0);
   let validatedDiscountReason = null;
@@ -90,12 +107,210 @@ export const createDispatchInvoice = async (models, payload, userId) => {
     validatedDiscountReason = await validateReason(models, "discount", payload.discount_reason);
   }
 
+  const hasRentalItems = Array.isArray(items) && items.length > 0;
+  const hasSaleItems = Array.isArray(sale_items) && sale_items.length > 0;
+
+  if (!hasRentalItems && !hasSaleItems) {
+    throw new AppError("Invoice must contain at least one item.", 400);
+  }
+  // Goods only: a sale bill. Machines (with or without goods): the rental path below, which also
+  // runs the goods step when sale_items are present (a mixed bill).
+  const isMixed = hasRentalItems && hasSaleItems;
+
+  if (hasSaleItems && !hasRentalItems) {
+    let resolvedCustomerId = customer_id;
+    let soldCount = sale_items.length;
+    let changeDue = 0;
+
+    const newSaleInvoice = await models.sequelize.transaction(async (t) => {
+      let customer;
+      if (walk_in === true || !customer_id) {
+        customer = await ensureWalkInCustomer(models, { transaction: t });
+      } else {
+        customer = await models.Customer.findByPk(customer_id, { transaction: t });
+        if (!customer) throw new AppError("Customer not found.", 404);
+      }
+      resolvedCustomerId = customer.customer_id;
+
+      const bill = await models.Invoice.create(
+        {
+          customer_id: customer.customer_id,
+          issued_by_user_id: userId,
+          bill_kind: "sale",
+          // Required column on every bill; a sale has no rental days.
+          number_of_days_of_the_bill: 0,
+          job_site: job_site ? String(job_site).trim().slice(0, 120) : null,
+          customer_po: customer_po ? String(customer_po).trim().slice(0, 60) : null,
+          sub_total: 0,
+          discount_amount: 0,
+          total_amount: 0,
+          advance_paid: 0,
+          status: "PendingPayment",
+          ...(issuedDate ? { issued_date: issuedDate } : {}),
+        },
+        { transaction: t },
+      );
+
+      const saleResult = await createSaleBillLinesAndTotals(models, {
+        invoiceId: bill.invoice_id,
+        customer,
+        saleItems: sale_items,
+        // The counter sends discount and transport inside `fees`, like rental bills.
+        billDiscountAmount: discount ?? discount_amount ?? fees?.discount ?? 0,
+        approvalTokens: approval_tokens,
+        userId,
+        effectivePermissions,
+        warehouseId: warehouse_id ?? null,
+        occurredAt: issuedDate || new Date(),
+        transaction: t,
+      });
+
+      soldCount = saleResult.saleLines.length;
+      const transportFee = Math.max(0, Number(fees?.transport ?? payload.transport_fee ?? 0) || 0);
+      const billTotal = Math.round((saleResult.totalAmount + transportFee) * 100) / 100;
+      const tendered = Number(payment?.amount ?? fees?.advance ?? 0);
+      if (tendered < 0 || !Number.isFinite(tendered)) {
+        throw new AppError("Invalid payment amount.", 400);
+      }
+
+      if (customer.is_walk_in && tendered + 0.005 < billTotal) {
+        throw new AppError("Walk-in customers must pay in full at checkout.", 422);
+      }
+
+      // Cash handed over beyond the total is change, not a payment: record at most the total.
+      const paidAmount = Math.min(tendered, billTotal);
+      changeDue = Math.max(0, Math.round((tendered - billTotal) * 100) / 100);
+      const isFullyPaid = paidAmount + 0.005 >= billTotal;
+      const finalStatus = settle_now && isFullyPaid ? "Completed" : "PendingPayment";
+
+      await bill.update(
+        {
+          sub_total: saleResult.subTotal,
+          discount_amount: saleResult.discount,
+          transport_fee: transportFee,
+          total_amount: billTotal,
+          sale_total: saleResult.totalAmount,
+          advance_paid: paidAmount,
+          status: finalStatus,
+        },
+        { transaction: t },
+      );
+
+      if (paidAmount > 0) {
+        const payMethod =
+          payment?.method ||
+          payload.advance_payment_method ||
+          fees?.advance_payment_method ||
+          payload.payment_method ||
+          "Cash";
+
+        await models.Payment.create(
+          {
+            invoice_id: bill.invoice_id,
+            payment_amount: paidAmount,
+            method: payMethod,
+            is_advance: false,
+            received_by_user_id: userId,
+            ...(issuedDate ? { payment_date: issuedDate } : {}),
+          },
+          { transaction: t },
+        );
+
+        if (payMethod === "WalletDeposit") {
+          if (Number(customer.deposit_balance) < paidAmount) {
+            throw new AppError("Insufficient customer deposit balance in wallet.", 400);
+          }
+          const newBalance = Math.max(0, Number(customer.deposit_balance) - paidAmount);
+          await customer.update({ deposit_balance: newBalance }, { transaction: t });
+        }
+      }
+
+      await models.InvoiceTrace.create(
+        {
+          invoice_id: bill.invoice_id,
+          actor_user_id: userId,
+          event_category: "BILLING",
+          event_action: "INVOICE_CREATED",
+          comments:
+            `Sale bill generated for ${soldCount} items. Total: Rs. ${saleResult.totalAmount}.` +
+            (finalStatus === "Completed" ? " Settled at checkout." : "") +
+            (issuedDate ? ` Bill date set to ${issuedDate.toISOString()}.` : ""),
+          state_payload: {
+            bill_kind: "sale",
+            sale_items_count: soldCount,
+            status: finalStatus,
+            ...(issuedDate ? { issued_date: issuedDate.toISOString() } : {}),
+          },
+        },
+        { transaction: t },
+      );
+
+      await touchCustomerBrief(models, customer.customer_id, { transaction: t });
+      return bill;
+    });
+
+    void (async () => {
+      try {
+        const [customer, staffName] = await Promise.all([
+          models.Customer?.findByPk
+            ? models.Customer.findByPk(resolvedCustomerId, {
+                attributes: ["customer_id", "first_name", "last_name", "company_name", "customer_type"],
+              })
+            : null,
+          lookupStaffName(models, userId),
+        ]);
+        const customerName = formatCustomerDisplay(customer);
+        const total = formatLkr(newSaleInvoice.total_amount);
+        await notifyEvent(models, "invoice_created", {
+          amount: Number(newSaleInvoice.total_amount || 0),
+          actorUserId: userId,
+          customerName,
+          vars: {
+            invoice_no: String(newSaleInvoice.invoice_id),
+            amount: Number(newSaleInvoice.total_amount || 0),
+            customer: customerName,
+            items_count: soldCount,
+            staff: staffName,
+            date: new Date(),
+            time: new Date(),
+          },
+          title: `New bill #${newSaleInvoice.invoice_id} · LKR ${total}`,
+          body: `${customerName} · ${soldCount} items sold · by ${staffName}`,
+          titleNoAmount: `New bill #${newSaleInvoice.invoice_id}`,
+          bodyNoAmount: `${customerName} · ${soldCount} items sold · by ${staffName}`,
+          data: { type: "invoice_created", invoice_id: String(newSaleInvoice.invoice_id) },
+          link: "/invoices?mode=manage",
+        });
+      } catch {
+        // Push failures must never affect bill creation
+      }
+    })();
+
+    // Change due is returned to the till, never stored as a payment.
+    if (newSaleInvoice?.setDataValue) newSaleInvoice.setDataValue("change_due", changeDue);
+    else if (newSaleInvoice) newSaleInvoice.change_due = changeDue;
+    return newSaleInvoice;
+  }
+
+  // A bill with machines and goods rents to a named customer only.
+  if (isMixed && (walk_in === true || !customer_id)) {
+    throw new AppError("Choose a customer to rent equipment", 422);
+  }
+
+  let mixedSoldCount = 0;
   const newInvoice = await models.sequelize.transaction(async (t) => {
     let subTotal = 0;
 
     // Validate basics
     if (!items || items.length === 0)
       throw new AppError("Invoice must contain at least one item.", 400);
+
+    let mixedCustomer = null;
+    if (isMixed) {
+      mixedCustomer = await models.Customer.findByPk(customer_id, { transaction: t });
+      if (!mixedCustomer) throw new AppError("Customer not found.", 404);
+      if (mixedCustomer.is_walk_in) throw new AppError("Choose a customer to rent equipment", 422);
+    }
 
     const invoiceLinesData = items.map((item) => {
       const start = new Date(item.borrow_date).getTime();
@@ -130,6 +345,10 @@ export const createDispatchInvoice = async (models, payload, userId) => {
       0,
       subTotal + (fees.transport || 0) - (fees.discount || 0),
     );
+    // What the machines come to after the bill discount (a rental-only bill carries all of it).
+    const rentalTotalOnly = Math.max(0, Math.round((subTotal - (fees.discount || 0)) * 100) / 100);
+    // A mixed bill's one payment can also arrive the way the sale path sends it.
+    const advance = fees.advance ?? (isMixed ? payment?.amount : undefined);
 
     // Guard: if a beneficiary is provided, it must not equal the actor and
     // must be an existing, non-blacklisted customer.
@@ -162,12 +381,16 @@ export const createDispatchInvoice = async (models, payload, userId) => {
           borrowed_on_behalf_of_customer_id || null,
         issued_by_user_id: userId,
         total_amount: grandTotal,
-        advance_paid: fees.advance || 0,
+        advance_paid: advance || 0,
         transport_fee: fees.transport || 0,
         discount_amount: fees.discount || 0,
         discount_reason_key: validatedDiscountReason?.key || null,
         discount_reason_note: validatedDiscountReason?.note || null,
         sub_total: subTotal,
+        bill_kind: isMixed ? "mixed" : "rental",
+        rental_total: rentalTotalOnly,
+        ...(job_site ? { job_site: String(job_site).trim().slice(0, 120) } : {}),
+        ...(customer_po ? { customer_po: String(customer_po).trim().slice(0, 60) } : {}),
         number_of_days_of_the_bill: Math.max(
           ...items.map((i) => {
             const days = Math.ceil(
@@ -224,8 +447,49 @@ export const createDispatchInvoice = async (models, payload, userId) => {
       );
     }
 
-    if (fees.advance > 0) {
+    // --- GOODS ON THE SAME BILL (mixed): lines, stock and totals, in this same transaction ---
+    if (isMixed) {
+      const saleResult = await createSaleBillLinesAndTotals(models, {
+        invoiceId: newInvoice.invoice_id,
+        customer: mixedCustomer,
+        saleItems: sale_items,
+        billDiscountAmount: fees.discount ?? discount ?? discount_amount ?? 0,
+        rentalSubtotal: subTotal,
+        approvalTokens: approval_tokens,
+        userId,
+        effectivePermissions,
+        warehouseId: warehouse_id ?? null,
+        occurredAt: issuedDate || new Date(),
+        transaction: t,
+      });
+      mixedSoldCount = saleResult.saleLines.length;
+
+      const rentalTotal = fromCents(toCents(subTotal) - toCents(saleResult.rentalDiscountShare));
+      const saleTotal = saleResult.saleTotal;
+      const transportCents = toCents(fees.transport || 0);
+      const billTotalCents = toCents(rentalTotal) + toCents(saleTotal) + transportCents;
+      const expectedCents =
+        toCents(subTotal) + toCents(saleResult.saleSubTotal) + transportCents - toCents(saleResult.discount);
+      if (billTotalCents !== expectedCents) {
+        throw new AppError("The bill totals did not add up. Nothing was saved.", 500);
+      }
+
+      await newInvoice.update(
+        {
+          sub_total: saleResult.subTotal,
+          discount_amount: saleResult.discount,
+          transport_fee: fromCents(transportCents),
+          rental_total: rentalTotal,
+          sale_total: saleTotal,
+          total_amount: fromCents(billTotalCents),
+        },
+        { transaction: t },
+      );
+    }
+
+    if (advance > 0) {
       const advMethod =
+        (isMixed ? payment?.method : null) ||
         payload.advance_payment_method ||
         fees.advance_payment_method ||
         payload.payment_method ||
@@ -234,7 +498,7 @@ export const createDispatchInvoice = async (models, payload, userId) => {
       await models.Payment.create(
         {
           invoice_id: newInvoice.invoice_id,
-          payment_amount: fees.advance,
+          payment_amount: advance,
           method: advMethod,
           is_advance: true,
           received_by_user_id: userId,
@@ -248,10 +512,10 @@ export const createDispatchInvoice = async (models, payload, userId) => {
         const customer = await models.Customer.findByPk(customer_id, {
           transaction: t,
         });
-        if (!customer || Number(customer.deposit_balance) < Number(fees.advance)) {
+        if (!customer || Number(customer.deposit_balance) < Number(advance)) {
           throw new AppError("Insufficient customer deposit balance in wallet.", 400);
         }
-        const newBalance = Math.max(0, Number(customer.deposit_balance) - Number(fees.advance));
+        const newBalance = Math.max(0, Number(customer.deposit_balance) - Number(advance));
         await customer.update(
           { deposit_balance: newBalance },
           { transaction: t },
@@ -266,9 +530,16 @@ export const createDispatchInvoice = async (models, payload, userId) => {
         event_category: "DISPATCH",
         event_action: "INVOICE_CREATED",
         comments:
-          `Invoice generated for ${items.length} items. Total: Rs. ${grandTotal}.` +
+          (isMixed
+            ? `Invoice generated: ${items.length} ${items.length === 1 ? "machine" : "machines"} rented, ${mixedSoldCount} ${mixedSoldCount === 1 ? "item" : "items"} sold. Total: Rs. ${newInvoice.total_amount}.`
+            : `Invoice generated for ${items.length} items. Total: Rs. ${grandTotal}.`) +
           (issuedDate ? ` Bill date set to ${issuedDate.toISOString()}.` : ""),
-        state_payload: { items, fees, ...(issuedDate ? { issued_date: issuedDate.toISOString() } : {}) },
+        state_payload: {
+          items,
+          fees,
+          ...(isMixed ? { bill_kind: "mixed", sale_items_count: mixedSoldCount } : {}),
+          ...(issuedDate ? { issued_date: issuedDate.toISOString() } : {}),
+        },
       },
       { transaction: t },
     );
@@ -359,7 +630,8 @@ export const createDispatchInvoice = async (models, payload, userId) => {
         ]);
         const customerName = formatCustomerDisplay(customer);
         const total = formatLkr(newInvoice.total_amount);
-        const itemCount = items.length;
+        const itemCount = items.length + mixedSoldCount;
+        const itemsText = isMixed ? `${items.length} rented · ${mixedSoldCount} sold` : `${itemCount} item(s)`;
         await notifyEvent(models, "invoice_created", {
           amount: Number(newInvoice.total_amount || 0),
           actorUserId: userId,
@@ -374,9 +646,9 @@ export const createDispatchInvoice = async (models, payload, userId) => {
             time: new Date(),
           },
           title: `New bill #${newInvoice.invoice_id} · LKR ${total}`,
-          body: `${customerName} · ${itemCount} item(s) · by ${staffName}`,
+          body: `${customerName} · ${itemsText} · by ${staffName}`,
           titleNoAmount: `New bill #${newInvoice.invoice_id}`,
-          bodyNoAmount: `${customerName} · ${itemCount} item(s) · by ${staffName}`,
+          bodyNoAmount: `${customerName} · ${itemsText} · by ${staffName}`,
           data: { type: "invoice_created", invoice_id: String(newInvoice.invoice_id) },
           link: "/invoices?mode=manage",
         });
@@ -418,6 +690,7 @@ export const getAllInvoices = async (models, queryParams) => {
   const OPEN_STATUSES = ["Active", "PendingPayment"];
   if (queryParams.status === "Active") whereClause.status = { [Op.in]: OPEN_STATUSES };
   else if (queryParams.status) whereClause.status = queryParams.status;
+  if (queryParams.bill_kind) whereClause.bill_kind = queryParams.bill_kind;
 
   const [countsResult, findResult] = await Promise.all([
     Promise.all([
@@ -464,6 +737,11 @@ export const getAllInvoices = async (models, queryParams) => {
           ],
         },
         {
+          model: models.InvoiceSaleLine,
+          as: "SaleLines",
+          required: false,
+        },
+        {
           model: models.Payment,
           attributes: ["payment_id", "payment_amount", "payment_date", "method"],
         },
@@ -477,6 +755,13 @@ export const getAllInvoices = async (models, queryParams) => {
 
   const [allCount, activeCount, completedCount] = countsResult;
   const { count, rows } = findResult;
+
+  // Goods on each bill (voided lines of a deleted bill don't count).
+  for (const row of rows) {
+    const sold = (row.SaleLines || []).filter((l) => l.status !== "voided").length;
+    if (typeof row.setDataValue === "function") row.setDataValue("items_sold_count", sold);
+    else row.items_sold_count = sold;
+  }
 
   return {
     totalItems: count,
@@ -518,8 +803,15 @@ export const getInvoiceById = async (models, invoiceId) => {
           },
         ],
       },
+      {
+        model: models.InvoiceSaleLine,
+        as: "SaleLines",
+        required: false,
+      },
       { model: models.Payment },
       { model: models.InvoiceTrace },
+      // who issued the bill: the cashier named on receipts (read by Invoice.toJSON as `issued_by`)
+      ...(models.User ? [{ model: models.User, attributes: ["user_id", "first_name", "last_name", "username"], required: false }] : []),
     ],
     order: [[models.InvoiceTrace, "createdAt", "DESC"]],
   });
@@ -842,6 +1134,8 @@ export const executeReturnOnInvoice = async (
       {
         total_amount: newGrandTotal,
         sub_total: newSubTotal,
+        // Rental days billed on return are part of the rental, so rental_total moves with sub_total.
+        rental_total: Math.round((Number(invoice.rental_total || 0) + rentalDaysAdded) * 100) / 100,
         status: finalStatus,
         id_card_status: shouldReleaseId ? 0 : invoice.id_card_status,
       },
@@ -1444,11 +1738,31 @@ export const updateInvoiceFees = async (models, invoiceId, payload, userId) => {
 
     if (newTotal < 0) throw new AppError("The discount cannot be larger than the invoice total.", 400);
 
+    // A change of discount falls on the rental part only: goods keep the discount shares they were
+    // sold with, so sale_total never moves after the sale. (Sale-only bills have no rental part.)
+    const kind = invoice.bill_kind || "rental";
+    const rentalPart = {};
+    if (kind === "rental" || kind === "mixed") {
+      const newRentalTotal =
+        Math.round((Number(invoice.rental_total || 0) - (newDiscount - oldDiscount)) * 100) / 100;
+      if (kind === "mixed" && newRentalTotal < 0) {
+        throw new AppError("The discount is more than what is left of the rental part of this bill.", 409);
+      }
+      rentalPart.rental_total = Math.max(0, newRentalTotal);
+    } else if (kind === "sale") {
+      // A sale-only bill has only goods, so the discount change moves the goods total with it.
+      const newSaleTotal =
+        Math.round((Number(invoice.sale_total || 0) - (newDiscount - oldDiscount)) * 100) / 100;
+      if (newSaleTotal < 0) throw new AppError("The discount cannot be larger than the goods on this bill.", 409);
+      rentalPart.sale_total = newSaleTotal;
+    }
+
     await invoice.update(
       {
         transport_fee: newTransport,
         discount_amount: newDiscount,
         total_amount: newTotal,
+        ...rentalPart,
         ...(discountChanged
           ? {
               discount_reason_key: newDiscount > 0 ? validatedDiscountReason.key : null,

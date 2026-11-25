@@ -1,5 +1,58 @@
 import { Op } from "sequelize";
 import AppError from "../utils/AppError.js";
+import { parseJsonField } from "../utils/jsonFields.js";
+import { returnedTotalOf } from "../utils/saleReturnMath.js";
+import { PRINT_DOC_TYPES } from "../models/InvoicePrintLog.js";
+import { findSaleReturn } from "../modules/retail/index.js";
+
+const toNumber = (v, fallback = 0) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+/**
+ * The goods on a bill as a receipt needs them. A whitelist: cost figures never reach a snapshot.
+ * The snapshot keeps them as printed, so a reprint shows the same goods however the bill changes later.
+ */
+export const snapshotSaleLines = (saleLines) =>
+  (Array.isArray(saleLines) ? saleLines : []).map((l) => ({
+    sale_line_id: l.sale_line_id ?? null,
+    description: l.description ?? "",
+    qty: toNumber(l.qty),
+    unit_label: l.unit_label ?? "",
+    unit_factor: toNumber(l.unit_factor, 1),
+    unit_price: toNumber(l.unit_price),
+    line_discount: toNumber(l.line_discount),
+    bill_discount_share: toNumber(l.bill_discount_share),
+    line_total: toNumber(l.line_total),
+    base_qty: toNumber(l.base_qty),
+    returned_base_qty: toNumber(l.returned_base_qty),
+    status: l.status ?? "sold",
+    line_kind: l.line_kind ?? "item",
+  }));
+
+const issuedByOf = (user) => {
+  if (!user) return null;
+  const full = [user.first_name, user.last_name].filter(Boolean).join(" ").trim();
+  return { user_id: user.user_id ?? null, name: full || user.username || null, username: user.username || null };
+};
+
+/**
+ * ORIGINAL for the first print of a document, REPRINT after that, counted per bill and document type
+ * (a return slip is counted per return: each return has its own original).
+ */
+export const detectPrintKind = async (models, { invoiceId, docType, returnId = null }) => {
+  if (!invoiceId || !models.InvoicePrintLog?.findAll) return { print_kind: "ORIGINAL", print_number: 1 };
+  const earlier = await models.InvoicePrintLog.findAll({
+    where: { invoice_id: invoiceId, doc_type: docType },
+    attributes: ["log_id", "bill_snapshot"],
+  });
+  const same =
+    docType === "RETURN_SLIP"
+      ? earlier.filter((r) => Number(parseJsonField(r.bill_snapshot, {})?.return_id) === Number(returnId))
+      : earlier;
+  return { print_kind: same.length ? "REPRINT" : "ORIGINAL", print_number: same.length + 1 };
+};
 
 /**
  * Record a new bill printing event with complete receipt snapshot and printer details.
@@ -73,6 +126,8 @@ export const recordPrintLog = async (models, user, data, ipAddress = null) => {
               ]
             : []),
           ...(models.Payment ? [{ model: models.Payment }] : []),
+          ...(models.InvoiceSaleLine ? [{ model: models.InvoiceSaleLine, as: "SaleLines", required: false }] : []),
+          ...(models.User ? [{ model: models.User, attributes: ["user_id", "first_name", "last_name", "username"], required: false }] : []),
         ],
       });
       if (plainRes) dbInvoice = plainRes.get({ plain: true });
@@ -132,8 +187,12 @@ export const recordPrintLog = async (models, user, data, ipAddress = null) => {
       ? toNum(data.balance_due)
       : Math.max(0, derivedGrandTotal - derivedTotalPaid);
 
+  // Goods sold on the bill, as printed (or as the bill has them now when the caller sent none).
+  const saleLines = snapshotSaleLines(snap.SaleLines ?? dbInvoice?.SaleLines);
+  const soldLines = saleLines.filter((l) => l.status !== "voided");
+
   const derivedTotalItems =
-    Math.max(0, Math.round(toNum(data.total_items))) || lines.length;
+    Math.max(0, Math.round(toNum(data.total_items))) || lines.length + soldLines.length;
   const derivedTotalMachines =
     Math.max(0, Math.round(toNum(data.total_machines))) ||
     lines.reduce((acc, it) => acc + Math.max(1, toNum(it.borrow_quantity || it.quantity || 1)), 0);
@@ -142,13 +201,26 @@ export const recordPrintLog = async (models, user, data, ipAddress = null) => {
     data.doc_number || (resolvedInvoiceId ? `INV-${resolvedInvoiceId}` : "POS Receipt")
   ).trim();
 
-  const resolvedDocType = ["DISPATCH", "COMPLETED", "DRAFT", "RETURN_SETTLEMENT"].includes(
-    data.doc_type
-  )
+  const resolvedDocType = PRINT_DOC_TYPES.includes(data.doc_type)
     ? data.doc_type
     : dbInvoice?.status === "Completed"
     ? "COMPLETED"
     : "DISPATCH";
+
+  // A return slip belongs to one return: take it from the bill's own history so a reprint shows the same slip.
+  let returnId = null;
+  let returnEntry = null;
+  if (resolvedDocType === "RETURN_SLIP") {
+    returnId = Number(data.return_id ?? snap.return_id);
+    if (!resolvedInvoiceId || !Number.isInteger(returnId) || returnId <= 0) {
+      throw new AppError("A return slip needs the bill and the return it is for (return_id).", 400);
+    }
+    returnEntry = await findSaleReturn(models, resolvedInvoiceId, returnId);
+    if (!returnEntry) throw new AppError("That return was not found on this bill.", 404);
+  }
+  const printed = await detectPrintKind(models, { invoiceId: resolvedInvoiceId, docType: resolvedDocType, returnId });
+
+  const changeDue = data.change_due ?? snap.change_due;
 
   // Build a complete, backward- and forward-compatible bill_snapshot
   const enrichedSnapshot =
@@ -191,6 +263,17 @@ export const recordPrintLog = async (models, user, data, ipAddress = null) => {
           },
           language: data.language === "si" ? "si" : "en",
           customNotes: data.custom_notes ?? snap.customNotes ?? null,
+          // goods, as printed (retail receipts): never the cost figures
+          bill_kind: snap.bill_kind || dbInvoice?.bill_kind || (saleLines.length && !lines.length ? "sale" : "rental"),
+          SaleLines: saleLines,
+          sale_total: toNum(snap.sale_total ?? dbInvoice?.sale_total),
+          rental_total: toNum(snap.rental_total ?? dbInvoice?.rental_total),
+          returned_total: snap.returned_total !== undefined && snap.returned_total !== null ? toNum(snap.returned_total) : returnedTotalOf(saleLines),
+          ...(changeDue !== undefined && changeDue !== null ? { change_due: toNum(changeDue) } : {}),
+          issued_by: snap.issued_by || issuedByOf(dbInvoice?.User),
+          print_kind: printed.print_kind,
+          print_number: printed.print_number,
+          ...(returnEntry ? { return_id: returnId, return: returnEntry } : {}),
         }
       : null;
 
@@ -223,6 +306,15 @@ export const recordPrintLog = async (models, user, data, ipAddress = null) => {
     printed_at: new Date(),
   });
 
+  // Not a column: ORIGINAL or REPRINT for this document, so the receipt can say so.
+  if (typeof logRecord.setDataValue === "function") {
+    logRecord.setDataValue("print_kind", printed.print_kind);
+    logRecord.setDataValue("print_number", printed.print_number);
+  } else {
+    logRecord.print_kind = printed.print_kind;
+    logRecord.print_number = printed.print_number;
+  }
+
   // Log to InvoiceTrace if tied to an active invoice
   if (resolvedInvoiceId && models.InvoiceTrace) {
     try {
@@ -234,6 +326,9 @@ export const recordPrintLog = async (models, user, data, ipAddress = null) => {
         state_payload: {
           log_id: logRecord.log_id,
           doc_number: logRecord.doc_number,
+          doc_type: resolvedDocType,
+          print_kind: printed.print_kind,
+          ...(returnId ? { return_id: returnId } : {}),
           print_method: logRecord.print_method,
           printer_name: logRecord.printer_name,
           paper_width: logRecord.paper_width,

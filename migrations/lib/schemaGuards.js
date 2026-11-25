@@ -71,3 +71,37 @@ export const repairZeroDates = async (qi, table) => {
   });
   return repaired;
 };
+
+/**
+ * Make sure an ENUM column accepts every value in `values`. Reads the column's current type first and
+ * only ALTERs when a value is missing; existing values keep their order, the new ones are added at the
+ * end, and NULL-ability and default are kept as they are. Returns the values it added.
+ */
+export const ensureEnumValues = async (qi, table, column, values) => {
+  const sequelize = qi.sequelize;
+  const [col] = await sequelize.query(
+    "SELECT COLUMN_TYPE AS columnType, IS_NULLABLE AS nullable, COLUMN_DEFAULT AS dflt FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?",
+    { replacements: [table, column], type: "SELECT" },
+  );
+  if (!col) return [];
+  const current = parseEnumValues(col.columnType);
+  if (!current) return [];
+  const missing = values.filter((v) => !current.includes(v));
+  if (!missing.length) return [];
+  const all = [...current, ...missing];
+  const list = all.map((v) => sequelize.escape(v)).join(",");
+  const nullable = String(col.nullable).toUpperCase() === "YES";
+  // MySQL gives the default bare (DISPATCH); MariaDB gives it quoted ('DISPATCH') and says NULL for none.
+  const rawDefault = col.dflt === "NULL" ? null : typeof col.dflt === "string" ? col.dflt.replace(/^'(.*)'$/s, "$1").replace(/''/g, "'") : col.dflt;
+  col.dflt = rawDefault;
+  const dflt = col.dflt === null || col.dflt === undefined ? (nullable ? " DEFAULT NULL" : "") : ` DEFAULT ${sequelize.escape(col.dflt)}`;
+  await sequelize.query(`ALTER TABLE \`${table}\` MODIFY \`${column}\` ENUM(${list}) ${nullable ? "NULL" : "NOT NULL"}${dflt}`);
+  return missing;
+};
+
+/** "enum('A','B')" -> ["A","B"]; null when it is not an enum column type. */
+export const parseEnumValues = (columnType) => {
+  const m = /^enum\((.*)\)$/i.exec(String(columnType || "").trim());
+  if (!m) return null;
+  return [...m[1].matchAll(/'((?:[^']|'')*)'/g)].map((x) => x[1].replace(/''/g, "'"));
+};

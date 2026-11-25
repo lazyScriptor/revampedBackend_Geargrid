@@ -1,0 +1,1545 @@
+{
+  "categories": [
+    {
+      "name": "Drill bits",
+      "name_si": "විදුම් කටු",
+      "icon": "Construction",
+      "default_unit": "pcs",
+      "children": [
+        {
+          "name": "Steel",
+          "name_si": "වානේ",
+          "icon": "Construction",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "3mm",
+            "4mm",
+            "5mm",
+            "6mm",
+            "8mm",
+            "10mm",
+            "12mm",
+            "13mm"
+          ],
+          "attributes": [
+            {
+              "name": "Diameter",
+              "unit": "mm",
+              "values": [
+                3,
+                4,
+                5,
+                6,
+                8,
+                10,
+                12,
+                13
+              ],
+              "variant": true
+            },
+            {
+              "name": "Material",
+              "values": [
+                "HSS",
+                "Cobalt"
+              ]
+            }
+          ],
+          "item_name": "Steel Drill Bit",
+          "item_name_si": "වානේ විදුම් කටුව"
+        },
+        {
+          "name": "Wood",
+          "name_si": "ලී",
+          "icon": "Construction",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "3mm",
+            "4mm",
+            "5mm",
+            "6mm",
+            "8mm",
+            "10mm",
+            "12mm",
+            "13mm"
+          ],
+          "attributes": [
+            {
+              "name": "Diameter",
+              "unit": "mm",
+              "values": [
+                3,
+                4,
+                5,
+                6,
+                8,
+                10,
+                12,
+                13
+              ],
+              "variant": true
+            }
+          ],
+          "item_name": "Wood Drill Bit",
+          "item_name_si": "ලී විදුම් කටුව"
+        },
+        {
+          "name": "Concrete",
+          "name_si": "කොන්ක්‍රීට්",
+          "icon": "Construction",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "3mm",
+            "4mm",
+            "5mm",
+            "6mm",
+            "8mm",
+            "10mm",
+            "12mm",
+            "13mm"
+          ],
+          "attributes": [
+            {
+              "name": "Diameter",
+              "unit": "mm",
+              "values": [
+                3,
+                4,
+                5,
+                6,
+                8,
+                10,
+                12,
+                13
+              ],
+              "variant": true
+            }
+          ],
+          "item_name": "Concrete Drill Bit",
+          "item_name_si": "කොන්ක්‍රීට් විදුම් කටුව"
+        },
+        {
+          "name": "Tile & Glass",
+          "name_si": "ටයිල් සහ වීදුරු",
+          "icon": "Construction",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "4mm",
+            "5mm",
+            "6mm",
+            "8mm",
+            "10mm",
+            "12mm"
+          ],
+          "attributes": [
+            {
+              "name": "Diameter",
+              "unit": "mm",
+              "values": [
+                4,
+                5,
+                6,
+                8,
+                10,
+                12
+              ],
+              "variant": true
+            }
+          ],
+          "item_name": "Tile & Glass Drill Bit",
+          "item_name_si": "ටයිල් සහ වීදුරු විදුම් කටුව"
+        },
+        {
+          "name": "Multi-purpose",
+          "name_si": "බහු-කාර්ය",
+          "icon": "Construction",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "4mm",
+            "5mm",
+            "6mm",
+            "8mm",
+            "10mm",
+            "12mm"
+          ],
+          "attributes": [
+            {
+              "name": "Diameter",
+              "unit": "mm",
+              "values": [
+                4,
+                5,
+                6,
+                8,
+                10,
+                12
+              ],
+              "variant": true
+            }
+          ],
+          "item_name": "Multi-purpose Drill Bit",
+          "item_name_si": "බහු-කාර්ය විදුම් කටුව"
+        },
+        {
+          "name": "SDS",
+          "name_si": "SDS",
+          "icon": "Construction",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "6mm",
+            "8mm",
+            "10mm",
+            "12mm",
+            "14mm",
+            "16mm",
+            "20mm"
+          ],
+          "attributes": [
+            {
+              "name": "Diameter",
+              "unit": "mm",
+              "values": [
+                6,
+                8,
+                10,
+                12,
+                14,
+                16,
+                20
+              ],
+              "variant": true
+            }
+          ],
+          "item_name": "SDS Drill Bit",
+          "item_name_si": "SDS විදුම් කටුව"
+        }
+      ]
+    },
+    {
+      "name": "Abrasives",
+      "name_si": "කැපුම් හා ඇඹරුම් තැටි",
+      "icon": "Hardware",
+      "default_unit": "pcs",
+      "children": [
+        {
+          "name": "Cutting wheels",
+          "name_si": "කැපුම් තැටි",
+          "icon": "Hardware",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "4\"",
+            "5\"",
+            "7\"",
+            "9\""
+          ],
+          "attributes": [
+            {
+              "name": "Size",
+              "unit": "inch",
+              "values": [
+                "4\"",
+                "5\"",
+                "7\"",
+                "9\""
+              ],
+              "variant": true
+            }
+          ],
+          "item_name": "Cutting Wheel",
+          "item_name_si": "කැපුම් තැටිය"
+        },
+        {
+          "name": "Grinding discs",
+          "name_si": "ඇඹරුම් තැටි",
+          "icon": "Hardware",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "4\"",
+            "5\"",
+            "7\"",
+            "9\""
+          ],
+          "attributes": [
+            {
+              "name": "Size",
+              "unit": "inch",
+              "values": [
+                "4\"",
+                "5\"",
+                "7\"",
+                "9\""
+              ],
+              "variant": true
+            }
+          ],
+          "item_name": "Grinding Disc",
+          "item_name_si": "ඇඹරුම් තැටිය"
+        },
+        {
+          "name": "Flap discs",
+          "name_si": "ෆ්ලැප් තැටි",
+          "icon": "Hardware",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "4\"",
+            "5\"",
+            "7\"",
+            "9\""
+          ],
+          "attributes": [
+            {
+              "name": "Size",
+              "unit": "inch",
+              "values": [
+                "4\"",
+                "5\"",
+                "7\"",
+                "9\""
+              ],
+              "variant": true
+            },
+            {
+              "name": "Grit",
+              "values": [
+                40,
+                60,
+                80,
+                120
+              ]
+            }
+          ],
+          "item_name": "Flap Disc",
+          "item_name_si": "ෆ්ලැප් තැටිය"
+        },
+        {
+          "name": "Sandpaper",
+          "name_si": "වැලි කඩදාසි",
+          "icon": "Hardware",
+          "default_unit": "sheet",
+          "usual_sizes": [
+            "60",
+            "80",
+            "100",
+            "120",
+            "180",
+            "240",
+            "320"
+          ],
+          "attributes": [
+            {
+              "name": "Grit",
+              "values": [
+                60,
+                80,
+                100,
+                120,
+                180,
+                240,
+                320
+              ],
+              "variant": true
+            }
+          ],
+          "item_name": "Sandpaper",
+          "item_name_si": "වැලි කඩදාසි"
+        }
+      ]
+    },
+    {
+      "name": "Fasteners",
+      "name_si": "ඇණ සහ බෝල්ට්",
+      "icon": "Build",
+      "default_unit": "pcs",
+      "children": [
+        {
+          "name": "Nails",
+          "name_si": "ඇණ",
+          "icon": "Build",
+          "default_unit": "kg",
+          "usual_sizes": [
+            "1\"",
+            "1.5\"",
+            "2\"",
+            "2.5\"",
+            "3\"",
+            "4\""
+          ],
+          "attributes": [
+            {
+              "name": "Length",
+              "unit": "inch",
+              "values": [
+                "1\"",
+                "1.5\"",
+                "2\"",
+                "2.5\"",
+                "3\"",
+                "4\""
+              ],
+              "variant": true
+            }
+          ],
+          "item_name": "Nail",
+          "item_name_si": "ඇණය"
+        },
+        {
+          "name": "Wood screws",
+          "name_si": "ලී ඉස්කුරුප්පු",
+          "icon": "Build",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "1/2\"",
+            "3/4\"",
+            "1\"",
+            "1.25\"",
+            "1.5\"",
+            "2\"",
+            "2.5\"",
+            "3\""
+          ],
+          "attributes": [
+            {
+              "name": "Length",
+              "unit": "inch",
+              "values": [
+                "1/2\"",
+                "3/4\"",
+                "1\"",
+                "1.25\"",
+                "1.5\"",
+                "2\"",
+                "2.5\"",
+                "3\""
+              ],
+              "variant": true
+            }
+          ],
+          "item_name": "Wood Screw",
+          "item_name_si": "ලී ඉස්කුරුප්පුව"
+        },
+        {
+          "name": "Drywall screws",
+          "name_si": "ඩ්‍රයිවෝල් ඉස්කුරුප්පු",
+          "icon": "Build",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "1\"",
+            "1.25\"",
+            "1.5\"",
+            "2\""
+          ],
+          "attributes": [
+            {
+              "name": "Length",
+              "unit": "inch",
+              "values": [
+                "1\"",
+                "1.25\"",
+                "1.5\"",
+                "2\""
+              ],
+              "variant": true
+            }
+          ],
+          "item_name": "Drywall Screw",
+          "item_name_si": "ඩ්‍රයිවෝල් ඉස්කුරුප්පුව"
+        },
+        {
+          "name": "Bolts & nuts",
+          "name_si": "බෝල්ට් සහ නට්",
+          "icon": "Build",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "M6",
+            "M8",
+            "M10",
+            "M12",
+            "M16"
+          ],
+          "attributes": [
+            {
+              "name": "Thread",
+              "values": [
+                "M6",
+                "M8",
+                "M10",
+                "M12",
+                "M16"
+              ],
+              "variant": true
+            }
+          ],
+          "item_name": "Bolt & Nut",
+          "item_name_si": "බෝල්ට් සහ නට්"
+        },
+        {
+          "name": "Wall plugs & anchors",
+          "name_si": "වෝල් ප්ලග් සහ ඇන්කර්",
+          "icon": "Build",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "6mm",
+            "8mm",
+            "10mm",
+            "12mm"
+          ],
+          "attributes": [
+            {
+              "name": "Size",
+              "unit": "mm",
+              "values": [
+                6,
+                8,
+                10,
+                12
+              ],
+              "variant": true
+            }
+          ],
+          "item_name": "Wall Plug",
+          "item_name_si": "වෝල් ප්ලග්"
+        }
+      ]
+    },
+    {
+      "name": "Plumbing",
+      "name_si": "ජලනල උපාංග",
+      "icon": "Plumbing",
+      "default_unit": "pcs",
+      "children": [
+        {
+          "name": "PVC pipes",
+          "name_si": "PVC බට",
+          "icon": "Plumbing",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "1/2\"",
+            "3/4\"",
+            "1\"",
+            "1.25\"",
+            "1.5\"",
+            "2\"",
+            "3\"",
+            "4\""
+          ],
+          "attributes": [
+            {
+              "name": "Diameter",
+              "unit": "inch",
+              "values": [
+                "1/2\"",
+                "3/4\"",
+                "1\"",
+                "1.25\"",
+                "1.5\"",
+                "2\"",
+                "3\"",
+                "4\""
+              ],
+              "variant": true
+            },
+            {
+              "name": "Class",
+              "values": [
+                "Type 1000",
+                "Type 600",
+                "Type 400"
+              ]
+            }
+          ],
+          "item_name": "PVC Pipe",
+          "item_name_si": "PVC බටය"
+        },
+        {
+          "name": "PVC fittings",
+          "name_si": "PVC සන්ධි",
+          "icon": "Plumbing",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "1/2\"",
+            "3/4\"",
+            "1\"",
+            "1.25\"",
+            "1.5\"",
+            "2\""
+          ],
+          "attributes": [
+            {
+              "name": "Diameter",
+              "unit": "inch",
+              "values": [
+                "1/2\"",
+                "3/4\"",
+                "1\"",
+                "1.25\"",
+                "1.5\"",
+                "2\""
+              ],
+              "variant": true
+            }
+          ],
+          "item_name": "PVC Fitting",
+          "item_name_si": "PVC සන්ධිය"
+        },
+        {
+          "name": "GI pipes & fittings",
+          "name_si": "GI බට සහ සන්ධි",
+          "icon": "Plumbing",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "1/2\"",
+            "3/4\"",
+            "1\"",
+            "1.25\"",
+            "1.5\"",
+            "2\""
+          ],
+          "attributes": [
+            {
+              "name": "Diameter",
+              "unit": "inch",
+              "values": [
+                "1/2\"",
+                "3/4\"",
+                "1\"",
+                "1.25\"",
+                "1.5\"",
+                "2\""
+              ],
+              "variant": true
+            }
+          ],
+          "item_name": "GI Pipe Fitting",
+          "item_name_si": "GI බට සන්ධිය"
+        },
+        {
+          "name": "Taps & valves",
+          "name_si": "කරාම සහ වෑල්ව",
+          "icon": "Plumbing",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "1/2\"",
+            "3/4\"",
+            "1\""
+          ],
+          "attributes": [
+            {
+              "name": "Size",
+              "unit": "inch",
+              "values": [
+                "1/2\"",
+                "3/4\"",
+                "1\""
+              ],
+              "variant": true
+            }
+          ],
+          "item_name": "Tap & Valve",
+          "item_name_si": "කරාමය"
+        }
+      ]
+    },
+    {
+      "name": "Electrical",
+      "name_si": "විදුලි උපාංග",
+      "icon": "ElectricalServices",
+      "default_unit": "pcs",
+      "children": [
+        {
+          "name": "Cables & wires",
+          "name_si": "වයර් සහ කේබල්",
+          "icon": "ElectricalServices",
+          "default_unit": "m",
+          "usual_sizes": [
+            "1.0mm",
+            "1.5mm",
+            "2.5mm",
+            "4.0mm",
+            "6.0mm"
+          ],
+          "attributes": [
+            {
+              "name": "Gauge",
+              "unit": "mm",
+              "values": [
+                "1.0",
+                "1.5",
+                "2.5",
+                "4.0",
+                "6.0"
+              ],
+              "variant": true
+            }
+          ],
+          "item_name": "Cable",
+          "item_name_si": "වයර් කේබල්"
+        },
+        {
+          "name": "Switches & sockets",
+          "name_si": "ස්විච් සහ සොකට්",
+          "icon": "ElectricalServices",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "1-gang",
+            "2-gang",
+            "3-gang",
+            "13A"
+          ],
+          "attributes": [],
+          "item_name": "Switch & Socket",
+          "item_name_si": "ස්විච් සහ සොකට්"
+        },
+        {
+          "name": "Breakers & DB",
+          "name_si": "බ්‍රේකර් සහ DB",
+          "icon": "ElectricalServices",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "6A",
+            "10A",
+            "16A",
+            "20A",
+            "32A",
+            "40A",
+            "63A"
+          ],
+          "attributes": [
+            {
+              "name": "Rating",
+              "unit": "A",
+              "values": [
+                6,
+                10,
+                16,
+                20,
+                32,
+                40,
+                63
+              ],
+              "variant": true
+            }
+          ],
+          "item_name": "MCB Breaker",
+          "item_name_si": "බ්‍රේකර්"
+        },
+        {
+          "name": "Conduits & trunking",
+          "name_si": "කොන්ඩියුට් බට",
+          "icon": "ElectricalServices",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "20mm",
+            "25mm",
+            "32mm"
+          ],
+          "attributes": [
+            {
+              "name": "Diameter",
+              "unit": "mm",
+              "values": [
+                20,
+                25,
+                32
+              ],
+              "variant": true
+            }
+          ],
+          "item_name": "PVC Conduit",
+          "item_name_si": "කොන්ඩියුට් බටය"
+        },
+        {
+          "name": "Lighting",
+          "name_si": "විදුලි බල්බ",
+          "icon": "ElectricalServices",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "7W",
+            "9W",
+            "12W",
+            "15W",
+            "18W"
+          ],
+          "attributes": [
+            {
+              "name": "Wattage",
+              "unit": "W",
+              "values": [
+                7,
+                9,
+                12,
+                15,
+                18
+              ],
+              "variant": true
+            }
+          ],
+          "item_name": "LED Bulb",
+          "item_name_si": "විදුලි බල්බය"
+        }
+      ]
+    },
+    {
+      "name": "Paint & finishes",
+      "name_si": "තීන්ත සහ ආලේපන",
+      "icon": "FormatPaint",
+      "default_unit": "L",
+      "children": [
+        {
+          "name": "Emulsion",
+          "name_si": "ඉමල්ෂන් තීන්ත",
+          "icon": "FormatPaint",
+          "default_unit": "L",
+          "usual_sizes": [
+            "1L",
+            "4L",
+            "10L",
+            "20L"
+          ],
+          "attributes": [
+            {
+              "name": "Volume",
+              "unit": "L",
+              "values": [
+                1,
+                4,
+                10,
+                20
+              ],
+              "variant": true
+            }
+          ],
+          "item_name": "Emulsion Paint",
+          "item_name_si": "ඉමල්ෂන් තීන්ත"
+        },
+        {
+          "name": "Enamel",
+          "name_si": "එනැමල් තීන්ත",
+          "icon": "FormatPaint",
+          "default_unit": "L",
+          "usual_sizes": [
+            "500ml",
+            "1L",
+            "4L"
+          ],
+          "attributes": [
+            {
+              "name": "Volume",
+              "values": [
+                "500ml",
+                "1L",
+                "4L"
+              ],
+              "variant": true
+            }
+          ],
+          "item_name": "Enamel Paint",
+          "item_name_si": "එනැමල් තීන්ත"
+        },
+        {
+          "name": "Primers & thinners",
+          "name_si": "ප්‍රයිමර් සහ තිනර්",
+          "icon": "FormatPaint",
+          "default_unit": "L",
+          "usual_sizes": [
+            "500ml",
+            "1L",
+            "4L"
+          ],
+          "attributes": [
+            {
+              "name": "Volume",
+              "values": [
+                "500ml",
+                "1L",
+                "4L"
+              ],
+              "variant": true
+            }
+          ],
+          "item_name": "Primer & Thinner",
+          "item_name_si": "ප්‍රයිමර් සහ තිනර්"
+        },
+        {
+          "name": "Brushes & rollers",
+          "name_si": "බුරුසු සහ රෝලර්",
+          "icon": "FormatPaint",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "1\"",
+            "2\"",
+            "3\"",
+            "4\"",
+            "9\""
+          ],
+          "attributes": [
+            {
+              "name": "Width",
+              "unit": "inch",
+              "values": [
+                "1\"",
+                "2\"",
+                "3\"",
+                "4\"",
+                "9\""
+              ],
+              "variant": true
+            }
+          ],
+          "item_name": "Paint Brush",
+          "item_name_si": "තීන්ත බුරුසුව"
+        }
+      ]
+    },
+    {
+      "name": "Adhesives & sealants",
+      "name_si": "මැලියම් සහ සීලන්ට්",
+      "icon": "Build",
+      "default_unit": "pcs",
+      "children": [
+        {
+          "name": "Silicone",
+          "name_si": "සිලිකන්",
+          "icon": "Build",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "Clear",
+            "White",
+            "Black"
+          ],
+          "attributes": [],
+          "item_name": "Silicone Sealant",
+          "item_name_si": "සිලිකන්"
+        },
+        {
+          "name": "PVC solvent cement",
+          "name_si": "PVC ගම්",
+          "icon": "Build",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "100ml",
+            "250ml",
+            "500ml",
+            "1L"
+          ],
+          "attributes": [],
+          "item_name": "PVC Solvent Cement",
+          "item_name_si": "PVC ගම්"
+        },
+        {
+          "name": "Wood glue",
+          "name_si": "ලී ගම්",
+          "icon": "Build",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "250g",
+            "500g",
+            "1kg"
+          ],
+          "attributes": [],
+          "item_name": "Wood Glue",
+          "item_name_si": "ලී ගම්"
+        },
+        {
+          "name": "Epoxy",
+          "name_si": "එපොක්සි",
+          "icon": "Build",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "25g",
+            "50g",
+            "100g"
+          ],
+          "attributes": [],
+          "item_name": "Epoxy Adhesive",
+          "item_name_si": "එපොක්සි ගම්"
+        },
+        {
+          "name": "Tapes",
+          "name_si": "ටේප්",
+          "icon": "Build",
+          "default_unit": "roll",
+          "usual_sizes": [
+            "1\"",
+            "2\"",
+            "3\""
+          ],
+          "attributes": [],
+          "item_name": "Tape",
+          "item_name_si": "ටේප්"
+        }
+      ]
+    },
+    {
+      "name": "Hand tools",
+      "name_si": "අත් ආයුධ",
+      "icon": "Handyman",
+      "default_unit": "pcs",
+      "children": [
+        {
+          "name": "Hammers",
+          "name_si": "මිටි",
+          "icon": "Handyman",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "16oz",
+            "20oz",
+            "2lb",
+            "4lb"
+          ],
+          "attributes": [],
+          "item_name": "Hammer",
+          "item_name_si": "මිටිය"
+        },
+        {
+          "name": "Spanners & wrenches",
+          "name_si": "ස්පැනර් සහ රෙන්ච්",
+          "icon": "Handyman",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "8mm",
+            "10mm",
+            "12mm",
+            "13mm",
+            "14mm",
+            "17mm",
+            "19mm"
+          ],
+          "attributes": [
+            {
+              "name": "Size",
+              "unit": "mm",
+              "values": [
+                8,
+                10,
+                12,
+                13,
+                14,
+                17,
+                19
+              ],
+              "variant": true
+            }
+          ],
+          "item_name": "Spanner",
+          "item_name_si": "ස්පැනරය"
+        },
+        {
+          "name": "Pliers",
+          "name_si": "ප්ලයර්ස්",
+          "icon": "Handyman",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "6\"",
+            "7\"",
+            "8\""
+          ],
+          "attributes": [],
+          "item_name": "Pliers",
+          "item_name_si": "ප්ලයර්ස්"
+        },
+        {
+          "name": "Screwdrivers",
+          "name_si": "ඉස්කුරුප්පු නියන්",
+          "icon": "Handyman",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "4\"",
+            "6\"",
+            "8\""
+          ],
+          "attributes": [],
+          "item_name": "Screwdriver",
+          "item_name_si": "ඉස්කුරුප්පු නියන"
+        },
+        {
+          "name": "Measuring tapes",
+          "name_si": "මිනුම් පටි",
+          "icon": "Handyman",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "3m",
+            "5m",
+            "7.5m",
+            "10m"
+          ],
+          "attributes": [],
+          "item_name": "Measuring Tape",
+          "item_name_si": "මිනුම් පටිය"
+        }
+      ]
+    },
+    {
+      "name": "Power tools",
+      "name_si": "විදුලි ආයුධ",
+      "icon": "PowerSettingsNew",
+      "default_unit": "pcs",
+      "children": [
+        {
+          "name": "Angle grinders",
+          "name_si": "ඇන්ගල් ග්‍රයින්ඩර්",
+          "icon": "PowerSettingsNew",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "4\"",
+            "5\"",
+            "7\""
+          ],
+          "attributes": [],
+          "item_name": "Angle Grinder",
+          "item_name_si": "ඇන්ගල් ග්‍රයින්ඩර්"
+        },
+        {
+          "name": "Drills",
+          "name_si": "ඩ්‍රිල්",
+          "icon": "PowerSettingsNew",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "10mm",
+            "13mm"
+          ],
+          "attributes": [],
+          "item_name": "Electric Drill",
+          "item_name_si": "ඩ්‍රිල් යන්ත්‍රය"
+        },
+        {
+          "name": "Cut-off saws",
+          "name_si": "කට්-ඕෆ් කියත්",
+          "icon": "PowerSettingsNew",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "14\""
+          ],
+          "attributes": [],
+          "item_name": "Cut-off Saw",
+          "item_name_si": "කට්-ඕෆ් කියත"
+        },
+        {
+          "name": "Sanders & planers",
+          "name_si": "සැන්ඩර් සහ ප්ලේනර්",
+          "icon": "PowerSettingsNew",
+          "default_unit": "pcs",
+          "usual_sizes": [],
+          "attributes": [],
+          "item_name": "Sander",
+          "item_name_si": "සැන්ඩර් යන්ත්‍රය"
+        }
+      ]
+    },
+    {
+      "name": "Power tool accessories",
+      "name_si": "විදුලි ආයුධ උපාංග",
+      "icon": "Construction",
+      "default_unit": "pcs",
+      "children": [
+        {
+          "name": "Saw blades",
+          "name_si": "කියත් තල",
+          "icon": "Construction",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "4\"",
+            "7\"",
+            "10\"",
+            "14\""
+          ],
+          "attributes": [],
+          "item_name": "Saw Blade",
+          "item_name_si": "කියත් තලය"
+        },
+        {
+          "name": "Chucks & adapters",
+          "name_si": "චක් සහ ඇඩැප්ටර්",
+          "icon": "Construction",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "10mm",
+            "13mm"
+          ],
+          "attributes": [],
+          "item_name": "Drill Chuck",
+          "item_name_si": "ඩ්‍රිල් චක්"
+        },
+        {
+          "name": "Carbon brushes",
+          "name_si": "කාබන් බුරුසු",
+          "icon": "Construction",
+          "default_unit": "pair",
+          "usual_sizes": [],
+          "attributes": [],
+          "item_name": "Carbon Brush",
+          "item_name_si": "කාබන් බුරුසු"
+        }
+      ]
+    },
+    {
+      "name": "Safety",
+      "name_si": "ආරක්ෂිත උපකරණ",
+      "icon": "HealthAndSafety",
+      "default_unit": "pair",
+      "children": [
+        {
+          "name": "Gloves",
+          "name_si": "අත්වැසුම්",
+          "icon": "HealthAndSafety",
+          "default_unit": "pair",
+          "usual_sizes": [
+            "M",
+            "L",
+            "XL"
+          ],
+          "attributes": [],
+          "item_name": "Safety Gloves",
+          "item_name_si": "ආරක්ෂිත අත්වැසුම්"
+        },
+        {
+          "name": "Safety glasses",
+          "name_si": "ආරක්ෂිත කණ්ණාඩි",
+          "icon": "HealthAndSafety",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "Clear",
+            "Dark"
+          ],
+          "attributes": [],
+          "item_name": "Safety Glasses",
+          "item_name_si": "ආරක්ෂිත කණ්ණාඩි"
+        },
+        {
+          "name": "Helmets",
+          "name_si": "හිස්වැසුම්",
+          "icon": "HealthAndSafety",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "Yellow",
+            "White",
+            "Blue"
+          ],
+          "attributes": [],
+          "item_name": "Safety Helmet",
+          "item_name_si": "ආරක්ෂිත හිස්වැස්ම"
+        },
+        {
+          "name": "Masks",
+          "name_si": "මුහුණු ආවරණ",
+          "icon": "HealthAndSafety",
+          "default_unit": "pcs",
+          "usual_sizes": [],
+          "attributes": [],
+          "item_name": "Dust Mask",
+          "item_name_si": "මුහුණු ආවරණය"
+        },
+        {
+          "name": "Safety boots",
+          "name_si": "ආරක්ෂිත සපත්තු",
+          "icon": "HealthAndSafety",
+          "default_unit": "pair",
+          "usual_sizes": [
+            "7",
+            "8",
+            "9",
+            "10",
+            "11"
+          ],
+          "attributes": [],
+          "item_name": "Safety Boots",
+          "item_name_si": "ආරක්ෂිත සපත්තු"
+        }
+      ]
+    },
+    {
+      "name": "Building materials",
+      "name_si": "ගොඩනැගිලි ද්‍රව්‍ය",
+      "icon": "Construction",
+      "default_unit": "bag",
+      "children": [
+        {
+          "name": "Cement",
+          "name_si": "සිමෙන්ති",
+          "icon": "Construction",
+          "default_unit": "bag",
+          "usual_sizes": [
+            "50kg"
+          ],
+          "attributes": [],
+          "item_name": "Cement",
+          "item_name_si": "සිමෙන්ති"
+        },
+        {
+          "name": "Steel bars",
+          "name_si": "කම්බි",
+          "icon": "Construction",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "6mm",
+            "10mm",
+            "12mm",
+            "16mm"
+          ],
+          "attributes": [],
+          "item_name": "Steel Bar",
+          "item_name_si": "කම්බිය"
+        },
+        {
+          "name": "Wire mesh",
+          "name_si": "කම්බි දැල්",
+          "icon": "Construction",
+          "default_unit": "roll",
+          "usual_sizes": [
+            "3ft",
+            "4ft"
+          ],
+          "attributes": [],
+          "item_name": "Wire Mesh",
+          "item_name_si": "කම්බි දැල"
+        }
+      ]
+    },
+    {
+      "name": "Garden",
+      "name_si": "උද්‍යාන උපකරණ",
+      "icon": "Grass",
+      "default_unit": "pcs",
+      "children": [
+        {
+          "name": "Hose pipes",
+          "name_si": "හෝස් බට",
+          "icon": "Grass",
+          "default_unit": "m",
+          "usual_sizes": [
+            "1/2\"",
+            "3/4\"",
+            "1\""
+          ],
+          "attributes": [],
+          "item_name": "Hose Pipe",
+          "item_name_si": "හෝස් බටය"
+        },
+        {
+          "name": "Garden tools",
+          "name_si": "උද්‍යාන ආයුධ",
+          "icon": "Grass",
+          "default_unit": "pcs",
+          "usual_sizes": [],
+          "attributes": [],
+          "item_name": "Garden Tool",
+          "item_name_si": "උද්‍යාන ආයුධය"
+        },
+        {
+          "name": "Sprayers",
+          "name_si": "ස්ප්‍රේයර්",
+          "icon": "Grass",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "2L",
+            "5L",
+            "16L"
+          ],
+          "attributes": [],
+          "item_name": "Garden Sprayer",
+          "item_name_si": "ස්ප්‍රේයරය"
+        }
+      ]
+    },
+    {
+      "name": "Locks & hardware fittings",
+      "name_si": "අගුල් සහ දොර උපාංග",
+      "icon": "Lock",
+      "default_unit": "pcs",
+      "children": [
+        {
+          "name": "Padlocks",
+          "name_si": "ඉබ්බන්",
+          "icon": "Lock",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "30mm",
+            "40mm",
+            "50mm",
+            "60mm"
+          ],
+          "attributes": [],
+          "item_name": "Padlock",
+          "item_name_si": "ඉබ්බා"
+        },
+        {
+          "name": "Door locks",
+          "name_si": "දොර අගුල්",
+          "icon": "Lock",
+          "default_unit": "set",
+          "usual_sizes": [],
+          "attributes": [],
+          "item_name": "Door Lock",
+          "item_name_si": "දොර අගුල"
+        },
+        {
+          "name": "Hinges",
+          "name_si": "සරනේරු",
+          "icon": "Lock",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "2\"",
+            "3\"",
+            "4\"",
+            "5\""
+          ],
+          "attributes": [],
+          "item_name": "Hinge",
+          "item_name_si": "සරනේරුව"
+        },
+        {
+          "name": "Tower bolts",
+          "name_si": "ටවර් බෝල්ට්",
+          "icon": "Lock",
+          "default_unit": "pcs",
+          "usual_sizes": [
+            "3\"",
+            "4\"",
+            "6\"",
+            "8\""
+          ],
+          "attributes": [],
+          "item_name": "Tower Bolt",
+          "item_name_si": "ටවර් බෝල්ට්"
+        }
+      ]
+    }
+  ],
+  "aliases": [
+    {
+      "term": "hss",
+      "means": "steel"
+    },
+    {
+      "term": "masonry",
+      "means": "concrete"
+    },
+    {
+      "term": "disc",
+      "means": "cutting wheel"
+    },
+    {
+      "term": "cutting disc",
+      "means": "cutting wheel"
+    },
+    {
+      "term": "wheel",
+      "means": "cutting wheel"
+    },
+    {
+      "term": "gi",
+      "means": "galvanised"
+    },
+    {
+      "term": "pvc",
+      "means": "pvc pipe"
+    },
+    {
+      "term": "ගල් බිට්",
+      "means": "concrete"
+    },
+    {
+      "term": "gal bit",
+      "means": "concrete"
+    },
+    {
+      "term": "ලී බිට්",
+      "means": "wood"
+    },
+    {
+      "term": "li bit",
+      "means": "wood"
+    },
+    {
+      "term": "යකඩ",
+      "means": "steel"
+    },
+    {
+      "term": "yakada",
+      "means": "steel"
+    },
+    {
+      "term": "කපන තැටි",
+      "means": "cutting wheel"
+    },
+    {
+      "term": "kapana thati",
+      "means": "cutting wheel"
+    },
+    {
+      "term": "බට",
+      "means": "pipe"
+    },
+    {
+      "term": "bata",
+      "means": "pipe"
+    },
+    {
+      "term": "ඇණ",
+      "means": "nail"
+    },
+    {
+      "term": "ana",
+      "means": "nail"
+    },
+    {
+      "term": "ඉබ්බා",
+      "means": "padlock"
+    },
+    {
+      "term": "ibba",
+      "means": "padlock"
+    },
+    {
+      "term": "තීන්ත",
+      "means": "paint"
+    },
+    {
+      "term": "thinta",
+      "means": "paint"
+    },
+    {
+      "term": "ගම්",
+      "means": "glue"
+    },
+    {
+      "term": "gum",
+      "means": "glue"
+    },
+    {
+      "term": "සිලිකන්",
+      "means": "silicone"
+    },
+    {
+      "term": "silicon",
+      "means": "silicone"
+    },
+    {
+      "term": "nut",
+      "means": "bolt"
+    },
+    {
+      "term": "s-lon",
+      "means": "pvc"
+    },
+    {
+      "term": "half inch",
+      "means": "1/2\""
+    },
+    {
+      "term": "three quarter",
+      "means": "3/4\""
+    },
+    {
+      "term": "one inch",
+      "means": "1\""
+    },
+    {
+      "term": "two inch",
+      "means": "2\""
+    },
+    {
+      "term": "four inch",
+      "means": "4\""
+    }
+  ]
+}

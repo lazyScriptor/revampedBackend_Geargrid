@@ -1405,10 +1405,32 @@ export const saveSettlement = async (models, customerId, payload = {}, userId, {
         const newTotal = round2(Number(inv.total_amount || 0) - bill.changes.discount_added);
         const r = bill.changes.discount_reason;
 
+        // Retail POS bills split the total into rental_total and sale_total; the discount must move
+        // the right part as well (same rule as updateInvoiceFees).
+        const kind = inv.bill_kind || "rental";
+        const partTotals = {};
+        if (kind === "rental" || kind === "mixed") {
+          const newRentalTotal = round2(Number(inv.rental_total || 0) - bill.changes.discount_added);
+          if (kind === "mixed" && newRentalTotal < 0) {
+            throw new AppError(
+              `The discount on INV-${bill.invoice_id} is more than what is left of its rental part.`,
+              409,
+            );
+          }
+          partTotals.rental_total = Math.max(0, newRentalTotal);
+        } else if (kind === "sale") {
+          const newSaleTotal = round2(Number(inv.sale_total || 0) - bill.changes.discount_added);
+          if (newSaleTotal < 0) {
+            throw new AppError(`The discount on INV-${bill.invoice_id} is larger than its goods.`, 409);
+          }
+          partTotals.sale_total = newSaleTotal;
+        }
+
         await inv.update(
           {
             discount_amount: newDiscount,
             total_amount: newTotal,
+            ...partTotals,
             discount_reason_key: r.key,
             discount_reason_note: r.note || null,
           },

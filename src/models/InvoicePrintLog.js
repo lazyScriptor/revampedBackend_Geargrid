@@ -1,5 +1,16 @@
 import { DataTypes } from "sequelize";
 
+// What a print can be of. SALE_RECEIPT is the short retail receipt, RETURN_SLIP the slip for one
+// return of sold goods (R6). The migration 20261124110000 widens the database column to match.
+export const PRINT_DOC_TYPES = [
+  "DISPATCH",
+  "COMPLETED",
+  "DRAFT",
+  "RETURN_SETTLEMENT",
+  "SALE_RECEIPT",
+  "RETURN_SLIP",
+];
+
 export default (sequelize) => {
   const InvoicePrintLog = sequelize.define(
     "InvoicePrintLog",
@@ -18,9 +29,10 @@ export default (sequelize) => {
         allowNull: false,
       },
       doc_type: {
-        type: DataTypes.ENUM("DISPATCH", "COMPLETED", "DRAFT", "RETURN_SETTLEMENT"),
+        type: DataTypes.ENUM(...PRINT_DOC_TYPES),
         defaultValue: "DISPATCH",
         allowNull: false,
+        validate: { isIn: [PRINT_DOC_TYPES] }, // so a value the column would refuse fails in tests too
       },
       printed_by_user_id: {
         type: DataTypes.INTEGER,

@@ -30,6 +30,7 @@ const errorHandler = (err, req, res, next) => {
     message: error.message,
     errorCode: error.statusCode,
     ...(error.code ? { code: error.code } : {}),
+    ...(error.data ? { data: error.data } : {}),
     // stack: err.stack // Uncomment this in development to see exactly where it broke!
   });
 };

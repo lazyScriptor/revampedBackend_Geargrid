@@ -12,7 +12,7 @@ import {
   getSettlementById,
   SettlementChangedError,
 } from "../../src/services/customerSettlementService.js";
-import { idempotency } from "../../src/middlewares/idempotency.js";
+import { settlementIdempotency } from "../../src/middlewares/settlementIdempotency.js";
 
 const dummySeq = new Sequelize("mysql://user:pass@localhost:3306/dummy", { logging: false });
 const realModels = initTenantModels(dummySeq);
@@ -253,9 +253,9 @@ function createStatefulHarness(seed = {}) {
         return row;
       }),
     },
-    IdempotencyKey: {
+    SettlementIdempotencyKey: {
       create: vi.fn(async (data) => {
-        await assertSavable(realModels.IdempotencyKey, data);
+        await assertSavable(realModels.SettlementIdempotencyKey, data);
         const dup = state.idempotencyKeys.find(
           (k) => k.scope === data.scope && k.idempotency_key === data.idempotency_key,
         );
@@ -686,7 +686,7 @@ describe("Release 4 Slice 3: Customer Settlement Backend", () => {
 
   it("6. idempotency middleware replays 2xx, returns 409 on concurrent duplicate, and releases on 409 settlement_changed", async () => {
     const { models } = createStatefulHarness(build3BillSeed());
-    const mw = idempotency({
+    const mw = settlementIdempotency({
       scope: () => "POST:/api/customers/1/settlement",
       resolveModels: () => models,
     });

@@ -113,7 +113,10 @@ export const findCustomerIdsBySearch = async (models, term) => {
   if (!models?.Customer?.findAll) return [];
 
   const rows = await models.Customer.findAll({
-    where: { [Op.or]: orClauses },
+    where: {
+      [Op.or]: orClauses,
+      is_walk_in: { [Op.not]: true },
+    },
     attributes: ["customer_id"],
     limit: MAX_MATCHED_CUSTOMERS,
     raw: true,

@@ -2,6 +2,7 @@ import * as invoiceService from "../services/invoiceService.js";
 import * as invoiceDeletion from "../services/invoiceDeletionService.js";
 import { getCachedTenantConnection } from "../config/database.js";
 import { initTenantModels } from "../models/index.js";
+import { returnSaleLines, listSaleReturns } from "../modules/retail/index.js";
 import catchAsync from "../utils/catchAsync.js";
 
 // Helper to grab the correct tenant's database models
@@ -12,11 +13,47 @@ const getModels = (req) => {
 
 // --- 1. Create a New Dispatch Invoice ---
 export const createInvoice = catchAsync(async (req, res, next) => {
+  const {
+    customer_id,
+    items,
+    fees,
+    sale_items,
+    job_site,
+    customer_po,
+    settle_now,
+    approval_tokens,
+    payment,
+    walk_in,
+    issued_date,
+    borrowed_on_behalf_of_customer_id,
+    discount,
+    discount_amount,
+    discount_reason,
+    warehouse_id,
+  } = req.body;
   const userId = req.user.userId;
 
   const newInvoice = await invoiceService.createDispatchInvoice(
     getModels(req),
-    req.body,
+    {
+      customer_id,
+      items,
+      fees,
+      sale_items,
+      job_site,
+      customer_po,
+      settle_now,
+      approval_tokens,
+      payment,
+      walk_in,
+      issued_date,
+      borrowed_on_behalf_of_customer_id,
+      discount,
+      discount_amount,
+      discount_reason,
+      warehouse_id,
+      effectivePermissions: req.effectivePermissions,
+    },
     userId,
   );
 
@@ -137,6 +174,32 @@ export const restoreInvoice = catchAsync(async (req, res) => {
 export const getDeletedInvoices = catchAsync(async (req, res) => {
   const data = await invoiceDeletion.listDeletedInvoices(getModels(req), req.query);
   res.status(200).json({ status: "success", data });
+});
+
+// GET /invoices/:id/sale-returns — the bill's returns of sold items, newest first (for the return slip)
+export const getSaleReturns = catchAsync(async (req, res) => {
+  const data = await listSaleReturns(getModels(req), Number(req.params.id));
+  res.status(200).json({ status: "success", data });
+});
+
+// POST /invoices/:id/sale-returns — return sold items (retail). Refund now or keep as credit.
+export const returnSaleItems = catchAsync(async (req, res) => {
+  const models = getModels(req);
+  const { lines, settlement, reason, approval_tokens } = req.body || {};
+  const result = await returnSaleLines(models, Number(req.params.id), {
+    lines,
+    settlement,
+    reason,
+    approval_tokens,
+    userId: req.user.userId,
+    effectivePermissions: req.effectivePermissions,
+  });
+  const invoice = await invoiceService.getInvoiceById(models, Number(req.params.id));
+  res.status(200).json({
+    status: "success",
+    message: "Return recorded.",
+    data: { invoice, settlement: result.settlement, returned_value: result.returned_value, balance: result.balance },
+  });
 });
 
 // POST /invoices/:id/complete
