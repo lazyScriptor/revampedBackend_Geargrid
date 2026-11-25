@@ -12,6 +12,7 @@ export default (sequelize) => {
       invoice_id: { type: DataTypes.INTEGER, allowNull: false },
       payment_amount: { type: DataTypes.DECIMAL(12, 2), allowNull: false },
       payment_date: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
+      entered_at: { type: DataTypes.DATE, allowNull: true, defaultValue: DataTypes.NOW },
       method: { type: DataTypes.STRING(50), allowNull: false },
       // Who took the money (cashier accountability)
       received_by_user_id: { type: DataTypes.INTEGER, allowNull: true },

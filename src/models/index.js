@@ -34,6 +34,9 @@ import CallLogFactory from "./CallLog.js";
 import CallNoteFactory from "./CallNote.js";
 import DeviceAuditLogFactory from "./DeviceAuditLog.js";
 import PushTemplateFactory from "./PushTemplate.js";
+import ActivityEventFactory from "./ActivityEvent.js";
+import ActivityEventCommentFactory from "./ActivityEventComment.js";
+import ActivityEventReadFactory from "./ActivityEventRead.js";
 
 export const initTenantModels = (tenantConnection) => {
   const User = UserFactory(tenantConnection);
@@ -72,6 +75,9 @@ export const initTenantModels = (tenantConnection) => {
   const CallNote = CallNoteFactory(tenantConnection);
   const DeviceAuditLog = DeviceAuditLogFactory(tenantConnection);
   const PushTemplate = PushTemplateFactory(tenantConnection);
+  const ActivityEvent = ActivityEventFactory(tenantConnection);
+  const ActivityEventComment = ActivityEventCommentFactory(tenantConnection);
+  const ActivityEventRead = ActivityEventReadFactory(tenantConnection);
 
   // ==========================================
   // AUTH & USERS
@@ -275,6 +281,20 @@ export const initTenantModels = (tenantConnection) => {
   CashLockerCount.belongsTo(User, { as: "CountedBy", foreignKey: "counted_by_user_id" });
   CashLockerCount.belongsTo(User, { as: "ReviewedBy", foreignKey: "reviewed_by_user_id" });
 
+  // ── Activity feed ──
+  ActivityEvent.belongsTo(Invoice, { foreignKey: "invoice_id", constraints: false });
+  Invoice.hasMany(ActivityEvent, { foreignKey: "invoice_id", constraints: false });
+  ActivityEvent.belongsTo(Customer, { foreignKey: "customer_id", constraints: false });
+  Customer.hasMany(ActivityEvent, { foreignKey: "customer_id", constraints: false });
+  ActivityEvent.belongsTo(User, { as: "Actor", foreignKey: "actor_user_id", constraints: false });
+  ActivityEvent.belongsTo(User, { as: "CheckedBy", foreignKey: "checked_by", constraints: false });
+  ActivityEvent.hasMany(ActivityEventComment, { as: "Comments", foreignKey: "event_id", constraints: false });
+  ActivityEventComment.belongsTo(ActivityEvent, { foreignKey: "event_id", constraints: false });
+  ActivityEventComment.belongsTo(User, { as: "Author", foreignKey: "user_id", constraints: false });
+  ActivityEvent.hasMany(ActivityEventRead, { as: "Reads", foreignKey: "event_id", constraints: false });
+  ActivityEventRead.belongsTo(ActivityEvent, { foreignKey: "event_id", constraints: false });
+  ActivityEventRead.belongsTo(User, { foreignKey: "user_id", constraints: false });
+
   return {
     User,
     Role,
@@ -312,6 +332,9 @@ export const initTenantModels = (tenantConnection) => {
     CallNote,
     DeviceAuditLog,
     PushTemplate,
+    ActivityEvent,
+    ActivityEventComment,
+    ActivityEventRead,
     sequelize: tenantConnection,
   };
 };
