@@ -34,5 +34,45 @@
   "daily_summary": {
     "title": "දෛනික සාරාංශය",
     "body": "{date}[ · {shop}]"
+  },
+  "discount": {
+    "title": "වට්ටමක් #{invoice_no}",
+    "body": "{customer}[ · {amount}][ · {reason}]"
+  },
+  "refund": {
+    "title": "ආපසු ගෙවීම #{invoice_no}",
+    "body": "{customer}[ · {amount}][ · {reason}]"
+  },
+  "backdated_payment": {
+    "title": "පසු දින ගෙවීම #{invoice_no}",
+    "body": "{customer}[ · {amount}][ · {reason}]"
+  },
+  "backdated_bill": {
+    "title": "පසු දින බිල්පත #{invoice_no}",
+    "body": "{customer}[ · {amount}]"
+  },
+  "backdated_return": {
+    "title": "පසු දින ආපසු භාරගැනීම #{invoice_no}",
+    "body": "{customer}[ · {reason}]"
+  },
+  "invoice_reopened": {
+    "title": "බිල්පත #{invoice_no} නැවත විවෘත කළා",
+    "body": "{customer}[ · {staff}]"
+  },
+  "id_card_released_unpaid": {
+    "title": "හිඟ මුදල් සමඟ හැඳුනුම්පත නිදහස් කළා #{invoice_no}",
+    "body": "{customer}[ · {amount}]"
+  },
+  "review": {
+    "title": "පාරිභෝගික සමාලෝචනය #{invoice_no}",
+    "body": "{customer}[ · {staff}]"
+  },
+  "customer_payment": {
+    "title": "පාරිභෝගික ගෙවීම",
+    "body": "{customer}[ · {amount}]"
+  },
+  "call_promise_missed": {
+    "title": "පොරොන්දුව කඩ විය",
+    "body": "{customer}[ · {amount}]"
   }
 }

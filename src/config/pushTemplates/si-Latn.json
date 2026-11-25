@@ -34,5 +34,45 @@
   "daily_summary": {
     "title": "Dawase saranshaya",
     "body": "{date}[ · {shop}]"
+  },
+  "discount": {
+    "title": "Wattama #{invoice_no}",
+    "body": "{customer}[ · {amount}][ · {reason}]"
+  },
+  "refund": {
+    "title": "Apasu gevima #{invoice_no}",
+    "body": "{customer}[ · {amount}][ · {reason}]"
+  },
+  "backdated_payment": {
+    "title": "Pasu dina gevima #{invoice_no}",
+    "body": "{customer}[ · {amount}][ · {reason}]"
+  },
+  "backdated_bill": {
+    "title": "Pasu dina bill #{invoice_no}",
+    "body": "{customer}[ · {amount}]"
+  },
+  "backdated_return": {
+    "title": "Pasu dina return #{invoice_no}",
+    "body": "{customer}[ · {reason}]"
+  },
+  "invoice_reopened": {
+    "title": "Bill #{invoice_no} navatha vivritha kala",
+    "body": "{customer}[ · {staff}]"
+  },
+  "id_card_released_unpaid": {
+    "title": "Hinga mudal samaga ID nidahas kala #{invoice_no}",
+    "body": "{customer}[ · {amount}]"
+  },
+  "review": {
+    "title": "Review #{invoice_no}",
+    "body": "{customer}[ · {staff}]"
+  },
+  "customer_payment": {
+    "title": "Paribhogika gevima",
+    "body": "{customer}[ · {amount}]"
+  },
+  "call_promise_missed": {
+    "title": "Poronduwa kada viya",
+    "body": "{customer}[ · {amount}]"
   }
 }
