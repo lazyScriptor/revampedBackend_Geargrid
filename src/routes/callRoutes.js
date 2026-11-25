@@ -123,7 +123,14 @@ registerContract(router, MarkCallHandledContract, {
   handler: ({ params, req }) => callLogService.markCallHandled(resolveTenantModels(req), params.id),
 });
 
-registerContract(router, PostStaffCallNoteContract, {
+// The shared contract lists only tags, note and follow_up_on and strips the rest, so the call card's
+// outcome, result, promise and bills pass through here. callLogService validates each of them.
+const StaffCallNoteContract = {
+  ...PostStaffCallNoteContract,
+  body: PostStaffCallNoteContract.body.passthrough(),
+};
+
+registerContract(router, StaffCallNoteContract, {
   basePath: "/calls",
   middlewares: [requirePermission("calls:view")],
   handler: ({ params, body, req }) =>

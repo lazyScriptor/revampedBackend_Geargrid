@@ -261,6 +261,18 @@ export const buildEventSentence = (type, { invoice_id, amount, data = {}, custom
         en: joinParts([`Customer payment ${amtStr}`.trim(), cust, staff]),
         si: joinParts([`පාරිභෝගික ගෙවීම ${amtStr}`.trim(), cust, staff]),
       };
+    case "system":
+      if (data?.kind === "call_again_today") {
+        const note = data?.note || "";
+        return {
+          en: joinParts(["Call again today", cust, inv, note]),
+          si: joinParts(["අද නැවත අමතන්න", cust, inv, note]),
+        };
+      }
+      return {
+        en: joinParts([data?.title || "System event", inv, cust, staff]),
+        si: joinParts([data?.title_si || data?.title || "පද්ධති සිදුවීම", inv, cust, staff]),
+      };
     case "call_promise_missed":
       return {
         en: joinParts([`Promise missed ${amtStr}`.trim(), cust, inv]),
@@ -547,13 +559,16 @@ const buildActivityWhere = (models, query = {}, { userId, allowedTypes } = {}) =
     where.customer_id = Number(query.customer_id);
   }
 
+  // One bill's own history (the bill screens), apart from the "bill number" search box.
+  if (query.invoice_id !== undefined && query.invoice_id !== "") {
+    const id = Number(query.invoice_id);
+    where.invoice_id = Number.isInteger(id) && id > 0 ? id : -1;
+  }
+
   if (query.invoice) {
     const invNum = String(query.invoice).replace(/[^0-9]/g, "");
-    if (invNum) {
-      where.invoice_id = Number(invNum);
-    } else {
-      where.invoice_id = -1;
-    }
+    const wanted = invNum ? Number(invNum) : -1;
+    where.invoice_id = where.invoice_id === undefined || where.invoice_id === wanted ? wanted : -1;
   }
 
   if (query.amount_min !== undefined && query.amount_min !== "" && query.amount_min !== null) {
@@ -592,10 +607,46 @@ const buildActivityWhere = (models, query = {}, { userId, allowedTypes } = {}) =
   return { where, isToday, from, to };
 };
 
+// A role that may not see amounts must not read them inside the one-line sentence either.
+export const maskAmounts = (text) => String(text || "").replace(/Rs\.?\s?\d[\d,]*(\.\d+)?/g, "Rs •••");
+
+const maskSentence = (sentence) =>
+  sentence && typeof sentence === "object"
+    ? { en: maskAmounts(sentence.en), si: maskAmounts(sentence.si) }
+    : maskAmounts(sentence);
+
+// Free-text customer filter: name, company, phone or NIC.
+const applyCustomerSearch = async (models, query, where) => {
+  const text = String(query.customer || "").trim();
+  if (!text || query.customer_id || !models.Customer?.findAll) return where;
+  const like = { [Op.like]: `%${text.replace(/[\\%_]/g, "\\$&")}%` };
+  const words = text.split(/\s+/);
+  const rows = await models.Customer.findAll({
+    attributes: ["customer_id"],
+    where: {
+      [Op.or]: [
+        { first_name: like },
+        { last_name: like },
+        { company_name: like },
+        { phone_number: like },
+        { nic_number: like },
+        ...(words.length > 1
+          ? [{ first_name: { [Op.like]: `%${words[0]}%` }, last_name: { [Op.like]: `%${words.slice(1).join(" ")}%` } }]
+          : []),
+      ],
+    },
+    limit: 500,
+    raw: true,
+  });
+  where.customer_id = { [Op.in]: rows.length > 0 ? rows.map((r) => r.customer_id) : [-1] };
+  return where;
+};
+
 const formatEventRow = (row, { commentCount = 0, isRead = false, seeAmounts = true } = {}) => {
   const plain = typeof row.toJSON === "function" ? row.toJSON() : { ...row };
   const data = parseJsonField(plain.data, {});
-  const sentence = data?.sentence || { en: "", si: "" };
+  const rawSentence = data?.sentence || { en: "", si: "" };
+  const sentence = seeAmounts ? rawSentence : maskSentence(rawSentence);
   return {
     event_id: plain.event_id,
     type: plain.type,
@@ -607,7 +658,7 @@ const formatEventRow = (row, { commentCount = 0, isRead = false, seeAmounts = tr
     customer_name: plain.Customer ? formatCustomerDisplay(plain.Customer) : data?.customer_name || null,
     amount: seeAmounts && plain.amount !== null && plain.amount !== undefined ? Number(plain.amount) : null,
     sentence,
-    data: seeAmounts ? data : { ...data, old_amount: undefined, new_amount: undefined },
+    data: seeAmounts ? data : { ...data, sentence, old_amount: undefined, new_amount: undefined },
     occurred_at: plain.occurred_at,
     after_hours: Boolean(plain.after_hours),
     checked_by: plain.checked_by,
@@ -624,6 +675,7 @@ const formatEventRow = (row, { commentCount = 0, isRead = false, seeAmounts = tr
 export const listActivity = async (models, query = {}, { userId, roleIds = null } = {}) => {
   const { allowedTypes, seeAmounts } = await resolveUserActivityVisibility(models, userId, roleIds);
   const { where } = buildActivityWhere(models, query, { userId, allowedTypes });
+  await applyCustomerSearch(models, query, where);
 
   const page = Math.max(1, parseInt(query.page, 10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(query.limit, 10) || 50));
@@ -708,6 +760,7 @@ export const getActivitySummary = async (
 ) => {
   const { allowedTypes, seeAmounts, settings } = await resolveUserActivityVisibility(models, userId, roleIds);
   const { where, isToday } = buildActivityWhere(models, query, { userId, allowedTypes });
+  await applyCustomerSearch(models, query, where);
   const sequelize = models.sequelize;
   const tzOffset = getTzOffsetString(settings.timezone);
 
@@ -725,7 +778,7 @@ export const getActivitySummary = async (
 
   const STAFF_TYPES = ["discount", "backdated_payment", "backdated_bill", "backdated_return", "refund"];
 
-  const [byTypeRows, bucketRows, notCheckedCount, staffRows] = await Promise.all([
+  const [byTypeRows, bucketRows, notCheckedCount, staffRows, highNotCheckedCount] = await Promise.all([
     models.ActivityEvent.findAll({
       attributes: [
         "type",
@@ -778,6 +831,14 @@ export const getActivitySummary = async (
           raw: true,
         })
       : Promise.resolve([]),
+    models.ActivityEvent.count({
+      where: {
+        ...where,
+        checked_at: null,
+        // Keep an existing risk filter: "normal only" has no High events.
+        risk: where.risk && where.risk !== "high" ? "__none__" : "high",
+      },
+    }),
   ]);
 
   const by_type = {};
@@ -857,6 +918,7 @@ export const getActivitySummary = async (
     by_type,
     buckets: [...bucketsMap.values()],
     not_checked: Number(notCheckedCount || 0),
+    high_not_checked: Number(highNotCheckedCount || 0),
     by_staff,
   };
 };
@@ -965,6 +1027,7 @@ export const markRead = async (models, eventIds, userId) => {
 export const exportActivityExcel = async (models, query = {}, { userId, roleIds = null } = {}) => {
   const { allowedTypes, seeAmounts } = await resolveUserActivityVisibility(models, userId, roleIds);
   const { where } = buildActivityWhere(models, query, { userId, allowedTypes });
+  await applyCustomerSearch(models, query, where);
 
   const rows = await models.ActivityEvent.findAll({
     where,
