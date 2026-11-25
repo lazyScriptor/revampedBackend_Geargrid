@@ -222,7 +222,36 @@ registerContract(router, DeleteDeviceCallsContract, {
   handler: ({ req }) => callLogService.deleteDeviceCalls(req.tenantModels, req.device),
 });
 
-registerContract(router, PostDeviceCallNoteContract, {
+// The shared contract lists only tags, note and follow_up_on and strips the rest, so the call card's
+// outcome, result, promise and bills pass through here. callLogService validates each of them.
+const DeviceCallNoteContract = {
+  ...PostDeviceCallNoteContract,
+  body: PostDeviceCallNoteContract.body.passthrough(),
+};
+
+router.get(
+  "/calls/to-note",
+  requireDeviceCapability("call_logging"),
+  catchAsync(async (req, res) => {
+    const data = await callLogService.listDeviceCallsToNote(req.tenantModels, req.device);
+    res.status(200).json({ status: "success", data });
+  }),
+);
+
+router.get(
+  "/calls/:clientCallId/card",
+  requireDeviceCapability("call_logging"),
+  catchAsync(async (req, res) => {
+    const data = await callLogService.getDeviceCallCard(
+      req.tenantModels,
+      req.device,
+      req.params.clientCallId,
+    );
+    res.status(200).json({ status: "success", data });
+  }),
+);
+
+registerContract(router, DeviceCallNoteContract, {
   basePath: "/device",
   middlewares: [requireDeviceCapability("call_logging")],
   handler: ({ params, body, req }) =>
@@ -276,12 +305,13 @@ registerContract(router, CreateDeviceLeadContactContract, {
 // Activity feed endpoints for paired mobile app (Slice 1 / M3)
 router.get("/activity/summary", requireDevicePermission("activity:view"), async (req, res, next) => {
   try {
-    const canCheck = Boolean(req.devicePermissions?.has?.("*") || req.devicePermissions?.has?.("activity:check"));
+    const canCheck = await userHasPermission(req.tenantModels, req.deviceUser, "activity:check");
     const data = await activityService.getActivitySummary(req.tenantModels, req.query, {
       userId: req.device.user_id,
       canCheck,
     });
-    res.status(200).json({ status: "success", data });
+    // The phone has no signed-in web user, so it learns from here whether to show the Checked tick.
+    res.status(200).json({ status: "success", data: { ...data, can_check: canCheck } });
   } catch (err) {
     next(err);
   }

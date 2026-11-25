@@ -1104,6 +1104,15 @@ export const notifyEvent = async (
     let totalSent = 0;
     let totalReached = 0;
     const groupChannel = eventMeta.group || "bills";
+    // The amount goes in the data only for people allowed to see it; the phone adds it up
+    // when it stacks several pushes ("5 payments · Rs 42,000").
+    const renderForDevice = async (device) => {
+      const forceHide = userSeeAmountsMap.get(Number(device.user_id)) === false;
+      const text = await renderInLanguage(languageFor(device.user_id, device), forceHide);
+      const showAmount =
+        !hideAmounts && !forceHide && eventMeta.has_amount && numericAmount !== null && Number.isFinite(numericAmount);
+      return showAmount ? { ...text, data: { amount: String(numericAmount) } } : text;
+    };
 
     if (loudRecipients.length > 0) {
       const pushRes = await devicePushService.sendToUsers(models, loudRecipients, {
@@ -1112,7 +1121,7 @@ export const notifyEvent = async (
         data,
         silent: false,
         channel: groupChannel,
-        render: (device) => renderInLanguage(languageFor(device.user_id, device), userSeeAmountsMap.get(Number(device.user_id)) === false),
+        render: renderForDevice,
       });
       totalSent += Number(pushRes?.sent ?? 0);
       totalReached += Number(pushRes?.reached ?? 0);
@@ -1125,7 +1134,7 @@ export const notifyEvent = async (
         data,
         silent: true,
         channel: "bills_silent",
-        render: (device) => renderInLanguage(languageFor(device.user_id, device), userSeeAmountsMap.get(Number(device.user_id)) === false),
+        render: renderForDevice,
       });
       totalSent += Number(pushRes?.sent ?? 0);
       totalReached += Number(pushRes?.reached ?? 0);

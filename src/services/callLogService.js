@@ -17,7 +17,7 @@ import {
 import { notifyEvent } from "./pushEventService.js";
 import { getCollectionsSettings } from "./collectionsSettingsService.js";
 import { getRecordingStorage } from "./storage/index.js";
-import { recordActivity } from "./activityService.js";
+import { recordActivity, resolveUserActivityVisibility } from "./activityService.js";
 import {
   OPEN_INVOICE_STATUSES_SQL,
   PAID_PER_INVOICE_SQL,
@@ -51,7 +51,7 @@ export const normalizeInvoiceIds = (raw) => {
   ];
 };
 
-export const resolveCustomerOpenInvoiceIds = async (models, customerId) => {
+const resolveCustomerOpenBills = async (models, customerId) => {
   if (!customerId || !models?.sequelize?.query) return [];
   try {
     const selectType = models.sequelize?.constructor?.QueryTypes?.SELECT || "SELECT";
@@ -79,11 +79,18 @@ export const resolveCustomerOpenInvoiceIds = async (models, customerId) => {
     );
     return (rows || [])
       .filter((r) => Number(r.owed) > 0.009 || Number(r.units_out) > 0)
-      .map((r) => Number(r.invoice_id));
+      .map((r) => ({
+        invoice_id: Number(r.invoice_id),
+        owed: Math.max(0, Math.round(Number(r.owed || 0) * 100) / 100),
+        units_out: Number(r.units_out || 0),
+      }));
   } catch {
     return [];
   }
 };
+
+export const resolveCustomerOpenInvoiceIds = async (models, customerId) =>
+  (await resolveCustomerOpenBills(models, customerId)).map((b) => b.invoice_id);
 
 const colomboHHMM = (date) => {
   const parts = new Intl.DateTimeFormat("en-GB", {
@@ -879,11 +886,10 @@ const normalizeNotePayload = (body = {}, callRow = null) => {
 
   const promiseStatus = promiseAmount && promiseDate ? "waiting" : null;
 
-  const explicitInvoiceIds = normalizeInvoiceIds(body.invoice_ids);
-  const invoiceIds =
-    explicitInvoiceIds.length > 0
-      ? explicitInvoiceIds
-      : normalizeInvoiceIds(callRow?.invoice_ids);
+  // A list sent by the caller wins, even an empty one (the cashier unticked every bill).
+  const invoiceIds = Array.isArray(body.invoice_ids)
+    ? normalizeInvoiceIds(body.invoice_ids)
+    : normalizeInvoiceIds(callRow?.invoice_ids);
 
   return {
     tags,
@@ -895,6 +901,7 @@ const normalizeNotePayload = (body = {}, callRow = null) => {
     promiseDate,
     promiseStatus,
     invoiceIds,
+    invoiceIdsChosen: Array.isArray(body.invoice_ids),
   };
 };
 
@@ -912,6 +919,7 @@ const persistCallNote = async (models, callRow, userId, body) => {
     promiseDate,
     promiseStatus,
     invoiceIds,
+    invoiceIdsChosen,
   } = normalizeNotePayload(body, callRow);
   const created = await models.CallNote.create({
     call_id: callRow.call_id,
@@ -931,8 +939,11 @@ const persistCallNote = async (models, callRow, userId, body) => {
     created_by_user_id: userId ?? null,
   });
 
-  if (invoiceIds.length > 0 && normalizeInvoiceIds(callRow.invoice_ids).length === 0 && callRow.update) {
-    await callRow.update({ invoice_ids: invoiceIds }).catch(() => {});
+  const shouldRelink = invoiceIdsChosen
+    ? true
+    : invoiceIds.length > 0 && normalizeInvoiceIds(callRow.invoice_ids).length === 0;
+  if (shouldRelink && callRow.update) {
+    await callRow.update({ invoice_ids: invoiceIds.length > 0 ? invoiceIds : null }).catch(() => {});
   }
 
   if (callRow.customer_id && models.Customer?.update) {
@@ -984,6 +995,117 @@ export const saveStaffCallNote = async (models, userId, callId, body = {}) => {
     throw new AppError("Call record not found.", 404);
   }
   return persistCallNote(models, callRow, userId ?? null, body);
+};
+
+const TO_NOTE_WINDOW_DAYS = 7;
+const TO_NOTE_LIMIT = 50;
+
+/**
+ * M2: everything the phone's call card shows for one call made on this phone: the call with its
+ * suggested outcome, the customer's open bills (ticked when the call is linked to them), the shop's
+ * result chips and any note already saved.
+ */
+export const getDeviceCallCard = async (models, device, clientCallId) => {
+  const row = await models.CallLog.findOne({
+    where: {
+      client_call_id: String(clientCallId || "").trim(),
+      operator_device_id: device.operator_device_id,
+    },
+    include: [
+      ...(models.Customer
+        ? [{ model: models.Customer, attributes: ["customer_id", "first_name", "last_name", "company_name"], required: false }]
+        : []),
+      ...(models.CallNote ? [{ model: models.CallNote, required: false }] : []),
+    ],
+  });
+  if (!row) {
+    throw new AppError("Call record not found.", 404);
+  }
+
+  const [settings, userCtx, bills] = await Promise.all([
+    getCollectionsSettings(models),
+    loadUserCapabilitiesContext(models, device.user_id),
+    resolveCustomerOpenBills(models, row.customer_id),
+  ]);
+  let seeAmounts = Boolean(userCtx.isAdmin);
+  if (!seeAmounts) {
+    const visibility = await resolveUserActivityVisibility(models, device.user_id);
+    seeAmounts = visibility.seeAmounts !== false;
+  }
+
+  const threshold = settings.calls.answeredThresholdSeconds;
+  const linked = normalizeInvoiceIds(row.invoice_ids);
+  const notes = [...(row.CallNotes || [])].sort((a, b) => Number(b.note_id) - Number(a.note_id));
+  const lastNote = notes[0] ? serializeCallNote(notes[0]) : null;
+  if (lastNote && !seeAmounts) lastNote.promise_amount = null;
+
+  const call = serializeCallRecord(row, { answeredThresholdSeconds: threshold });
+  delete call.notes;
+
+  return {
+    call: { ...call, customer_name: formatCustomerName(row.Customer) },
+    bills: bills.map((b) => ({
+      invoice_id: b.invoice_id,
+      units_out: b.units_out,
+      owed: seeAmounts ? b.owed : null,
+      selected: linked.length === 0 || linked.includes(b.invoice_id),
+    })),
+    call_results: settings.call_results.filter((r) => r.active !== false),
+    answered_threshold_seconds: threshold,
+    see_amounts: seeAmounts,
+    note: lastNote,
+  };
+};
+
+/**
+ * M2: "Calls to note": this phone's recent answered or dialled calls with a customer who still owes
+ * money or has machines out, and no note yet.
+ */
+export const listDeviceCallsToNote = async (models, device, { now = new Date() } = {}) => {
+  const rows = await models.CallLog.findAll({
+    where: {
+      operator_device_id: device.operator_device_id,
+      customer_id: { [Op.ne]: null },
+      direction: { [Op.in]: ["INCOMING", "OUTGOING"] },
+      ended_at: { [Op.ne]: null },
+      started_at: { [Op.gte]: new Date(now.getTime() - TO_NOTE_WINDOW_DAYS * DAY_MS) },
+    },
+    include: [
+      ...(models.Customer
+        ? [{ model: models.Customer, attributes: ["customer_id", "first_name", "last_name", "company_name"], required: false }]
+        : []),
+      ...(models.CallNote ? [{ model: models.CallNote, attributes: ["note_id"], required: false }] : []),
+    ],
+    order: [
+      ["started_at", "DESC"],
+      ["call_id", "DESC"],
+    ],
+    limit: 200,
+  });
+
+  const unnoted = (rows || []).filter((r) => !(r.CallNotes || []).length);
+  const openByCustomer = new Map();
+  for (const customerId of new Set(unnoted.map((r) => Number(r.customer_id)))) {
+    openByCustomer.set(customerId, (await resolveCustomerOpenBills(models, customerId)).length);
+  }
+
+  const settings = await getCollectionsSettings(models);
+  const items = unnoted
+    .filter((r) => openByCustomer.get(Number(r.customer_id)) > 0)
+    .slice(0, TO_NOTE_LIMIT)
+    .map((r) => {
+      const call = serializeCallRecord(r, {
+        answeredThresholdSeconds: settings.calls.answeredThresholdSeconds,
+      });
+      delete call.notes;
+      return {
+        ...call,
+        customer_name: formatCustomerName(r.Customer),
+        open_bills: openByCustomer.get(Number(r.customer_id)),
+      };
+    });
+
+  return { items, total: items.length };
 };
 
 /**
@@ -1320,6 +1442,7 @@ export const sendDueFollowUpPushes = async (models, tenantDbName, { now = new Da
         note_id: String(note.note_id),
         ...(note.customer_id ? { customer_id: String(note.customer_id) } : {}),
         ...(note.follow_up_on ? { follow_up_on: String(note.follow_up_on).slice(0, 10) } : {}),
+        type: "follow_up_due",
       },
     }).catch(() => {});
     sentCount += 1;
