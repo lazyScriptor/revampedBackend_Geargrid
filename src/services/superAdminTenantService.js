@@ -65,6 +65,8 @@ const PERMISSION_CATALOG = [
   { permission_code: "locker:count", module_name: "Cash Locker", description: "Open and close the cash locker, record locker expenses" },
   { permission_code: "locker:manage", module_name: "Cash Locker", description: "See the cash locker history, accept differences and set the float" },
   { permission_code: "invoice:print_log:view", module_name: "Invoices", description: "View POS bill printing audit logs" },
+  { permission_code: "activity:view", module_name: "Activity", description: "View the shop-wide activity feed and summary" },
+  { permission_code: "activity:check", module_name: "Activity", description: "Mark activity events checked and view per-staff summaries" },
   { permission_code: "equipment:create", module_name: "Equipment", description: "Add new equipment" },
   { permission_code: "equipment:view", module_name: "Equipment", description: "View equipment list" },
   { permission_code: "equipment:edit", module_name: "Equipment", description: "Edit equipment details" },

@@ -23,6 +23,7 @@ export default (sequelize) => {
         validate: { min: 1, max: 5 },
       },
       comment: { type: DataTypes.TEXT, allowNull: true },
+      tags: { type: DataTypes.JSON, allowNull: true },
       is_primary: {
         type: DataTypes.BOOLEAN,
         allowNull: false,
