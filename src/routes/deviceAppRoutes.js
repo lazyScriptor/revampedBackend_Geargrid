@@ -27,6 +27,7 @@ import { deviceAuth } from "../middlewares/deviceAuth.js";
 import { requireFeature } from "../middlewares/planMiddleware.js";
 import { registerContract } from "../utils/contractAdapter.js";
 import { getMasterModels } from "../models/master/index.js";
+import * as activityService from "../services/activityService.js";
 import AppError from "../utils/AppError.js";
 import { userHasPermission } from "../services/userService.js";
 import { sendDataPush } from "../services/devicePushService.js";
@@ -262,6 +263,91 @@ registerContract(router, CreateDeviceLeadContactContract, {
   middlewares: [requireDevicePermission("calls:view")],
   handler: ({ body, req }) =>
     phoneContactService.createLeadContact(req.tenantModels, body, { device: req.device }),
+});
+
+// Activity feed endpoints for paired mobile app (Slice 1 / M3)
+router.get("/activity/summary", requireDevicePermission("activity:view"), async (req, res, next) => {
+  try {
+    const canCheck = Boolean(req.devicePermissions?.has?.("*") || req.devicePermissions?.has?.("activity:check"));
+    const data = await activityService.getActivitySummary(req.tenantModels, req.query, {
+      userId: req.device.user_id,
+      canCheck,
+    });
+    res.status(200).json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/activity", requireDevicePermission("activity:view"), async (req, res, next) => {
+  try {
+    const data = await activityService.listActivity(req.tenantModels, req.query, {
+      userId: req.device.user_id,
+    });
+    res.status(200).json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/activity/read", requireDevicePermission("activity:view"), async (req, res, next) => {
+  try {
+    const data = await activityService.markRead(
+      req.tenantModels,
+      req.body?.event_ids || req.body?.ids || [],
+      req.device.user_id,
+    );
+    res.status(200).json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/activity/:id/check", requireDevicePermission("activity:check"), async (req, res, next) => {
+  try {
+    const event = await activityService.checkEvent(req.tenantModels, Number(req.params.id), req.device.user_id);
+    res.status(200).json({
+      status: "success",
+      data: { event_id: event.event_id, checked_by: event.checked_by, checked_at: event.checked_at },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete("/activity/:id/check", requireDevicePermission("activity:check"), async (req, res, next) => {
+  try {
+    const event = await activityService.uncheckEvent(req.tenantModels, Number(req.params.id));
+    res.status(200).json({
+      status: "success",
+      data: { event_id: event.event_id, checked_by: null, checked_at: null },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/activity/:id/comments", requireDevicePermission("activity:view"), async (req, res, next) => {
+  try {
+    const comments = await activityService.listComments(req.tenantModels, Number(req.params.id));
+    res.status(200).json({ status: "success", data: { comments } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/activity/:id/comments", requireDevicePermission("activity:view"), async (req, res, next) => {
+  try {
+    const comment = await activityService.addComment(
+      req.tenantModels,
+      Number(req.params.id),
+      req.device.user_id,
+      req.body?.body,
+    );
+    res.status(201).json({ status: "success", data: { comment } });
+  } catch (err) {
+    next(err);
+  }
 });
 
 export default router;
