@@ -120,6 +120,8 @@ export const mergeCollectionsSettings = (custom = {}) => {
 
   const callRecording = {
     enabled: Boolean(recRaw?.enabled),
+    // When recording was last switched on: calls before it never count as "missing a recording".
+    ...(typeof recRaw?.enabledAt === "string" ? { enabledAt: recRaw.enabledAt } : {}),
     retentionDays,
     mobileData: Boolean(recRaw?.mobileData),
     deleteFromPhoneAfterUpload: Boolean(recRaw?.deleteFromPhoneAfterUpload),
@@ -219,6 +221,9 @@ export const updateCollectionsSettings = async (models, payload = {}) => {
     nextCustom.call_recording = {
       ...current.call_recording,
       ...(typeof r.enabled === "boolean" ? { enabled: r.enabled } : {}),
+      ...(r.enabled === true && !current.call_recording.enabled
+        ? { enabledAt: new Date().toISOString() }
+        : {}),
       retentionDays: Math.floor(retention),
       ...(typeof r.mobileData === "boolean" ? { mobileData: r.mobileData } : {}),
       ...(typeof r.deleteFromPhoneAfterUpload === "boolean"

@@ -28,6 +28,17 @@ export const isAllowedAudioMime = (mime) => {
   return m.startsWith("audio/") || ALLOWED_AUDIO_MIMES.has(m);
 };
 
+const toUploadResult = (recRow) => ({
+  recording_id: Number(recRow.recording_id),
+  call_id: Number(recRow.call_id),
+  mime_type: recRow.mime_type,
+  bytes: Number(recRow.bytes),
+  duration_seconds: recRow.duration_seconds != null ? Number(recRow.duration_seconds) : null,
+  sha256: recRow.sha256,
+  uploaded_at: new Date(recRow.uploaded_at).toISOString(),
+  dispute_hold: Boolean(recRow.dispute_hold),
+});
+
 export const uploadDeviceCallRecording = async (
   models,
   tenantDbName,
@@ -74,10 +85,18 @@ export const uploadDeviceCallRecording = async (
     throw new AppError("Call record not found.", 404);
   }
 
+  const sha256 = crypto.createHash("sha256").update(file.buffer).digest("hex");
+  const existing = await models.CallRecording.findOne({
+    where: { call_id: callRow.call_id },
+  });
+  // A phone retries when it never saw the answer: the same audio is not stored twice.
+  if (existing && existing.sha256 === sha256) {
+    return toUploadResult(existing);
+  }
+
   const ext = path.extname(file.originalname || "") || `.${mimeType.split("/")[1] || "m4a"}`;
   const safeExt = ext.replace(/[^a-zA-Z0-9.]/g, "").slice(0, 10) || ".m4a";
   const storageKey = `${tenantDbName || "tenant"}/${callRow.call_id}/${now.getTime()}${safeExt}`;
-  const sha256 = crypto.createHash("sha256").update(file.buffer).digest("hex");
 
   const adapter = storage || getRecordingStorage();
   await adapter.putObject({
@@ -91,10 +110,8 @@ export const uploadDeviceCallRecording = async (
       ? Math.max(0, Math.round(Number(body.duration_seconds)))
       : callRow.duration_seconds ?? null;
 
-  const existing = await models.CallRecording.findOne({
-    where: { call_id: callRow.call_id },
-  });
-
+  // Audio under a dispute hold is never removed, even when a newer upload takes its place.
+  const replacedKey = existing && !existing.dispute_hold ? existing.storage_key : null;
   let recRow;
   if (existing) {
     recRow = await existing.update({
@@ -120,16 +137,14 @@ export const uploadDeviceCallRecording = async (
     });
   }
 
-  return {
-    recording_id: Number(recRow.recording_id),
-    call_id: Number(recRow.call_id),
-    mime_type: recRow.mime_type,
-    bytes: Number(recRow.bytes),
-    duration_seconds: recRow.duration_seconds != null ? Number(recRow.duration_seconds) : null,
-    sha256: recRow.sha256,
-    uploaded_at: new Date(recRow.uploaded_at).toISOString(),
-    dispute_hold: Boolean(recRow.dispute_hold),
-  };
+  // Retention only ever deletes the object a row points at, so a replaced one is removed here.
+  if (replacedKey && replacedKey !== storageKey && adapter.deleteObject) {
+    await adapter.deleteObject({ key: replacedKey }).catch((err) => {
+      console.warn(`Could not delete replaced call recording ${replacedKey}: ${err.message}`);
+    });
+  }
+
+  return toUploadResult(recRow);
 };
 
 export const getCallRecordingPlayback = async (

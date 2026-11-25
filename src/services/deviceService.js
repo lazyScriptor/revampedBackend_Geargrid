@@ -5,6 +5,7 @@ import { getCachedTenantConnection } from "../config/database.js";
 import { initTenantModels } from "../models/index.js";
 import { getMasterModels } from "../models/master/index.js";
 import { getTenantPlan } from "./planService.js";
+import { getCollectionsSettings } from "./collectionsSettingsService.js";
 import { isUserAdmin } from "./userService.js";
 import { isPaymentLocked } from "../config/paymentNotice.js";
 import { parseJsonField } from "../utils/jsonFields.js";
@@ -914,6 +915,7 @@ const formatShopDevice = async (
     contactCountMap = null,
     callCountMap = null,
     lastRecordingMap = null,
+    recordingMissingMap = null,
     versionConfig = null,
   } = {},
 ) => {
@@ -992,6 +994,9 @@ const formatShopDevice = async (
     last_recording_received_at: lastRecordingMap
       ? lastRecordingMap.get(Number(device.operator_device_id)) ?? null
       : null,
+    recording_missing_since: recordingMissingMap
+      ? recordingMissingMap.get(Number(device.operator_device_id)) ?? null
+      : null,
     sim_filter: device.sim_filter ?? null,
     capabilities: granted,
     effective_capabilities: effective,
@@ -1001,6 +1006,59 @@ const formatShopDevice = async (
     health_warnings: healthWarnings,
     version_status: versionStatus,
   };
+};
+
+// A recording may wait for Wi-Fi, so a call counts as missing one only after this long.
+const RECORDING_GRACE_MS = 24 * 60 * 60 * 1000;
+// Calls older than this no longer raise the warning.
+const RECORDING_LOOKBACK_MS = 14 * 24 * 60 * 60 * 1000;
+
+/**
+ * Phones that should be sending call recordings but are not (spec 9.2.8 point 4): recording is on,
+ * and the phone logged an answered call after its last recording that is still without one a day later.
+ * Returns Map(operator_device_id -> ISO date to show as "no recordings since").
+ */
+export const findPhonesMissingRecordings = async (
+  tenantModels,
+  devices,
+  lastRecordingMap,
+  { now = new Date() } = {},
+) => {
+  const missing = new Map();
+  if (!tenantModels.CallLog?.findOne) return missing;
+  const { call_recording: recording, calls } = await getCollectionsSettings(tenantModels);
+  if (!recording.enabled) return missing;
+
+  const enabledAtMs = recording.enabledAt ? new Date(recording.enabledAt).getTime() : 0;
+
+  for (const device of devices) {
+    if (!device.is_native_app || (device.status || "ACTIVE") !== "ACTIVE") continue;
+    const id = Number(device.operator_device_id);
+    const lastReceived = lastRecordingMap.get(id) ?? null;
+    const since = new Date(
+      Math.max(
+        lastReceived ? new Date(lastReceived).getTime() : 0,
+        enabledAtMs,
+        now.getTime() - RECORDING_LOOKBACK_MS,
+      ),
+    );
+    const until = new Date(now.getTime() - RECORDING_GRACE_MS);
+    if (since >= until) continue;
+    const call = await tenantModels.CallLog.findOne({
+      where: {
+        operator_device_id: id,
+        source: "phone",
+        duration_seconds: { [Op.gte]: Math.max(1, calls.answeredThresholdSeconds) },
+        started_at: { [Op.gt]: since, [Op.lte]: until },
+      },
+      attributes: ["call_id", "started_at"],
+      order: [["started_at", "ASC"]],
+    });
+    if (call) {
+      missing.set(id, lastReceived ?? new Date(call.started_at).toISOString());
+    }
+  }
+  return missing;
 };
 
 export const listShopDevices = async (
@@ -1126,6 +1184,12 @@ export const listShopDevices = async (
     }
   }
 
+  const recordingMissingMap = await findPhonesMissingRecordings(
+    tenantModels,
+    filtered,
+    lastRecordingMap,
+  );
+
   const [{ policy }, plan, versionConfig] = await Promise.all([
     getPhoneAssistantPolicy(tenantModels),
     tenantDbName ? getTenantPlan(tenantDbName) : Promise.resolve(null),
@@ -1142,6 +1206,7 @@ export const listShopDevices = async (
         contactCountMap,
         callCountMap,
         lastRecordingMap,
+        recordingMissingMap,
         versionConfig,
       }),
     );
@@ -1371,25 +1436,27 @@ export const getDevicePolicy = async (
   const now = nowUtc();
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 
-  const [{ policy }, userCtx, plan, contactCount, callsThisMonth, versionConfig] = await Promise.all([
-    getPhoneAssistantPolicy(tenantModels),
-    loadUserCapabilitiesContext(tenantModels, device.user_id),
-    tenantDbName ? getTenantPlan(tenantDbName) : Promise.resolve(null),
-    tenantModels.PhoneContact?.count
-      ? tenantModels.PhoneContact.count({
-          where: { operator_device_id: device.operator_device_id },
-        })
-      : Promise.resolve(0),
-    tenantModels.CallLog?.count
-      ? tenantModels.CallLog.count({
-          where: {
-            operator_device_id: device.operator_device_id,
-            started_at: { [Op.gte]: monthStart },
-          },
-        })
-      : Promise.resolve(0),
-    getAppVersionConfig(masterModelsOverride),
-  ]);
+  const [{ policy }, userCtx, plan, contactCount, callsThisMonth, versionConfig, collectionsSettings] =
+    await Promise.all([
+      getPhoneAssistantPolicy(tenantModels),
+      loadUserCapabilitiesContext(tenantModels, device.user_id),
+      tenantDbName ? getTenantPlan(tenantDbName) : Promise.resolve(null),
+      tenantModels.PhoneContact?.count
+        ? tenantModels.PhoneContact.count({
+            where: { operator_device_id: device.operator_device_id },
+          })
+        : Promise.resolve(0),
+      tenantModels.CallLog?.count
+        ? tenantModels.CallLog.count({
+            where: {
+              operator_device_id: device.operator_device_id,
+              started_at: { [Op.gte]: monthStart },
+            },
+          })
+        : Promise.resolve(0),
+      getAppVersionConfig(masterModelsOverride),
+      getCollectionsSettings(tenantModels),
+    ]);
 
   const { effective, reasons } = resolveDeviceCapabilities({
     device,
@@ -1441,6 +1508,14 @@ export const getDevicePolicy = async (
     ],
     min_app_version: versionConfig.min_app_version,
     latest_app_version: versionConfig.latest_app_version,
+    // The phone looks for and uploads call recordings only while `enabled` is true.
+    call_recording: {
+      enabled: collectionsSettings.call_recording.enabled,
+      mobileData: collectionsSettings.call_recording.mobileData,
+      deleteFromPhoneAfterUpload: collectionsSettings.call_recording.deleteFromPhoneAfterUpload,
+      // Only an administrator's phone is shown the recording setup step.
+      can_set_up: Boolean(userCtx.isAdmin),
+    },
   };
 };
 
