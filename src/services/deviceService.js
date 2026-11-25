@@ -5,6 +5,8 @@ import { getCachedTenantConnection } from "../config/database.js";
 import { initTenantModels } from "../models/index.js";
 import { getMasterModels } from "../models/master/index.js";
 import { getTenantPlan } from "./planService.js";
+import { getCollectionsSettings } from "./collectionsSettingsService.js";
+import { findPhonesMissingRecordings, getLatestRecordingByDevice } from "./callRecordingService.js";
 import { isUserAdmin } from "./userService.js";
 import { isPaymentLocked } from "../config/paymentNotice.js";
 import { parseJsonField } from "../utils/jsonFields.js";
@@ -914,6 +916,7 @@ const formatShopDevice = async (
     contactCountMap = null,
     callCountMap = null,
     lastRecordingMap = null,
+    recordingMissingMap = null,
     versionConfig = null,
   } = {},
 ) => {
@@ -992,6 +995,9 @@ const formatShopDevice = async (
     last_recording_received_at: lastRecordingMap
       ? lastRecordingMap.get(Number(device.operator_device_id)) ?? null
       : null,
+    recording_missing_since: recordingMissingMap
+      ? recordingMissingMap.get(Number(device.operator_device_id)) ?? null
+      : null,
     sim_filter: device.sim_filter ?? null,
     capabilities: granted,
     effective_capabilities: effective,
@@ -1065,7 +1071,7 @@ export const listShopDevices = async (
   const deviceIds = filtered.map((r) => r.operator_device_id);
   const contactCountMap = new Map();
   const callCountMap = new Map();
-  const lastRecordingMap = new Map();
+  const lastRecordingMap = await getLatestRecordingByDevice(tenantModels, deviceIds);
 
   if (deviceIds.length > 0 && tenantModels.sequelize?.fn) {
     if (tenantModels.PhoneContact?.findAll) {
@@ -1104,27 +1110,13 @@ export const listShopDevices = async (
         // Ignore mock SQL errors
       }
     }
-    if (tenantModels.CallRecording?.findAll) {
-      try {
-        const recLatest = await tenantModels.CallRecording.findAll({
-          where: { device_id: { [Op.in]: deviceIds } },
-          attributes: [
-            "device_id",
-            [tenantModels.sequelize.fn("MAX", tenantModels.sequelize.col("uploaded_at")), "last_at"],
-          ],
-          group: ["device_id"],
-          raw: true,
-        });
-        for (const r of recLatest || []) {
-          if (r.last_at) {
-            lastRecordingMap.set(Number(r.device_id), new Date(r.last_at).toISOString());
-          }
-        }
-      } catch {
-        // Ignore mock SQL errors
-      }
-    }
   }
+
+  const recordingMissingMap = await findPhonesMissingRecordings(
+    tenantModels,
+    filtered,
+    lastRecordingMap,
+  );
 
   const [{ policy }, plan, versionConfig] = await Promise.all([
     getPhoneAssistantPolicy(tenantModels),
@@ -1142,6 +1134,7 @@ export const listShopDevices = async (
         contactCountMap,
         callCountMap,
         lastRecordingMap,
+        recordingMissingMap,
         versionConfig,
       }),
     );
@@ -1371,25 +1364,27 @@ export const getDevicePolicy = async (
   const now = nowUtc();
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 
-  const [{ policy }, userCtx, plan, contactCount, callsThisMonth, versionConfig] = await Promise.all([
-    getPhoneAssistantPolicy(tenantModels),
-    loadUserCapabilitiesContext(tenantModels, device.user_id),
-    tenantDbName ? getTenantPlan(tenantDbName) : Promise.resolve(null),
-    tenantModels.PhoneContact?.count
-      ? tenantModels.PhoneContact.count({
-          where: { operator_device_id: device.operator_device_id },
-        })
-      : Promise.resolve(0),
-    tenantModels.CallLog?.count
-      ? tenantModels.CallLog.count({
-          where: {
-            operator_device_id: device.operator_device_id,
-            started_at: { [Op.gte]: monthStart },
-          },
-        })
-      : Promise.resolve(0),
-    getAppVersionConfig(masterModelsOverride),
-  ]);
+  const [{ policy }, userCtx, plan, contactCount, callsThisMonth, versionConfig, collectionsSettings] =
+    await Promise.all([
+      getPhoneAssistantPolicy(tenantModels),
+      loadUserCapabilitiesContext(tenantModels, device.user_id),
+      tenantDbName ? getTenantPlan(tenantDbName) : Promise.resolve(null),
+      tenantModels.PhoneContact?.count
+        ? tenantModels.PhoneContact.count({
+            where: { operator_device_id: device.operator_device_id },
+          })
+        : Promise.resolve(0),
+      tenantModels.CallLog?.count
+        ? tenantModels.CallLog.count({
+            where: {
+              operator_device_id: device.operator_device_id,
+              started_at: { [Op.gte]: monthStart },
+            },
+          })
+        : Promise.resolve(0),
+      getAppVersionConfig(masterModelsOverride),
+      getCollectionsSettings(tenantModels),
+    ]);
 
   const { effective, reasons } = resolveDeviceCapabilities({
     device,
@@ -1441,6 +1436,13 @@ export const getDevicePolicy = async (
     ],
     min_app_version: versionConfig.min_app_version,
     latest_app_version: versionConfig.latest_app_version,
+    // The phone looks for and uploads call recordings only while `enabled` is true.
+    call_recording: {
+      enabled: collectionsSettings.call_recording.enabled,
+      mobileData: collectionsSettings.call_recording.mobileData,
+      // Only an administrator's phone is shown the recording setup step.
+      can_set_up: Boolean(userCtx.isAdmin),
+    },
   };
 };
 
