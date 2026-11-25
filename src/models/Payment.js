@@ -21,6 +21,7 @@ export default (sequelize) => {
       voided_at: { type: DataTypes.DATE, allowNull: true },
       // The advance taken when the invoice was written (the cash locker holds cash advances until the invoice is completed).
       is_advance: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+      settlement_id: { type: DataTypes.INTEGER, allowNull: true },
     },
     {
       tableName: "PAYMENTS",

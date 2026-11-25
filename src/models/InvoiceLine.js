@@ -47,6 +47,7 @@ export default (sequelize) => {
         allowNull: false,
         defaultValue: true,
       },
+      settlement_id: { type: DataTypes.INTEGER, allowNull: true },
     },
     {
       tableName: "INVOICE_LINES",

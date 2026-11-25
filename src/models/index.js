@@ -39,6 +39,8 @@ import PushTemplateFactory from "./PushTemplate.js";
 import ActivityEventFactory from "./ActivityEvent.js";
 import ActivityEventCommentFactory from "./ActivityEventComment.js";
 import ActivityEventReadFactory from "./ActivityEventRead.js";
+import CustomerSettlementFactory from "./CustomerSettlement.js";
+import IdempotencyKeyFactory from "./IdempotencyKey.js";
 
 export const initTenantModels = (tenantConnection) => {
   const User = UserFactory(tenantConnection);
@@ -82,6 +84,8 @@ export const initTenantModels = (tenantConnection) => {
   const ActivityEvent = ActivityEventFactory(tenantConnection);
   const ActivityEventComment = ActivityEventCommentFactory(tenantConnection);
   const ActivityEventRead = ActivityEventReadFactory(tenantConnection);
+  const CustomerSettlement = CustomerSettlementFactory(tenantConnection);
+  const IdempotencyKey = IdempotencyKeyFactory(tenantConnection);
 
   // ==========================================
   // AUTH & USERS
@@ -305,6 +309,15 @@ export const initTenantModels = (tenantConnection) => {
   ActivityEventRead.belongsTo(ActivityEvent, { foreignKey: "event_id", constraints: false });
   ActivityEventRead.belongsTo(User, { foreignKey: "user_id", constraints: false });
 
+  // ── Customer settlements ──
+  CustomerSettlement.belongsTo(Customer, { foreignKey: "customer_id", constraints: false });
+  Customer.hasMany(CustomerSettlement, { foreignKey: "customer_id", constraints: false });
+  CustomerSettlement.belongsTo(User, { as: "SettledBy", foreignKey: "user_id", constraints: false });
+  CustomerSettlement.hasMany(Payment, { foreignKey: "settlement_id", constraints: false });
+  Payment.belongsTo(CustomerSettlement, { foreignKey: "settlement_id", constraints: false });
+  CustomerSettlement.hasMany(InvoiceLine, { foreignKey: "settlement_id", constraints: false });
+  InvoiceLine.belongsTo(CustomerSettlement, { foreignKey: "settlement_id", constraints: false });
+
   return {
     User,
     Role,
@@ -347,6 +360,8 @@ export const initTenantModels = (tenantConnection) => {
     ActivityEvent,
     ActivityEventComment,
     ActivityEventRead,
+    CustomerSettlement,
+    IdempotencyKey,
     sequelize: tenantConnection,
   };
 };
