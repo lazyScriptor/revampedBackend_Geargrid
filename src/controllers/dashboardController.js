@@ -84,13 +84,14 @@ export const getMaintenanceQueue = catchAsync(async (req, res) => {
 // OPEN INVOICES (money owed & equipment not returned)
 // ============================================================================
 export const getOpenInvoices = catchAsync(async (req, res) => {
-  const { view, olderThanDays, onlyOverdue, warehouseId, limit } = req.query;
+  const { view, olderThanDays, onlyOverdue, warehouseId, limit, callFilter } = req.query;
   const data = await dashboardService.getOpenInvoices(getModels(req), {
     view,
     olderThanDays,
     onlyOverdue,
     warehouseId: warehouseId ? parseInt(warehouseId, 10) : null,
     limit,
+    callFilter,
     tenantTz: resolveTenantTz(req),
   });
   res.status(200).json({ status: "success", data });

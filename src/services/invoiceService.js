@@ -1,6 +1,7 @@
 import { Op } from "sequelize";
 import { findCustomerIdsBySearch, isWholeNumber } from "../utils/customerSearch.js";
 import AppError from "../utils/AppError.js";
+import { getCollectionsSettings } from "./collectionsSettingsService.js";
 import { liveTotalOf, owedAmount } from "../utils/invoiceBalance.js";
 import { refreshAccruals } from "./accrualService.js";
 import { touchCustomerBrief } from "./customerBriefService.js";
@@ -523,6 +524,15 @@ export const getInvoiceById = async (models, invoiceId) => {
   });
 
   if (!invoice) throw new AppError("Invoice not found", 404);
+  const settings = await getCollectionsSettings(models).catch(() => null);
+  const rec = settings?.call_recording;
+  if (rec?.termsLineEnabled && typeof invoice.setDataValue === "function") {
+    invoice.setDataValue("call_recording_terms", {
+      enabled: true,
+      en: rec.termsLine_en,
+      si: rec.termsLine_si,
+    });
+  }
   return invoice;
 };
 

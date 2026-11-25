@@ -1,4 +1,5 @@
 import express from "express";
+import multer from "multer";
 import rateLimit from "express-rate-limit";
 import {
   RegisterDeviceContract,
@@ -43,6 +44,13 @@ import * as pushEventService from "../services/pushEventService.js";
 import * as invoiceService from "../services/invoiceService.js";
 import * as customerBriefService from "../services/customerBriefService.js";
 import * as callLogService from "../services/callLogService.js";
+import * as callRecordingService from "../services/callRecordingService.js";
+import catchAsync from "../utils/catchAsync.js";
+
+const recordingUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: callRecordingService.MAX_RECORDING_BYTES },
+});
 
 const router = express.Router();
 
@@ -349,5 +357,40 @@ router.post("/activity/:id/comments", requireDevicePermission("activity:view"), 
     next(err);
   }
 });
+
+router.post(
+  "/calls/:clientCallId/recording",
+  requireDeviceCapability("call_logging"),
+  (req, res, next) => {
+    recordingUpload.any()(req, res, (err) => {
+      if (err) {
+        if (err.code === "LIMIT_FILE_SIZE") {
+          return next(
+            new AppError("Recording exceeds maximum size of 50 MB.", 413, "recording_too_large"),
+          );
+        }
+        return next(new AppError(err.message || "Invalid recording upload.", 400));
+      }
+      return next();
+    });
+  },
+  catchAsync(async (req, res) => {
+    const file =
+      req.file ||
+      (Array.isArray(req.files)
+        ? req.files.find((f) => f.fieldname === "recording" || f.fieldname === "file") ||
+          req.files[0]
+        : null);
+    const data = await callRecordingService.uploadDeviceCallRecording(
+      req.tenantModels,
+      req.tenantDbName,
+      req.device,
+      req.params.clientCallId,
+      file,
+      req.body,
+    );
+    res.status(201).json({ status: "success", data });
+  }),
+);
 
 export default router;
