@@ -6,6 +6,7 @@ import { initTenantModels } from "../models/index.js";
 import { getMasterModels } from "../models/master/index.js";
 import { getTenantPlan } from "./planService.js";
 import { getCollectionsSettings } from "./collectionsSettingsService.js";
+import { findPhonesMissingRecordings, getLatestRecordingByDevice } from "./callRecordingService.js";
 import { isUserAdmin } from "./userService.js";
 import { isPaymentLocked } from "../config/paymentNotice.js";
 import { parseJsonField } from "../utils/jsonFields.js";
@@ -1008,59 +1009,6 @@ const formatShopDevice = async (
   };
 };
 
-// A recording may wait for Wi-Fi, so a call counts as missing one only after this long.
-const RECORDING_GRACE_MS = 24 * 60 * 60 * 1000;
-// Calls older than this no longer raise the warning.
-const RECORDING_LOOKBACK_MS = 14 * 24 * 60 * 60 * 1000;
-
-/**
- * Phones that should be sending call recordings but are not (spec 9.2.8 point 4): recording is on,
- * and the phone logged an answered call after its last recording that is still without one a day later.
- * Returns Map(operator_device_id -> ISO date to show as "no recordings since").
- */
-export const findPhonesMissingRecordings = async (
-  tenantModels,
-  devices,
-  lastRecordingMap,
-  { now = new Date() } = {},
-) => {
-  const missing = new Map();
-  if (!tenantModels.CallLog?.findOne) return missing;
-  const { call_recording: recording, calls } = await getCollectionsSettings(tenantModels);
-  if (!recording.enabled) return missing;
-
-  const enabledAtMs = recording.enabledAt ? new Date(recording.enabledAt).getTime() : 0;
-
-  for (const device of devices) {
-    if (!device.is_native_app || (device.status || "ACTIVE") !== "ACTIVE") continue;
-    const id = Number(device.operator_device_id);
-    const lastReceived = lastRecordingMap.get(id) ?? null;
-    const since = new Date(
-      Math.max(
-        lastReceived ? new Date(lastReceived).getTime() : 0,
-        enabledAtMs,
-        now.getTime() - RECORDING_LOOKBACK_MS,
-      ),
-    );
-    const until = new Date(now.getTime() - RECORDING_GRACE_MS);
-    if (since >= until) continue;
-    const call = await tenantModels.CallLog.findOne({
-      where: {
-        operator_device_id: id,
-        source: "phone",
-        duration_seconds: { [Op.gte]: Math.max(1, calls.answeredThresholdSeconds) },
-        started_at: { [Op.gt]: since, [Op.lte]: until },
-      },
-      attributes: ["call_id", "started_at"],
-      order: [["started_at", "ASC"]],
-    });
-    if (call) {
-      missing.set(id, lastReceived ?? new Date(call.started_at).toISOString());
-    }
-  }
-  return missing;
-};
-
 export const listShopDevices = async (
   tenantModels,
   tenantDbName = null,
@@ -1123,7 +1071,7 @@ export const listShopDevices = async (
   const deviceIds = filtered.map((r) => r.operator_device_id);
   const contactCountMap = new Map();
   const callCountMap = new Map();
-  const lastRecordingMap = new Map();
+  const lastRecordingMap = await getLatestRecordingByDevice(tenantModels, deviceIds);
 
   if (deviceIds.length > 0 && tenantModels.sequelize?.fn) {
     if (tenantModels.PhoneContact?.findAll) {
@@ -1157,26 +1105,6 @@ export const listShopDevices = async (
         });
         for (const c of callCounts || []) {
           callCountMap.set(Number(c.operator_device_id), Number(c.cnt) || 0);
-        }
-      } catch {
-        // Ignore mock SQL errors
-      }
-    }
-    if (tenantModels.CallRecording?.findAll) {
-      try {
-        const recLatest = await tenantModels.CallRecording.findAll({
-          where: { device_id: { [Op.in]: deviceIds } },
-          attributes: [
-            "device_id",
-            [tenantModels.sequelize.fn("MAX", tenantModels.sequelize.col("uploaded_at")), "last_at"],
-          ],
-          group: ["device_id"],
-          raw: true,
-        });
-        for (const r of recLatest || []) {
-          if (r.last_at) {
-            lastRecordingMap.set(Number(r.device_id), new Date(r.last_at).toISOString());
-          }
         }
       } catch {
         // Ignore mock SQL errors
@@ -1512,7 +1440,6 @@ export const getDevicePolicy = async (
     call_recording: {
       enabled: collectionsSettings.call_recording.enabled,
       mobileData: collectionsSettings.call_recording.mobileData,
-      deleteFromPhoneAfterUpload: collectionsSettings.call_recording.deleteFromPhoneAfterUpload,
       // Only an administrator's phone is shown the recording setup step.
       can_set_up: Boolean(userCtx.isAdmin),
     },

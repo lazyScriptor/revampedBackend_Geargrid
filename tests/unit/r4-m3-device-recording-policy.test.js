@@ -9,10 +9,12 @@ vi.mock("../../src/services/planService.js", () => ({
 vi.mock("../../src/services/userService.js", () => ({
   isUserAdmin: vi.fn().mockReturnValue(false),
   userHasPermission: vi.fn().mockResolvedValue(true),
+  listAdminUserIds: vi.fn().mockResolvedValue([1]),
 }));
 
 vi.mock("../../src/services/devicePushService.js", () => ({
   sendDataPush: vi.fn().mockResolvedValue({ ok: true }),
+  sendToUsers: vi.fn().mockResolvedValue({ sent: 1, reached: 1 }),
   sendPushToDevice: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
@@ -21,8 +23,10 @@ vi.mock("../../src/sockets/emitters.js", () => ({
   emitToUser: vi.fn(),
 }));
 
-import { findPhonesMissingRecordings, getDevicePolicy } from "../../src/services/deviceService.js";
-import { uploadDeviceCallRecording } from "../../src/services/callRecordingService.js";
+import { getDevicePolicy } from "../../src/services/deviceService.js";
+import { findPhonesMissingRecordings, uploadDeviceCallRecording } from "../../src/services/callRecordingService.js";
+import { sendDailySummaryPush } from "../../src/services/pushEventService.js";
+import { sendToUsers } from "../../src/services/devicePushService.js";
 import { updateCollectionsSettings } from "../../src/services/collectionsSettingsService.js";
 import { isUserAdmin } from "../../src/services/userService.js";
 
@@ -94,7 +98,6 @@ describe("R4-M3 device policy call_recording config", () => {
     expect(policy.call_recording).toEqual({
       enabled: false,
       mobileData: false,
-      deleteFromPhoneAfterUpload: false,
       can_set_up: false,
     });
   });
@@ -108,7 +111,6 @@ describe("R4-M3 device policy call_recording config", () => {
     expect(policy.call_recording).toEqual({
       enabled: true,
       mobileData: true,
-      deleteFromPhoneAfterUpload: true,
       can_set_up: true,
     });
   });
@@ -223,5 +225,80 @@ describe("R4-M3 recording upload retries", () => {
     const held = setup(stored("old-audio", { dispute_hold: true }));
     await uploadDeviceCallRecording(held.models, "t1", { operator_device_id: 2 }, "c-300", audio("new-audio"), {}, { storage: held.storage });
     expect(held.storage.deleteObject).not.toHaveBeenCalled();
+  });
+});
+
+describe("R4-M3 recording uploads stay on the phone's own calls", () => {
+  const audio = { originalname: "call.m4a", mimetype: "audio/mp4", size: 5, buffer: Buffer.from("audio") };
+
+  it("answers 404 and stores nothing when another phone logged the call", async () => {
+    const calls = [{ call_id: 300, client_call_id: "c-300", operator_device_id: 2 }];
+    const storage = { putObject: vi.fn() };
+    const models = {
+      TenantConfig: {
+        findOne: vi.fn().mockResolvedValue({ custom_settings: { call_recording: { enabled: true } } }),
+      },
+      CallLog: {
+        findOne: vi.fn(async ({ where }) =>
+          calls.find((c) => Object.entries(where).every(([key, value]) => c[key] === value)) ?? null,
+        ),
+      },
+      CallRecording: {
+        findOne: vi.fn().mockResolvedValue(null),
+        create: vi.fn(async (data) => ({ recording_id: 1, ...data })),
+      },
+    };
+    const upload = (device) =>
+      uploadDeviceCallRecording(models, "t1", device, "c-300", audio, {}, { storage });
+
+    await expect(upload({ operator_device_id: 9 })).rejects.toMatchObject({ statusCode: 404 });
+    await expect(upload({})).rejects.toMatchObject({ statusCode: 404 });
+    expect(storage.putObject).not.toHaveBeenCalled();
+
+    await expect(upload({ operator_device_id: 2 })).resolves.toMatchObject({ call_id: 300 });
+  });
+});
+
+describe("R4-M3 daily summary line for silent phones", () => {
+  const shop = (recordingOn) => ({
+    TenantConfig: {
+      findOne: vi.fn().mockResolvedValue({
+        timezone: "Asia/Colombo",
+        custom_settings: {
+          call_recording: { enabled: recordingOn },
+          phone_assistant: { push: { daily_summary: { enabled: true, recipient_role_ids: [3] } } },
+        },
+      }),
+    },
+    OperatorDevice: {
+      findAll: vi.fn().mockResolvedValue([
+        { operator_device_id: 11, user_id: 7, is_native_app: true, status: "ACTIVE" },
+      ]),
+    },
+    CallLog: {
+      findOne: vi.fn().mockResolvedValue({ call_id: 5, started_at: "2026-11-20T04:00:00.000Z" }),
+    },
+    // listUserIdsByRoles and the staff-name lookup both read users.
+    User: {
+      findAll: vi.fn().mockResolvedValue([{ user_id: 7, first_name: "Kasun" }]),
+    },
+    Role: {},
+  });
+  const now = new Date("2026-11-25T12:00:00.000Z");
+
+  beforeEach(() => vi.clearAllMocks());
+
+  it("tells administrators only", async () => {
+    const result = await sendDailySummaryPush(shop(true), { now });
+    expect(result.admin_body).toContain("no call recordings: Kasun since 20 Nov");
+    const bodies = new Map(sendToUsers.mock.calls.map(([, users, message]) => [users.join(), message.body]));
+    expect(bodies.get("1")).toContain("no call recordings");
+    expect(bodies.get("7")).not.toContain("no call recordings");
+  });
+
+  it("adds nothing when recording is off", async () => {
+    const result = await sendDailySummaryPush(shop(false), { now });
+    expect(result.admin_body).toBeUndefined();
+    expect(sendToUsers).toHaveBeenCalledTimes(1);
   });
 });

@@ -8,6 +8,7 @@ import { isUserAdmin, listAdminUserIds } from "./userService.js";
 import { getTenantPlan } from "./planService.js";
 import { dayInShopTz } from "../utils/rentalDays.js";
 import { liveTotalOf, owedAmount } from "../utils/invoiceBalance.js";
+import { findPhonesMissingRecordings, getLatestRecordingByDevice } from "./callRecordingService.js";
 import { getPhoneAssistantPolicy } from "./phoneAssistantPolicyService.js";
 import { renderForRecipient, resolveNotificationLanguage } from "./pushTemplateService.js";
 
@@ -633,6 +634,40 @@ export const flushPushDigests = async ({ now = new Date(), force = false } = {})
   return { flushed };
 };
 
+/** "no call recordings: Kasun since 20 Nov", or null when every phone is fine (or recording is off). */
+const missingRecordingsLine = async (models, { now, timezone }) => {
+  if (!models?.OperatorDevice?.findAll || !models?.User?.findAll) return null;
+  try {
+    const devices = await models.OperatorDevice.findAll({
+      where: { status: "ACTIVE", is_native_app: true },
+    });
+    const ids = devices.map((d) => d.operator_device_id);
+    const missing = await findPhonesMissingRecordings(
+      models,
+      devices,
+      await getLatestRecordingByDevice(models, ids),
+      { now },
+    );
+    if (missing.size === 0) return null;
+
+    const silentPhones = devices.filter((d) => missing.has(Number(d.operator_device_id)));
+    const users = await models.User.findAll({
+      where: { user_id: { [Op.in]: silentPhones.map((d) => d.user_id) } },
+      attributes: ["user_id", "first_name", "username"],
+    });
+    const nameOf = new Map(users.map((u) => [Number(u.user_id), u.first_name || u.username]));
+    const day = new Intl.DateTimeFormat("en-GB", { timeZone: timezone, day: "numeric", month: "short" });
+    const list = silentPhones.map((d) => {
+      const name = nameOf.get(Number(d.user_id)) || d.device_label || d.device_id;
+      return `${name} since ${day.format(new Date(missing.get(Number(d.operator_device_id))))}`;
+    });
+    return `no call recordings: ${list.join(", ")}`;
+  } catch (err) {
+    console.warn(`Daily summary: could not check call recordings: ${err.message}`);
+    return null;
+  }
+};
+
 export const sendDailySummaryPush = async (models, { now = new Date(), tenantDbName = null } = {}) => {
   const config = models?.TenantConfig?.findOne ? await models.TenantConfig.findOne() : null;
   const settings = readStoredPushSettings(config);
@@ -787,19 +822,38 @@ export const sendDailySummaryPush = async (models, { now = new Date(), tenantDbN
   const body = parts.join(" · ") || "No activity today.";
   const silent = isWithinQuietHours(settings.quiet_hours, now, tz);
 
-  const res = await devicePushService.sendToUsers(models, recipients, {
-    title,
-    body,
-    data: { type: "daily_summary", date: todayYmd },
-    silent,
-    channel: silent ? "bills_silent" : "digest",
-  });
+  // Only administrators are told which phones are not sending call recordings.
+  const recordingLine = await missingRecordingsLine(models, { now, timezone: tz });
+  const admins = new Set((adminIds || []).map(Number));
+  const adminBody = recordingLine ? `${body} · ${recordingLine}` : null;
+  const audiences = adminBody
+    ? [
+        { users: recipients.filter((id) => admins.has(id)), text: adminBody },
+        { users: recipients.filter((id) => !admins.has(id)), text: body },
+      ]
+    : [{ users: recipients, text: body }];
+
+  let sent = 0;
+  let reached = 0;
+  for (const { users, text } of audiences) {
+    if (users.length === 0) continue;
+    const res = await devicePushService.sendToUsers(models, users, {
+      title,
+      body: text,
+      data: { type: "daily_summary", date: todayYmd },
+      silent,
+      channel: silent ? "bills_silent" : "digest",
+    });
+    sent += Number(res?.sent ?? 0);
+    reached += Number(res?.reached ?? 0);
+  }
 
   return {
-    sent: Number(res?.sent ?? 0),
-    reached: Number(res?.reached ?? 0),
+    sent,
+    reached,
     title,
     body,
+    ...(adminBody ? { admin_body: adminBody } : {}),
     recipients,
   };
 };
