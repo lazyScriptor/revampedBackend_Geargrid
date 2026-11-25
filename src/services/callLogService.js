@@ -778,7 +778,7 @@ export const purgeExpiredCallLogs = async (
       where: { dispute_hold: true },
       attributes: ["call_id"],
       raw: true,
-    }).catch(() => []);
+    });
     heldCallIds = (heldRows || []).map((r) => Number(r.call_id)).filter((id) => id > 0);
 
     const expiredRecs = await models.CallRecording.findAll({
@@ -1380,6 +1380,43 @@ export const updateFollowUp = async (models, noteId, body = {}, { now = new Date
   };
 };
 
+// FUTURE (super admin setting): how long an unticked follow-up keeps reminding.
+const FOLLOW_UP_REMINDER_DAYS = 7;
+
+/**
+ * Put "Call again today" in the activity feed, once per note. The phone push is sent separately
+ * as `follow_up_due`, so this event sends none.
+ */
+const recordCallAgainToday = async (models, note, todayStr, now) => {
+  if (!models.ActivityEvent?.findAll) return false;
+  const todays = await models.ActivityEvent.findAll({
+    where: { type: "system", occurred_at: { [Op.gte]: new Date(now.getTime() - DAY_MS) } },
+    attributes: ["data"],
+  });
+  const noteId = Number(note.note_id);
+  const already = (todays || []).some((e) => {
+    const data = parseJsonField(e.data, {});
+    return (
+      data.kind === "call_again_today" && Number(data.note_id) === noteId && data.follow_up_on === todayStr
+    );
+  });
+  if (already) return false;
+  await recordActivity(models, {
+    type: "system",
+    invoice_id: normalizeInvoiceIds(note.invoice_ids)[0] ?? null,
+    customer_id: note.customer_id != null ? Number(note.customer_id) : null,
+    data: {
+      kind: "call_again_today",
+      note_id: noteId,
+      call_id: Number(note.call_id),
+      follow_up_on: todayStr,
+      ...(note.note ? { note: String(note.note).slice(0, 120) } : {}),
+    },
+    occurred_at: now,
+  });
+  return true;
+};
+
 /**
  * D3: Send push notifications for due/overdue follow-up items (`follow_up_due`).
  */
@@ -1390,7 +1427,12 @@ export const sendDueFollowUpPushes = async (models, tenantDbName, { now = new Da
   const todayStr = dayInShopTz(now);
   const dueNotes = await models.CallNote.findAll({
     where: {
-      follow_up_on: { [Op.lte]: todayStr },
+      follow_up_on: {
+        [Op.between]: [
+          dayInShopTz(new Date(now.getTime() - FOLLOW_UP_REMINDER_DAYS * DAY_MS)),
+          todayStr,
+        ],
+      },
       follow_up_done_at: null,
     },
     include: [
@@ -1446,12 +1488,18 @@ export const sendDueFollowUpPushes = async (models, tenantDbName, { now = new Da
       },
     }).catch(() => {});
     sentCount += 1;
+
+    if (String(note.follow_up_on).slice(0, 10) === todayStr) {
+      await recordCallAgainToday(models, note, todayStr, now).catch((err) => {
+        console.warn("[follow-ups] call-again event not recorded:", err?.message || err);
+      });
+    }
   }
 
-  const promiseResult = await evaluateCallPromises(models, tenantDbName, { now }).catch(() => ({
-    kept: 0,
-    missed: 0,
-  }));
+  const promiseResult = await evaluateCallPromises(models, tenantDbName, { now }).catch((err) => {
+    console.warn("[follow-ups] promise check failed:", err?.message || err);
+    return { kept: 0, missed: 0 };
+  });
 
   return {
     sent_count: sentCount,
@@ -1548,7 +1596,9 @@ export const evaluateCallPromises = async (models, _tenantDbName, { now = new Da
           risk: "normal",
         },
         {},
-      ).catch(() => {});
+      ).catch((err) => {
+        console.warn("[follow-ups] promise-missed event not recorded:", err?.message || err);
+      });
       missed += 1;
     }
   }

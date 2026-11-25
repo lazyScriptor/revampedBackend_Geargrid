@@ -261,6 +261,18 @@ export const buildEventSentence = (type, { invoice_id, amount, data = {}, custom
         en: joinParts([`Customer payment ${amtStr}`.trim(), cust, staff]),
         si: joinParts([`පාරිභෝගික ගෙවීම ${amtStr}`.trim(), cust, staff]),
       };
+    case "system":
+      if (data?.kind === "call_again_today") {
+        const note = data?.note || "";
+        return {
+          en: joinParts(["Call again today", cust, inv, note]),
+          si: joinParts(["අද නැවත අමතන්න", cust, inv, note]),
+        };
+      }
+      return {
+        en: joinParts([data?.title || "System event", inv, cust, staff]),
+        si: joinParts([data?.title_si || data?.title || "පද්ධති සිදුවීම", inv, cust, staff]),
+      };
     case "call_promise_missed":
       return {
         en: joinParts([`Promise missed ${amtStr}`.trim(), cust, inv]),
@@ -547,13 +559,16 @@ const buildActivityWhere = (models, query = {}, { userId, allowedTypes } = {}) =
     where.customer_id = Number(query.customer_id);
   }
 
+  // One bill's own history (the bill screens), apart from the "bill number" search box.
+  if (query.invoice_id !== undefined && query.invoice_id !== "") {
+    const id = Number(query.invoice_id);
+    where.invoice_id = Number.isInteger(id) && id > 0 ? id : -1;
+  }
+
   if (query.invoice) {
     const invNum = String(query.invoice).replace(/[^0-9]/g, "");
-    if (invNum) {
-      where.invoice_id = Number(invNum);
-    } else {
-      where.invoice_id = -1;
-    }
+    const wanted = invNum ? Number(invNum) : -1;
+    where.invoice_id = where.invoice_id === undefined || where.invoice_id === wanted ? wanted : -1;
   }
 
   if (query.amount_min !== undefined && query.amount_min !== "" && query.amount_min !== null) {
