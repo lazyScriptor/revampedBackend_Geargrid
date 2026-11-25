@@ -780,6 +780,9 @@ export const previewSettlement = async (
   for (const p of paymentsInput) {
     const amt = round2(Number(p.amount || 0));
     if (amt <= 0) continue;
+    if (["wallet", "walletdeposit"].includes(String(p.method || "").toLowerCase())) {
+      throw new AppError("Use the wallet credit option to pay from the customer's wallet, not a payment method.", 400);
+    }
     const pDate = resolvePastOrToday(p.payment_date, "payment date", now);
     const pYmd = dayInShopTz(pDate);
     const pDaysBack = Math.max(0, wholeDaysBetween(pYmd, todayYmd));
@@ -1049,7 +1052,7 @@ export const previewSettlement = async (
   const paymentSources = [
     ...normalizedPayments.map((p) => ({ ...p, remCents: toCents(p.amount), isWallet: false })),
     ...(walletCents > 0
-      ? [{ amount: fromCents(walletCents), method: "Wallet", payment_date: now, payment_ymd: todayYmd, days_back: 0, date_reason: null, remCents: walletCents, isWallet: true }]
+      ? [{ amount: fromCents(walletCents), method: "WalletDeposit", payment_date: now, payment_ymd: todayYmd, days_back: 0, date_reason: null, remCents: walletCents, isWallet: true }]
       : []),
   ];
 
