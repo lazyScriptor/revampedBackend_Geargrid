@@ -89,7 +89,7 @@ describe("reopenInvoice", () => {
 describe("discount and payments stay open until completion", () => {
   it("a discount can be given after everything is returned, and lowers the total", async () => {
     const m = makeModels({ invoice: base() });
-    await updateInvoiceFees(m, 9, { discount_amount: 1500 }, 3);
+    await updateInvoiceFees(m, 9, { discount_amount: 1500, discount_reason: { key: "regular_customer" } }, 3);
     expect(m._inv.total_amount).toBe(8500);
     expect(m._inv.discount_amount).toBe(1500);
   });
