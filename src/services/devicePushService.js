@@ -225,7 +225,7 @@ export const sendToUsers = async (
       const res = await sendPushToDevice(models, device, {
         title: text.title,
         body: text.body,
-        data,
+        data: text.data ? { ...data, ...text.data } : data,
         silent,
         channel,
       });

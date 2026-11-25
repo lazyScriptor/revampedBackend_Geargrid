@@ -32,8 +32,15 @@ import PhoneContactFactory from "./PhoneContact.js";
 import PushPreferenceFactory from "./PushPreference.js";
 import CallLogFactory from "./CallLog.js";
 import CallNoteFactory from "./CallNote.js";
+import CallRecordingFactory from "./CallRecording.js";
+import CallRecordingListenFactory from "./CallRecordingListen.js";
 import DeviceAuditLogFactory from "./DeviceAuditLog.js";
 import PushTemplateFactory from "./PushTemplate.js";
+import ActivityEventFactory from "./ActivityEvent.js";
+import ActivityEventCommentFactory from "./ActivityEventComment.js";
+import ActivityEventReadFactory from "./ActivityEventRead.js";
+import CustomerSettlementFactory from "./CustomerSettlement.js";
+import IdempotencyKeyFactory from "./IdempotencyKey.js";
 
 export const initTenantModels = (tenantConnection) => {
   const User = UserFactory(tenantConnection);
@@ -70,8 +77,15 @@ export const initTenantModels = (tenantConnection) => {
   const PushPreference = PushPreferenceFactory(tenantConnection);
   const CallLog = CallLogFactory(tenantConnection);
   const CallNote = CallNoteFactory(tenantConnection);
+  const CallRecording = CallRecordingFactory(tenantConnection);
+  const CallRecordingListen = CallRecordingListenFactory(tenantConnection);
   const DeviceAuditLog = DeviceAuditLogFactory(tenantConnection);
   const PushTemplate = PushTemplateFactory(tenantConnection);
+  const ActivityEvent = ActivityEventFactory(tenantConnection);
+  const ActivityEventComment = ActivityEventCommentFactory(tenantConnection);
+  const ActivityEventRead = ActivityEventReadFactory(tenantConnection);
+  const CustomerSettlement = CustomerSettlementFactory(tenantConnection);
+  const IdempotencyKey = IdempotencyKeyFactory(tenantConnection);
 
   // ==========================================
   // AUTH & USERS
@@ -243,7 +257,13 @@ export const initTenantModels = (tenantConnection) => {
   PhoneContact.belongsTo(OperatorDevice, { foreignKey: "operator_device_id" });
   PhoneContact.belongsTo(Customer, { as: "LinkedCustomer", foreignKey: "linked_customer_id" });
   PhoneContact.belongsTo(User, { as: "LastUsedBy", foreignKey: "last_used_by_user_id" });
-  Customer.belongsTo(PhoneContact, { as: "SourceContact", foreignKey: "source_contact_id" });
+  // Break FK cycle (Customer <-> PhoneContact) so Sequelize sync() does not fall back to alter: true;
+  // the database FK constraint remains intact via migrations.
+  Customer.belongsTo(PhoneContact, {
+    as: "SourceContact",
+    foreignKey: "source_contact_id",
+    constraints: false,
+  });
 
   // ── Phone Assistant push preferences ──
   User.hasMany(PushPreference, { foreignKey: "user_id" });
@@ -264,10 +284,39 @@ export const initTenantModels = (tenantConnection) => {
   CallNote.belongsTo(PhoneContact, { foreignKey: "contact_id" });
   User.hasMany(CallNote, { foreignKey: "created_by_user_id", onDelete: "SET NULL" });
   CallNote.belongsTo(User, { as: "Author", foreignKey: "created_by_user_id" });
+  CallLog.belongsTo(User, { as: "ManualUser", foreignKey: "user_id", constraints: false });
+  CallLog.hasOne(CallRecording, { foreignKey: "call_id", onDelete: "CASCADE" });
+  CallRecording.belongsTo(CallLog, { foreignKey: "call_id" });
+  CallRecording.hasMany(CallRecordingListen, { foreignKey: "recording_id", onDelete: "CASCADE" });
+  CallRecordingListen.belongsTo(CallRecording, { foreignKey: "recording_id" });
+  CallRecordingListen.belongsTo(User, { as: "Listener", foreignKey: "user_id" });
 
   // ── Cash locker ──
   CashLockerCount.belongsTo(User, { as: "CountedBy", foreignKey: "counted_by_user_id" });
   CashLockerCount.belongsTo(User, { as: "ReviewedBy", foreignKey: "reviewed_by_user_id" });
+
+  // ── Activity feed ──
+  ActivityEvent.belongsTo(Invoice, { foreignKey: "invoice_id", constraints: false });
+  Invoice.hasMany(ActivityEvent, { foreignKey: "invoice_id", constraints: false });
+  ActivityEvent.belongsTo(Customer, { foreignKey: "customer_id", constraints: false });
+  Customer.hasMany(ActivityEvent, { foreignKey: "customer_id", constraints: false });
+  ActivityEvent.belongsTo(User, { as: "Actor", foreignKey: "actor_user_id", constraints: false });
+  ActivityEvent.belongsTo(User, { as: "CheckedBy", foreignKey: "checked_by", constraints: false });
+  ActivityEvent.hasMany(ActivityEventComment, { as: "Comments", foreignKey: "event_id", constraints: false });
+  ActivityEventComment.belongsTo(ActivityEvent, { foreignKey: "event_id", constraints: false });
+  ActivityEventComment.belongsTo(User, { as: "Author", foreignKey: "user_id", constraints: false });
+  ActivityEvent.hasMany(ActivityEventRead, { as: "Reads", foreignKey: "event_id", constraints: false });
+  ActivityEventRead.belongsTo(ActivityEvent, { foreignKey: "event_id", constraints: false });
+  ActivityEventRead.belongsTo(User, { foreignKey: "user_id", constraints: false });
+
+  // ── Customer settlements ──
+  CustomerSettlement.belongsTo(Customer, { foreignKey: "customer_id", constraints: false });
+  Customer.hasMany(CustomerSettlement, { foreignKey: "customer_id", constraints: false });
+  CustomerSettlement.belongsTo(User, { as: "SettledBy", foreignKey: "user_id", constraints: false });
+  CustomerSettlement.hasMany(Payment, { foreignKey: "settlement_id", constraints: false });
+  Payment.belongsTo(CustomerSettlement, { foreignKey: "settlement_id", constraints: false });
+  CustomerSettlement.hasMany(InvoiceLine, { foreignKey: "settlement_id", constraints: false });
+  InvoiceLine.belongsTo(CustomerSettlement, { foreignKey: "settlement_id", constraints: false });
 
   return {
     User,
@@ -304,8 +353,15 @@ export const initTenantModels = (tenantConnection) => {
     PushPreference,
     CallLog,
     CallNote,
+    CallRecording,
+    CallRecordingListen,
     DeviceAuditLog,
     PushTemplate,
+    ActivityEvent,
+    ActivityEventComment,
+    ActivityEventRead,
+    CustomerSettlement,
+    IdempotencyKey,
     sequelize: tenantConnection,
   };
 };

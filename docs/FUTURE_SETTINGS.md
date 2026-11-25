@@ -12,6 +12,8 @@ finds them.
 | Call screen text sizes and card height cap | sizes in `shared/geargrid-contracts/src/callScreenTokens.json`; cap `70` percent of screen height | `callScreenTokens.json` (copied into the web app and the Android project) | Release 3 offers four sizes (compact to extra large) and keeps the call card under 70 % of the screen. The owner may want to tune the point sizes or the cap per shop; today they are fixed for every shop. |
 | Notification languages offered | `en`, `si`, `ta`, `si-Latn` | `src/config/pushLanguages.js` | Adding a language is a catalog entry plus default templates. A super admin screen could switch languages on or off per shop; today a shop narrows the list itself with `notifications.allowed_languages`. |
 | Notification format options | currency `LKR` / `Rs.` / `රු.`; date `yyyy-mm-dd` / `dd MMM` / `dd/mm`; time `24h` / `12h`; digits `latin` | `src/services/pushTemplateService.js`, policy `notifications.format` | `digits` is fixed to `latin` and listed so it is explicit. Sinhala or Tamil numerals could be offered later. |
+| Follow-up reminder window | `7` days | `FOLLOW_UP_REMINDER_DAYS` in `src/services/callLogService.js` | An unticked "call again" follow-up reminds every morning for this many days, then stops reminding. |
+| Daily job times | reminders `09:00`, call clean-up `02:30`, Asia/Colombo | `src/utils/cronJobs.js` | When follow-up reminders and promise checks run, and when old call logs and recordings are deleted. |
 
 ## When building the super admin control
 

@@ -44,6 +44,10 @@ const PERMISSION_CATALOG = [
   { permission_code: "locker:manage", module_name: "Cash Locker", description: "See the cash locker history, accept differences and set the float" },
   { permission_code: "invoice:print_log:view", module_name: "Invoices", description: "View POS bill printing audit logs" },
 
+  // Activity Feed
+  { permission_code: "activity:view", module_name: "Activity", description: "View the shop-wide activity feed and summary" },
+  { permission_code: "activity:check", module_name: "Activity", description: "Mark activity events checked and view per-staff summaries" },
+
   // Equipment
   { permission_code: "equipment:create", module_name: "Equipment", description: "Add new equipment" },
   { permission_code: "equipment:view", module_name: "Equipment", description: "View equipment list" },
@@ -122,6 +126,7 @@ const PERMISSION_CATALOG = [
 
   // Phone Assistant
   { permission_code: "calls:view", module_name: "Phone Assistant", description: "See incoming call briefs and call history" },
+  { permission_code: "calls:listen", module_name: "Phone Assistant", description: "Listen to call recordings" },
   { permission_code: "phone_contacts:view", module_name: "Phone Assistant", description: "Search synced phone contacts when billing" },
   { permission_code: "devices:manage", module_name: "Phone Assistant", description: "View, approve, suspend, revoke and configure shop phones" },
   { permission_code: "call_notes:write", module_name: "Phone Assistant", description: "Add after-call notes, outcomes and follow-ups" },

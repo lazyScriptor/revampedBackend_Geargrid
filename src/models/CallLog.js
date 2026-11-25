@@ -11,7 +11,23 @@ export default (sequelize) => {
       },
       operator_device_id: {
         type: DataTypes.INTEGER,
+        allowNull: true,
+      },
+      source: {
+        type: DataTypes.ENUM("phone", "manual"),
         allowNull: false,
+        defaultValue: "phone",
+        validate: {
+          isIn: [["phone", "manual"]],
+        },
+      },
+      user_id: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+      },
+      invoice_ids: {
+        type: DataTypes.JSON,
+        allowNull: true,
       },
       client_call_id: {
         type: DataTypes.STRING(64),

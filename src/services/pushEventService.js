@@ -8,6 +8,7 @@ import { isUserAdmin, listAdminUserIds } from "./userService.js";
 import { getTenantPlan } from "./planService.js";
 import { dayInShopTz } from "../utils/rentalDays.js";
 import { liveTotalOf, owedAmount } from "../utils/invoiceBalance.js";
+import { findPhonesMissingRecordings, getLatestRecordingByDevice } from "./callRecordingService.js";
 import { getPhoneAssistantPolicy } from "./phoneAssistantPolicyService.js";
 import { renderForRecipient, resolveNotificationLanguage } from "./pushTemplateService.js";
 
@@ -633,6 +634,40 @@ export const flushPushDigests = async ({ now = new Date(), force = false } = {})
   return { flushed };
 };
 
+/** "no call recordings: Kasun since 20 Nov", or null when every phone is fine (or recording is off). */
+const missingRecordingsLine = async (models, { now, timezone }) => {
+  if (!models?.OperatorDevice?.findAll || !models?.User?.findAll) return null;
+  try {
+    const devices = await models.OperatorDevice.findAll({
+      where: { status: "ACTIVE", is_native_app: true },
+    });
+    const ids = devices.map((d) => d.operator_device_id);
+    const missing = await findPhonesMissingRecordings(
+      models,
+      devices,
+      await getLatestRecordingByDevice(models, ids),
+      { now },
+    );
+    if (missing.size === 0) return null;
+
+    const silentPhones = devices.filter((d) => missing.has(Number(d.operator_device_id)));
+    const users = await models.User.findAll({
+      where: { user_id: { [Op.in]: silentPhones.map((d) => d.user_id) } },
+      attributes: ["user_id", "first_name", "username"],
+    });
+    const nameOf = new Map(users.map((u) => [Number(u.user_id), u.first_name || u.username]));
+    const day = new Intl.DateTimeFormat("en-GB", { timeZone: timezone, day: "numeric", month: "short" });
+    const list = silentPhones.map((d) => {
+      const name = nameOf.get(Number(d.user_id)) || d.device_label || d.device_id;
+      return `${name} since ${day.format(new Date(missing.get(Number(d.operator_device_id))))}`;
+    });
+    return `no call recordings: ${list.join(", ")}`;
+  } catch (err) {
+    console.warn(`Daily summary: could not check call recordings: ${err.message}`);
+    return null;
+  }
+};
+
 export const sendDailySummaryPush = async (models, { now = new Date(), tenantDbName = null } = {}) => {
   const config = models?.TenantConfig?.findOne ? await models.TenantConfig.findOne() : null;
   const settings = readStoredPushSettings(config);
@@ -743,23 +778,82 @@ export const sendDailySummaryPush = async (models, { now = new Date(), tenantDbN
   if (ds.sections?.due_tomorrow) parts.push(`${dueTomorrowCount} due tomorrow`);
   if (ds.sections?.overdue) parts.push(`${overdueCount} overdue`);
 
+  if (models?.ActivityEvent?.findAll) {
+    try {
+      const offset = (() => {
+        try {
+          const p = new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "shortOffset" }).formatToParts(now);
+          const m = (p.find((x) => x.type === "timeZoneName")?.value || "GMT+05:30").match(/GMT([+-])(\d{1,2})(?::?(\d{2}))?/);
+          return m ? `${m[1]}${String(m[2]).padStart(2, "0")}:${String(m[3] || "00").padStart(2, "0")}` : "+05:30";
+        } catch {
+          return "+05:30";
+        }
+      })();
+      const dayStart = new Date(`${todayYmd}T00:00:00.000${offset}`);
+      const dayEnd = new Date(`${todayYmd}T23:59:59.999${offset}`);
+      const [todayEvents, notCheckedCount] = await Promise.all([
+        models.ActivityEvent.findAll({
+          attributes: ["type", "risk"],
+          where: { occurred_at: { [Op.between]: [dayStart, dayEnd] } },
+          raw: true,
+        }),
+        models.ActivityEvent.count({ where: { checked_at: null } }),
+      ]);
+      let discountCount = 0;
+      let discountHighCount = 0;
+      let backdatedPayCount = 0;
+      for (const ev of todayEvents || []) {
+        if (ev.type === "discount") {
+          discountCount += 1;
+          if (ev.risk === "high") discountHighCount += 1;
+        } else if (ev.type === "backdated_payment") {
+          backdatedPayCount += 1;
+        }
+      }
+      parts.push(`${discountCount} ${discountCount === 1 ? "discount" : "discounts"} (${discountHighCount} high)`);
+      parts.push(`${backdatedPayCount} ${backdatedPayCount === 1 ? "back-dated payment" : "back-dated payments"}`);
+      parts.push(`not checked: ${Number(notCheckedCount || 0)}`);
+    } catch {
+      // Non-fatal
+    }
+  }
+
   const title = `Daily summary · ${todayYmd}`;
   const body = parts.join(" · ") || "No activity today.";
   const silent = isWithinQuietHours(settings.quiet_hours, now, tz);
 
-  const res = await devicePushService.sendToUsers(models, recipients, {
-    title,
-    body,
-    data: { type: "daily_summary", date: todayYmd },
-    silent,
-    channel: silent ? "bills_silent" : "digest",
-  });
+  // Only administrators are told which phones are not sending call recordings.
+  const recordingLine = await missingRecordingsLine(models, { now, timezone: tz });
+  const admins = new Set((adminIds || []).map(Number));
+  const adminBody = recordingLine ? `${body} · ${recordingLine}` : null;
+  const audiences = adminBody
+    ? [
+        { users: recipients.filter((id) => admins.has(id)), text: adminBody },
+        { users: recipients.filter((id) => !admins.has(id)), text: body },
+      ]
+    : [{ users: recipients, text: body }];
+
+  let sent = 0;
+  let reached = 0;
+  for (const { users, text } of audiences) {
+    if (users.length === 0) continue;
+    const res = await devicePushService.sendToUsers(models, users, {
+      title,
+      body: text,
+      data: { type: "daily_summary", date: todayYmd },
+      silent,
+      channel: silent ? "bills_silent" : "digest",
+    });
+    sent += Number(res?.sent ?? 0);
+    reached += Number(res?.reached ?? 0);
+  }
 
   return {
-    sent: Number(res?.sent ?? 0),
-    reached: Number(res?.reached ?? 0),
+    sent,
+    reached,
     title,
     body,
+    ...(adminBody ? { admin_body: adminBody } : {}),
     recipients,
   };
 };
@@ -788,6 +882,8 @@ export const notifyEvent = async (
     type = "info",
     now = new Date(),
     tenantDbName = null,
+    isHigh = false,
+    activityType = null,
   } = {},
 ) => {
   try {
@@ -828,19 +924,71 @@ export const notifyEvent = async (
       return { sent: 0, reached: 0, recipients: [], skipped: "shop_min_amount" };
     }
 
-    // 3. Recipients from admins + configured recipient_role_ids
-    const [adminIds, roleIds] = await Promise.all([
+    // 3. Recipients from admins + configured recipient_role_ids (+ activity_roles)
+    const customSettings = parseJsonField(config?.custom_settings, {});
+    const activityRoles = parseJsonField(customSettings?.activity_roles, {});
+    const effectiveActivityType =
+      activityType ||
+      (eventKey === "payment_received" ? "payment" : eventKey === "return_processed" ? "return" : eventKey);
+
+    const configuredRoleIds = Object.keys(activityRoles)
+      .filter((rid) => {
+        const ruleForRole = activityRoles[rid];
+        return Array.isArray(ruleForRole?.types) && ruleForRole.types.includes(effectiveActivityType);
+      })
+      .map(Number)
+      .filter((n) => Number.isFinite(n) && n > 0);
+
+    const [adminIds, roleIds, activityRoleUserIds] = await Promise.all([
       listAdminUserIds(models),
       listUserIdsByRoles(models, rule.recipient_role_ids),
+      configuredRoleIds.length > 0 ? listUserIdsByRoles(models, configuredRoleIds) : Promise.resolve([]),
     ]);
 
     let candidateIds = [
       ...new Set(
-        [...(adminIds || []), ...(roleIds || [])]
+        [...(adminIds || []), ...(roleIds || []), ...(activityRoleUserIds || [])]
           .map((id) => Number(id))
           .filter((id) => Number.isFinite(id) && id > 0),
       ),
     ];
+
+    // If activity_roles explicitly configures a user's roles, enforce its type filter & see_amounts
+    const userSeeAmountsMap = new Map();
+    if (Object.keys(activityRoles).length > 0 && candidateIds.length > 0 && models?.User?.findAll) {
+      try {
+        const candUsers = await models.User.findAll({
+          where: { user_id: { [Op.in]: candidateIds } },
+          attributes: ["user_id"],
+          include: models.Role
+            ? [{ model: models.Role, attributes: ["role_id", "is_active"], through: { attributes: [] } }]
+            : [],
+        });
+        const allowedByRole = new Set();
+        for (const u of candUsers || []) {
+          const uid = Number(u.user_id);
+          const roleRules = (u.Roles || [])
+            .filter((r) => r.is_active !== false)
+            .map((r) => activityRoles[String(r.role_id)])
+            .filter(Boolean);
+          if (roleRules.length === 0) {
+            allowedByRole.add(uid);
+            userSeeAmountsMap.set(uid, true);
+          } else {
+            if (roleRules.some((rr) => Array.isArray(rr.types) && rr.types.includes(effectiveActivityType))) {
+              allowedByRole.add(uid);
+            }
+            userSeeAmountsMap.set(
+              uid,
+              roleRules.some((rr) => rr.see_amounts !== false),
+            );
+          }
+        }
+        candidateIds = candidateIds.filter((uid) => allowedByRole.has(uid));
+      } catch {
+        // Non-fatal
+      }
+    }
 
     // 4. Drop actor unless notify_actor is enabled
     if (!settings.notify_actor && actorUserId !== null && actorUserId !== undefined) {
@@ -921,14 +1069,23 @@ export const notifyEvent = async (
       }
     }
     const renderCache = new Map();
-    // One render per distinct language (privacy flags are fixed per event), so a group is rendered once.
-    const renderInLanguage = async (language) => {
-      if (!useTemplates) return legacyText;
-      const key = language;
+    // One render per distinct language + amount-visibility flag, so a group is rendered once.
+    const renderInLanguage = async (language, forceHideAmounts = false) => {
+      const effectiveHideAmounts = hideAmounts || forceHideAmounts;
+      if (!useTemplates) {
+        if (effectiveHideAmounts && titleNoAmount != null) {
+          return {
+            title: titleNoAmount,
+            body: bodyNoAmount != null ? bodyNoAmount : legacyText.body,
+          };
+        }
+        return legacyText;
+      }
+      const key = `${language}:${effectiveHideAmounts ? "noamt" : "amt"}`;
       if (!renderCache.has(key)) {
         renderCache.set(
           key,
-          renderForRecipient(models, eventKey, vars, { language, hideAmounts, hideCustomer, policy }).catch(() => legacyText),
+          renderForRecipient(models, eventKey, vars, { language, hideAmounts: effectiveHideAmounts, hideCustomer, policy }).catch(() => legacyText),
         );
       }
       return renderCache.get(key);
@@ -943,15 +1100,15 @@ export const notifyEvent = async (
     const pushTitle = defaultText.title;
     const pushBody = defaultText.body;
 
-    // 7. Quiet hours check per recipient (shop OR personal)
+    // 7. Quiet hours check per recipient (shop OR personal). High events bypass quiet hours.
     const tenantTz = config?.timezone || DEFAULT_TIMEZONE;
-    const shopSilent = isWithinQuietHours(settings.quiet_hours, now, tenantTz);
+    const shopSilent = isHigh ? false : isWithinQuietHours(settings.quiet_hours, now, tenantTz);
     const silentByUserId = new Map();
     const loudRecipients = [];
     const silentRecipients = [];
     for (const uid of finalRecipients) {
       const userQuiet = quietByUserId.get(uid);
-      const isUserSilent = shopSilent || isWithinQuietHours(userQuiet, now, tenantTz);
+      const isUserSilent = isHigh ? false : (shopSilent || isWithinQuietHours(userQuiet, now, tenantTz));
       silentByUserId.set(uid, isUserSilent);
       if (isUserSilent) silentRecipients.push(uid);
       else loudRecipients.push(uid);
@@ -960,7 +1117,8 @@ export const notifyEvent = async (
     // 8. Persist in-app notifications for all recipients
     for (const recipientId of finalRecipients) {
       try {
-        const inApp = await renderInLanguage(languageFor(recipientId));
+        const forceHide = userSeeAmountsMap.get(recipientId) === false;
+        const inApp = await renderInLanguage(languageFor(recipientId), forceHide);
         await createNotification(models, {
           userId: recipientId,
           type,
@@ -975,8 +1133,8 @@ export const notifyEvent = async (
       }
     }
 
-    // 9. Digest batching vs instant push dispatch
-    if (rule.delivery === "digest") {
+    // 9. Digest batching vs instant push dispatch (High events always push immediately)
+    if (rule.delivery === "digest" && !isHigh) {
       enqueueDigestEntries({
         tenantKey: String(dbName || "default"),
         models,
@@ -1000,6 +1158,15 @@ export const notifyEvent = async (
     let totalSent = 0;
     let totalReached = 0;
     const groupChannel = eventMeta.group || "bills";
+    // The amount goes in the data only for people allowed to see it; the phone adds it up
+    // when it stacks several pushes ("5 payments · Rs 42,000").
+    const renderForDevice = async (device) => {
+      const forceHide = userSeeAmountsMap.get(Number(device.user_id)) === false;
+      const text = await renderInLanguage(languageFor(device.user_id, device), forceHide);
+      const showAmount =
+        !hideAmounts && !forceHide && eventMeta.has_amount && numericAmount !== null && Number.isFinite(numericAmount);
+      return showAmount ? { ...text, data: { amount: String(numericAmount) } } : text;
+    };
 
     if (loudRecipients.length > 0) {
       const pushRes = await devicePushService.sendToUsers(models, loudRecipients, {
@@ -1008,7 +1175,7 @@ export const notifyEvent = async (
         data,
         silent: false,
         channel: groupChannel,
-        render: (device) => renderInLanguage(languageFor(device.user_id, device)),
+        render: renderForDevice,
       });
       totalSent += Number(pushRes?.sent ?? 0);
       totalReached += Number(pushRes?.reached ?? 0);
@@ -1021,7 +1188,7 @@ export const notifyEvent = async (
         data,
         silent: true,
         channel: "bills_silent",
-        render: (device) => renderInLanguage(languageFor(device.user_id, device)),
+        render: renderForDevice,
       });
       totalSent += Number(pushRes?.sent ?? 0);
       totalReached += Number(pushRes?.reached ?? 0);

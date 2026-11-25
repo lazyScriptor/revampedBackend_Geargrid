@@ -34,5 +34,45 @@
   "daily_summary": {
     "title": "தினசரி சுருக்கம்",
     "body": "{date}[ · {shop}]"
+  },
+  "discount": {
+    "title": "தள்ளுபடி #{invoice_no}",
+    "body": "{customer}[ · {amount}][ · {reason}]"
+  },
+  "refund": {
+    "title": "பணம் திரும்ப #{invoice_no}",
+    "body": "{customer}[ · {amount}][ · {reason}]"
+  },
+  "backdated_payment": {
+    "title": "பின்தேதியிட்ட கட்டணம் #{invoice_no}",
+    "body": "{customer}[ · {amount}][ · {reason}]"
+  },
+  "backdated_bill": {
+    "title": "பின்தேதியிட்ட பில் #{invoice_no}",
+    "body": "{customer}[ · {amount}]"
+  },
+  "backdated_return": {
+    "title": "பின்தேதியிட்ட திரும்பல் #{invoice_no}",
+    "body": "{customer}[ · {reason}]"
+  },
+  "invoice_reopened": {
+    "title": "பில் #{invoice_no} மீண்டும் திறக்கப்பட்டது",
+    "body": "{customer}[ · {staff}]"
+  },
+  "id_card_released_unpaid": {
+    "title": "நிலுவையுடன் அடையாள அட்டை விடுவிக்கப்பட்டது #{invoice_no}",
+    "body": "{customer}[ · {amount}]"
+  },
+  "review": {
+    "title": "மதிப்பாய்வு #{invoice_no}",
+    "body": "{customer}[ · {staff}]"
+  },
+  "customer_payment": {
+    "title": "வாடிக்கையாளர் கட்டணம்",
+    "body": "{customer}[ · {amount}]"
+  },
+  "call_promise_missed": {
+    "title": "வாக்குறுதி தவறியது",
+    "body": "{customer}[ · {amount}]"
   }
 }

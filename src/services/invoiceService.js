@@ -1,11 +1,15 @@
 import { Op } from "sequelize";
 import { findCustomerIdsBySearch, isWholeNumber } from "../utils/customerSearch.js";
 import AppError from "../utils/AppError.js";
+import { getCollectionsSettings } from "./collectionsSettingsService.js";
 import { liveTotalOf, owedAmount } from "../utils/invoiceBalance.js";
-import { refreshAccruals } from "./accrualService.js";
+import { lineAccrual, refreshAccruals } from "./accrualService.js";
 import { touchCustomerBrief } from "./customerBriefService.js";
 import { notifyEvent } from "./pushEventService.js";
 import { isUserAdmin, userHasPermission } from "./userService.js";
+import { recordActivity, resolveUserActivityVisibility } from "./activityService.js";
+import { validateReason } from "./activitySettingsService.js";
+import { parseJsonField } from "../utils/jsonFields.js";
 
 const formatLkr = (n) => {
   const num = Number(n || 0);
@@ -52,13 +56,39 @@ export const resolveIssuedDate = (value, now = new Date()) => {
 };
 
 // Rental day maths lives in utils/rentalDays.js (re-exported here for existing callers).
-import { chargeableLateDays, isOpenEndedLine, lineOutMoment, openEndedExtraDays, periodCharge } from "../utils/rentalDays.js";
+import { chargeableLateDays, dayInShopTz, isOpenEndedLine, lineOutMoment, openEndedExtraDays, periodCharge, wholeDaysBetween } from "../utils/rentalDays.js";
 export { wholeDaysBetween, lateDays, isOpenEndedLine, lineOutMoment, elapsedRentalDays, openEndedExtraDays, periodCharge, chargeableLateDays, contractDays } from "../utils/rentalDays.js";
+
+const maybeRecordActivity = async (models, event, opts) => {
+  if (models?.ActivityEvent?.create) {
+    return recordActivity(models, event, opts);
+  }
+  return null;
+};
+
+const resolvePastOrTodayDate = (value, label, now = new Date()) => {
+  if (value === undefined || value === null || value === "") return now;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new AppError(`The ${label} is not a valid date.`, 400);
+  }
+  const valueYmd = dayInShopTz(date);
+  const todayYmd = dayInShopTz(now);
+  if (valueYmd > todayYmd || date.getTime() > now.getTime() + ISSUED_DATE_FUTURE_SLACK_MS) {
+    throw new AppError(`The ${label} cannot be in the future.`, 400);
+  }
+  return date;
+};
 
 // --- 1. DISPATCH ENGINE (With Row-Level Locks) ---
 export const createDispatchInvoice = async (models, payload, userId) => {
-  const { customer_id, items, fees, borrowed_on_behalf_of_customer_id } = payload;
+  const { customer_id, items, fees = {}, borrowed_on_behalf_of_customer_id } = payload;
   const issuedDate = resolveIssuedDate(payload.issued_date);
+  const discountAmt = Number(fees?.discount || 0);
+  let validatedDiscountReason = null;
+  if (discountAmt > 0) {
+    validatedDiscountReason = await validateReason(models, "discount", payload.discount_reason);
+  }
 
   const newInvoice = await models.sequelize.transaction(async (t) => {
     let subTotal = 0;
@@ -135,6 +165,8 @@ export const createDispatchInvoice = async (models, payload, userId) => {
         advance_paid: fees.advance || 0,
         transport_fee: fees.transport || 0,
         discount_amount: fees.discount || 0,
+        discount_reason_key: validatedDiscountReason?.key || null,
+        discount_reason_note: validatedDiscountReason?.note || null,
         sub_total: subTotal,
         number_of_days_of_the_bill: Math.max(
           ...items.map((i) => {
@@ -245,47 +277,114 @@ export const createDispatchInvoice = async (models, payload, userId) => {
     await refreshAccruals(models, { invoiceIds: [newInvoice.invoice_id], transaction: t });
     await touchCustomerBrief(models, customer_id, { transaction: t });
 
+    const now = new Date();
+    const todayYmd = dayInShopTz(now);
+    const issuedYmd = issuedDate ? dayInShopTz(issuedDate) : todayYmd;
+    const billDaysBack = issuedDate ? Math.max(0, wholeDaysBetween(issuedYmd, todayYmd)) : 0;
+
+    await maybeRecordActivity(
+      models,
+      {
+        type: "invoice_created",
+        invoice_id: newInvoice.invoice_id,
+        customer_id,
+        actor_user_id: userId,
+        amount: grandTotal,
+        occurred_at: now,
+        data: { items_count: items.length },
+      },
+      { transaction: t },
+    );
+
+    if (billDaysBack > 0) {
+      await maybeRecordActivity(
+        models,
+        {
+          type: "backdated_bill",
+          invoice_id: newInvoice.invoice_id,
+          customer_id,
+          actor_user_id: userId,
+          amount: grandTotal,
+          occurred_at: now,
+          data: {
+            days_back: billDaysBack,
+            issued_date: issuedYmd,
+          },
+        },
+        { transaction: t },
+      );
+    }
+
+    if (discountAmt > 0 && validatedDiscountReason) {
+      const baseForPct = subTotal + Number(fees.transport || 0);
+      const discountPct = baseForPct > 0 ? Math.round((discountAmt / baseForPct) * 10000) / 100 : 0;
+      await maybeRecordActivity(
+        models,
+        {
+          type: "discount",
+          invoice_id: newInvoice.invoice_id,
+          customer_id,
+          actor_user_id: userId,
+          amount: discountAmt,
+          occurred_at: now,
+          data: {
+            old_amount: 0,
+            new_amount: discountAmt,
+            discount_pct: discountPct,
+            raised_after_printing: false,
+            reason_key: validatedDiscountReason.key,
+            reason_note: validatedDiscountReason.note,
+            reason_label_en: validatedDiscountReason.label_en,
+            reason_label_si: validatedDiscountReason.label_si,
+          },
+        },
+        { transaction: t },
+      );
+    }
+
     return newInvoice;
   });
 
-  // Fire-and-forget post-commit notification
-  void (async () => {
-    try {
-      const [customer, staffName] = await Promise.all([
-        models.Customer?.findByPk
-          ? models.Customer.findByPk(customer_id, {
-              attributes: ["customer_id", "first_name", "last_name", "company_name", "customer_type"],
-            })
-          : null,
-        lookupStaffName(models, userId),
-      ]);
-      const customerName = formatCustomerDisplay(customer);
-      const total = formatLkr(newInvoice.total_amount);
-      const itemCount = items.length;
-      await notifyEvent(models, "invoice_created", {
-        amount: Number(newInvoice.total_amount || 0),
-        actorUserId: userId,
-        customerName,
-        vars: {
-          invoice_no: String(newInvoice.invoice_id),
+  if (!models?.ActivityEvent?.create) {
+    // Fallback for legacy unit tests that mock models without ActivityEvent
+    void (async () => {
+      try {
+        const [customer, staffName] = await Promise.all([
+          models.Customer?.findByPk
+            ? models.Customer.findByPk(customer_id, {
+                attributes: ["customer_id", "first_name", "last_name", "company_name", "customer_type"],
+              })
+            : null,
+          lookupStaffName(models, userId),
+        ]);
+        const customerName = formatCustomerDisplay(customer);
+        const total = formatLkr(newInvoice.total_amount);
+        const itemCount = items.length;
+        await notifyEvent(models, "invoice_created", {
           amount: Number(newInvoice.total_amount || 0),
-          customer: customerName,
-          items_count: itemCount,
-          staff: staffName,
-          date: new Date(),
-          time: new Date(),
-        },
-        title: `New bill #${newInvoice.invoice_id} · LKR ${total}`,
-        body: `${customerName} · ${itemCount} item(s) · by ${staffName}`,
-        titleNoAmount: `New bill #${newInvoice.invoice_id}`,
-        bodyNoAmount: `${customerName} · ${itemCount} item(s) · by ${staffName}`,
-        data: { type: "invoice_created", invoice_id: String(newInvoice.invoice_id) },
-        link: "/invoices?mode=manage",
-      });
-    } catch {
-      // Push failures must never affect bill creation
-    }
-  })();
+          actorUserId: userId,
+          customerName,
+          vars: {
+            invoice_no: String(newInvoice.invoice_id),
+            amount: Number(newInvoice.total_amount || 0),
+            customer: customerName,
+            items_count: itemCount,
+            staff: staffName,
+            date: new Date(),
+            time: new Date(),
+          },
+          title: `New bill #${newInvoice.invoice_id} · LKR ${total}`,
+          body: `${customerName} · ${itemCount} item(s) · by ${staffName}`,
+          titleNoAmount: `New bill #${newInvoice.invoice_id}`,
+          bodyNoAmount: `${customerName} · ${itemCount} item(s) · by ${staffName}`,
+          data: { type: "invoice_created", invoice_id: String(newInvoice.invoice_id) },
+          link: "/invoices?mode=manage",
+        });
+      } catch {
+        // Push failures must never affect bill creation
+      }
+    })();
+  }
 
   return newInvoice;
 };
@@ -426,105 +525,208 @@ export const getInvoiceById = async (models, invoiceId) => {
   });
 
   if (!invoice) throw new AppError("Invoice not found", 404);
+  const settings = await getCollectionsSettings(models).catch(() => null);
+  const rec = settings?.call_recording;
+  if (rec?.termsLineEnabled && typeof invoice.setDataValue === "function") {
+    invoice.setDataValue("call_recording_terms", {
+      enabled: true,
+      en: rec.termsLine_en,
+      si: rec.termsLine_si,
+    });
+  }
   return invoice;
 };
 
 // --- 4. CONTINUOUS RETURN ENGINE (Partial Return Logic Upgraded) ---
-export const processReturn = async (models, payload, userId) => {
+/**
+ * Per-bill return execution (refactored from processReturn for reuse by Customer Settlement).
+ * Supports `transaction` and `dryRun`: when `dryRun` is true, performs zero writes and computes
+ * post-return accruals, totals, and line states in memory.
+ */
+export const executeReturnOnInvoice = async (
+  models,
+  payload,
+  userId,
+  {
+    transaction: t = null,
+    dryRun = false,
+    now = new Date(),
+    actualReturnDate: passedReturnDate = null,
+    actualReturnYmd: passedReturnYmd = null,
+    todayYmd: passedTodayYmd = null,
+    returnDaysBack: passedDaysBack = null,
+    validatedDateReason = null,
+    settlementId = null,
+    skipPayment = false,
+    skipActivities = false,
+    preloadedInvoice = null,
+    preloadedTotalPaid = null,
+  } = {},
+) => {
   const {
     invoice_id,
-    lines_returned,
+    lines_returned = [],
     final_payment_amount,
     release_id_card,
     payment_method,
     customer_rating,
   } = payload;
 
-  const returnMeta = await models.sequelize.transaction(async (t) => {
-    const invoice = await models.Invoice.findByPk(invoice_id, {
-      transaction: t,
+  const actualReturnDate =
+    passedReturnDate || resolvePastOrTodayDate(payload.actual_return_date, "return date", now);
+  const actualReturnYmd = passedReturnYmd || dayInShopTz(actualReturnDate);
+  const todayYmd = passedTodayYmd || dayInShopTz(now);
+  const returnDaysBack =
+    passedDaysBack !== null && passedDaysBack !== undefined
+      ? passedDaysBack
+      : Math.max(0, wholeDaysBetween(actualReturnYmd, todayYmd));
+
+  const invoice =
+    preloadedInvoice ||
+    (await models.Invoice.findByPk(invoice_id, {
+      ...(t ? { transaction: t } : {}),
+    }));
+  if (!invoice || invoice.status === "Completed") {
+    throw new AppError("Invoice not found or already completed.", 400);
+  }
+
+  let totalLateFees = 0;
+  let nowLateFees = 0;
+  let totalReturnedQty = 0;
+  let totalDamagedQty = 0;
+  let maxLateDays = 0;
+  // Days out on lines with no return date are the rental itself, so they also go into the
+  // subtotal. Only late days past a set due date are a late fee (outside the subtotal).
+  let rentalDaysAdded = 0;
+
+  const lineResults = [];
+  const updatedLineOverrides = new Map();
+
+  for (const returnData of lines_returned) {
+    // 1. Lock the specific invoice line (when not dryRun)
+    const preloadedLine = preloadedInvoice?.InvoiceLines?.find(
+      (l) => Number(l.line_id) === Number(returnData.line_id),
+    );
+    const line =
+      preloadedLine ||
+      (await models.InvoiceLine.findByPk(returnData.line_id, {
+        ...(t ? { transaction: t } : {}),
+        ...(t && !dryRun ? { lock: t.LOCK.UPDATE } : {}),
+      }));
+    if (!line) {
+      throw new AppError(`Line item ${returnData.line_id} not found.`, 404);
+    }
+
+    const goodQty = parseInt(returnData.good_qty) || 0;
+    const badQty = parseInt(returnData.defective_qty) || 0;
+    const totalReturnedNow = goodQty + badQty;
+
+    // Skip processing if they aren't returning anything for this specific line today
+    if (totalReturnedNow <= 0) continue;
+
+    totalReturnedQty += totalReturnedNow;
+    totalDamagedQty += badQty;
+
+    // 2. Validate Partial Returns (Do not let them return more than they owe)
+    const alreadyReturned =
+      (line.good_returned_qty || 0) + (line.defective_returned_qty || 0);
+    const remainingToReturn = line.borrow_quantity - alreadyReturned;
+
+    if (totalReturnedNow > remainingToReturn) {
+      throw new AppError(
+        `Invalid Return: Line ${line.line_id} only has ${remainingToReturn} items left out on rent. You tried to return ${totalReturnedNow}.`,
+        400,
+      );
+    }
+
+    // 3. Late Fee Math — skipped entirely when overdue tracking is off for
+    //    this line (either opted out at dispatch or waived at handover).
+    const overdueEnabled =
+      line.track_overdue !== false && returnData.track_overdue !== false;
+
+    const lineReturnYmd = returnData.actual_return_date || actualReturnYmd;
+    const lineReturnAt = returnData.actual_return_at || actualReturnDate;
+
+    // A line dispatched with no return date was priced for 1 day. Its real rental length is only
+    // known now, so every day out beyond what the price already covers is billed here.
+    const openEnded = isOpenEndedLine(line);
+    const extraDays = openEnded
+      ? openEndedExtraDays(line, lineOutMoment(line, invoice.issued_date), lineReturnAt)
+      : overdueEnabled
+        ? // Days past the due date that are still inside the paid period are not charged.
+          chargeableLateDays(line, lineReturnYmd)
+        : 0;
+
+    const nowExtraDays = openEnded
+      ? openEndedExtraDays(line, lineOutMoment(line, invoice.issued_date), now)
+      : overdueEnabled
+        ? chargeableLateDays(line, todayYmd)
+        : 0;
+
+    if (extraDays > maxLateDays) maxLateDays = extraDays;
+
+    let lineLateFee = 0;
+    if (extraDays > 0) {
+      lineLateFee =
+        extraDays * line.locked_extra_daily_rate * totalReturnedNow;
+      totalLateFees += lineLateFee;
+      if (openEnded) rentalDaysAdded += lineLateFee;
+    }
+    let nowLineLateFee = 0;
+    if (nowExtraDays > 0) {
+      nowLineLateFee = nowExtraDays * line.locked_extra_daily_rate * totalReturnedNow;
+      nowLateFees += nowLineLateFee;
+    }
+
+    // 4. Update the Line Item Stats cumulatively
+    const newGoodTotal = (line.good_returned_qty || 0) + goodQty;
+    const newBadTotal = (line.defective_returned_qty || 0) + badQty;
+    const newGrandTotalReturned = newGoodTotal + newBadTotal;
+
+    // If they returned everything, close the line. If not, keep it "Active"
+    const newLineStatus =
+      newGrandTotalReturned >= line.borrow_quantity ? "Returned" : "Active";
+
+    // If the caller explicitly waived overdue for this line, persist it so
+    // future partial-return settlements on the same line are also fee-free.
+    const updatedTrackOverdue =
+      returnData.track_overdue === false ? false : line.track_overdue;
+
+    const newLineTotalAmount = Number(line.line_total_amount) + lineLateFee;
+
+    updatedLineOverrides.set(Number(line.line_id), {
+      good_returned_qty: newGoodTotal,
+      defective_returned_qty: newBadTotal,
+      line_status: newLineStatus,
+      track_overdue: updatedTrackOverdue,
+      actual_return_date: lineReturnYmd,
+      line_total_amount: newLineTotalAmount,
     });
-    if (!invoice || invoice.status === "Completed")
-      throw new AppError("Invoice not found or already completed.", 400);
 
-    let totalLateFees = 0;
-    // Days out on lines with no return date are the rental itself, so they also go into the
-    // subtotal. Only late days past a set due date are a late fee (outside the subtotal).
-    let rentalDaysAdded = 0;
+    lineResults.push({
+      line_id: Number(line.line_id),
+      equipment_id: Number(line.equipment_id),
+      good_qty: goodQty,
+      defective_qty: badQty,
+      returned_qty: totalReturnedNow,
+      extra_days: extraDays,
+      line_late_fee: Math.round(lineLateFee * 100) / 100,
+      now_line_late_fee: Math.round(nowLineLateFee * 100) / 100,
+      line_status: newLineStatus,
+      remaining_before: remainingToReturn,
+      remaining_after: remainingToReturn - totalReturnedNow,
+    });
 
-    for (const returnData of lines_returned) {
-      // 1. Lock the specific invoice line
-      const line = await models.InvoiceLine.findByPk(returnData.line_id, {
-        transaction: t,
-        lock: t.LOCK.UPDATE,
-      });
-      if (!line)
-        throw new AppError(`Line item ${returnData.line_id} not found.`, 404);
-
-      const goodQty = parseInt(returnData.good_qty) || 0;
-      const badQty = parseInt(returnData.defective_qty) || 0;
-      const totalReturnedNow = goodQty + badQty;
-
-      // Skip processing if they aren't returning anything for this specific line today
-      if (totalReturnedNow <= 0) continue;
-
-      // 2. Validate Partial Returns (Do not let them return more than they owe)
-      const alreadyReturned =
-        (line.good_returned_qty || 0) + (line.defective_returned_qty || 0);
-      const remainingToReturn = line.borrow_quantity - alreadyReturned;
-
-      if (totalReturnedNow > remainingToReturn) {
-        throw new AppError(
-          `Invalid Return: Line ${line.line_id} only has ${remainingToReturn} items left out on rent. You tried to return ${totalReturnedNow}.`,
-          400,
-        );
-      }
-
-      // 3. Late Fee Math — skipped entirely when overdue tracking is off for
-      //    this line (either opted out at dispatch or waived at handover).
-      const overdueEnabled =
-        line.track_overdue !== false && returnData.track_overdue !== false;
-
-      // A line dispatched with no return date was priced for 1 day. Its real rental length is only
-      // known now, so every day out beyond what the price already covers is billed here.
-      const openEnded = isOpenEndedLine(line);
-      const extraDays = openEnded
-        ? openEndedExtraDays(line, lineOutMoment(line, invoice.issued_date), returnData.actual_return_at || new Date())
-        : overdueEnabled
-          ? // Days past the due date that are still inside the paid period are not charged.
-            chargeableLateDays(line, returnData.actual_return_date)
-          : 0;
-
-      let lineLateFee = 0;
-      if (extraDays > 0) {
-        lineLateFee =
-          extraDays * line.locked_extra_daily_rate * totalReturnedNow;
-        totalLateFees += lineLateFee;
-        if (openEnded) rentalDaysAdded += lineLateFee;
-      }
-
-      // 4. Update the Line Item Stats cumulatively
-      const newGoodTotal = line.good_returned_qty + goodQty;
-      const newBadTotal = line.defective_returned_qty + badQty;
-      const newGrandTotalReturned = newGoodTotal + newBadTotal;
-
-      // If they returned everything, close the line. If not, keep it "Active"
-      const newLineStatus =
-        newGrandTotalReturned >= line.borrow_quantity ? "Returned" : "Active";
-
-      // If the caller explicitly waived overdue for this line, persist it so
-      // future partial-return settlements on the same line are also fee-free.
-      const updatedTrackOverdue =
-        returnData.track_overdue === false ? false : line.track_overdue;
-
+    if (!dryRun) {
       await line.update(
         {
-          actual_return_date: returnData.actual_return_date,
+          actual_return_date: lineReturnYmd,
           good_returned_qty: newGoodTotal,
           defective_returned_qty: newBadTotal,
-          line_total_amount: Number(line.line_total_amount) + lineLateFee,
+          line_total_amount: newLineTotalAmount,
           line_status: newLineStatus,
           track_overdue: updatedTrackOverdue,
+          ...(settlementId ? { settlement_id: settlementId } : {}),
         },
         { transaction: t },
       );
@@ -561,50 +763,85 @@ export const processReturn = async (models, payload, userId) => {
         );
       }
     }
+  }
 
-    // 5. Settle Finance and Master Invoice Status
-    const newGrandTotal = Number(invoice.total_amount) + totalLateFees;
+  // 5. Settle Finance and Master Invoice Status
+  const newGrandTotal = Number(invoice.total_amount) + totalLateFees;
+  const newSubTotal = Number(invoice.sub_total || 0) + rentalDaysAdded;
 
-    if (final_payment_amount > 0) {
-      await models.Payment.create(
-        {
-          invoice_id,
-          payment_amount: final_payment_amount,
-          method: payment_method || "Cash",
-          received_by_user_id: userId,
-        },
-        { transaction: t },
-      );
-    }
+  if (!dryRun && !skipPayment && final_payment_amount > 0) {
+    await models.Payment.create(
+      {
+        invoice_id,
+        payment_amount: final_payment_amount,
+        method: payment_method || "Cash",
+        received_by_user_id: userId,
+        ...(settlementId ? { settlement_id: settlementId } : {}),
+      },
+      { transaction: t },
+    );
+  }
 
+  let activeLinesCount = 0;
+  let afterAccruedCharges = 0;
+  let afterAccruedRental = 0;
+
+  if (!dryRun) {
     // What was returned is now billed; whatever is still out keeps running from here.
-    await refreshAccruals(models, { invoiceIds: [invoice_id], transaction: t });
+    await refreshAccruals(models, { invoiceIds: [invoice_id], now, transaction: t });
 
     // If ANY line item is still "Active" (partially returned), the Invoice stays "Active"
-    const activeLinesCount = await models.InvoiceLine.count({
+    activeLinesCount = await models.InvoiceLine.count({
       where: { invoice_id, line_status: "Active" },
       transaction: t,
     });
+    const refreshedInv = await models.Invoice.findByPk(invoice_id, {
+      attributes: ["accrued_charges", "accrued_rental"],
+      transaction: t,
+    });
+    afterAccruedCharges = Number(refreshedInv?.accrued_charges || 0);
+    afterAccruedRental = Number(refreshedInv?.accrued_rental || 0);
+  } else {
+    const allLines =
+      preloadedInvoice?.InvoiceLines ||
+      (await models.InvoiceLine.findAll({
+        where: { invoice_id },
+        ...(t ? { transaction: t } : {}),
+      }));
+    for (const l of allLines) {
+      const ov = updatedLineOverrides.get(Number(l.line_id));
+      const simLine = ov
+        ? {
+            ...(typeof l.get === "function" ? l.get({ plain: true }) : l),
+            ...ov,
+          }
+        : l;
+      if (simLine.line_status === "Active") activeLinesCount++;
+      const acc = lineAccrual(simLine, invoice.issued_date, now);
+      afterAccruedCharges += acc.accrued_charge;
+      if (acc.rental) afterAccruedRental += acc.accrued_charge;
+    }
+    afterAccruedCharges = Math.round(afterAccruedCharges * 100) / 100;
+    afterAccruedRental = Math.round(afterAccruedRental * 100) / 100;
+  }
 
-    const totalPaid =
-      (await models.Payment.sum("payment_amount", {
-        where: { invoice_id, is_voided: false },
-        transaction: t,
-      })) || 0;
+  const totalPaid =
+    preloadedTotalPaid !== null && preloadedTotalPaid !== undefined
+      ? Number(preloadedTotalPaid)
+      : (await models.Payment.sum("payment_amount", {
+          where: { invoice_id, is_voided: false },
+          ...(t ? { transaction: t } : {}),
+        })) || 0;
 
-    const isPaidOff = Number(totalPaid) >= Number(newGrandTotal);
-    // Returning the last machine never closes the invoice by itself: the advance may still need
-    // refunding, a discount may still be given, or a balance collected. Once everything is back the
-    // invoice waits in "PendingPayment" (shown as "Returned · awaiting close") until staff press
-    // Complete invoice (completeInvoice below).
-    const finalStatus = activeLinesCount === 0 ? "PendingPayment" : "Active";
+  const isPaidOff = Number(totalPaid) >= Number(newGrandTotal);
+  const finalStatus = activeLinesCount === 0 ? "PendingPayment" : "Active";
+  const shouldReleaseId = !dryRun && !skipPayment && release_id_card && isPaidOff;
 
-    const shouldReleaseId = release_id_card && isPaidOff;
-
+  if (!dryRun) {
     await invoice.update(
       {
         total_amount: newGrandTotal,
-        sub_total: Number(invoice.sub_total || 0) + rentalDaysAdded,
+        sub_total: newSubTotal,
         status: finalStatus,
         id_card_status: shouldReleaseId ? 0 : invoice.id_card_status,
       },
@@ -632,59 +869,211 @@ export const processReturn = async (models, payload, userId) => {
         event_category: "SETTLEMENT",
         event_action: "RETURN_PROCESSED",
         comments: `Handover processed. Late fees: Rs.${totalLateFees}. Status: ${finalStatus}.`,
-        state_payload: { lines_returned },
+        state_payload: {
+          lines_returned,
+          ...(settlementId ? { settlement_id: settlementId } : {}),
+        },
       },
       { transaction: t },
     );
 
     await touchCustomerBrief(models, invoice.customer_id, { transaction: t });
+  }
 
-    return {
-      customer_id: invoice.customer_id,
-      totalLateFees: Number(totalLateFees || 0),
-      finalPayment: Number(final_payment_amount || 0),
-      finalStatus,
-    };
+  const lateFeeDifference = Math.round((nowLateFees - totalLateFees) * 100) / 100;
+  const returnAmount = Number(final_payment_amount || 0) + Number(totalLateFees || 0);
+
+  if (!dryRun && !skipActivities) {
+    await maybeRecordActivity(
+      models,
+      {
+        type: "return",
+        invoice_id,
+        customer_id: invoice.customer_id,
+        actor_user_id: userId,
+        amount: returnAmount,
+        occurred_at: now,
+        data: {
+          returned_qty: totalReturnedQty,
+          damaged_qty: totalDamagedQty,
+          has_damaged: totalDamagedQty > 0,
+          late_days: maxLateDays,
+          late_fees: totalLateFees,
+          final_status: finalStatus,
+        },
+      },
+      { transaction: t },
+    );
+
+    if (returnDaysBack > 0) {
+      await maybeRecordActivity(
+        models,
+        {
+          type: "backdated_return",
+          invoice_id,
+          customer_id: invoice.customer_id,
+          actor_user_id: userId,
+          amount: totalLateFees,
+          occurred_at: now,
+          data: {
+            days_back: returnDaysBack,
+            actual_return_date: actualReturnYmd,
+            late_fee_difference: lateFeeDifference,
+            now_late_fees: nowLateFees,
+            actual_late_fees: totalLateFees,
+            reason_key: validatedDateReason?.key || null,
+            reason_note: validatedDateReason?.note || null,
+            reason_label_en: validatedDateReason?.label_en || null,
+            reason_label_si: validatedDateReason?.label_si || null,
+          },
+        },
+        { transaction: t },
+      );
+    }
+  }
+
+  return {
+    invoice_id: Number(invoice_id),
+    customer_id: invoice.customer_id,
+    totalLateFees: Math.round(Number(totalLateFees || 0) * 100) / 100,
+    nowLateFees: Math.round(Number(nowLateFees || 0) * 100) / 100,
+    rentalDaysAdded: Math.round(Number(rentalDaysAdded || 0) * 100) / 100,
+    newGrandTotal: Math.round(newGrandTotal * 100) / 100,
+    newSubTotal: Math.round(newSubTotal * 100) / 100,
+    afterAccruedCharges,
+    afterAccruedRental,
+    activeLinesCount,
+    totalReturnedQty,
+    totalDamagedQty,
+    maxLateDays,
+    finalPayment: Number(final_payment_amount || 0),
+    finalStatus,
+    isPaidOff,
+    lateFeeDifference,
+    lineResults,
+    updatedLineOverrides,
+  };
+};
+
+export const processReturn = async (models, payload, userId) => {
+  const now = new Date();
+  const actualReturnDate = resolvePastOrTodayDate(payload.actual_return_date, "return date", now);
+  const actualReturnYmd = dayInShopTz(actualReturnDate);
+  const todayYmd = dayInShopTz(now);
+  const returnDaysBack = Math.max(0, wholeDaysBetween(actualReturnYmd, todayYmd));
+
+  let validatedDateReason = null;
+  if (returnDaysBack > 0) {
+    validatedDateReason = await validateReason(models, "backdate", payload.date_reason);
+  }
+
+  const returnMeta = await models.sequelize.transaction(async (t) => {
+    return executeReturnOnInvoice(models, payload, userId, {
+      transaction: t,
+      dryRun: false,
+      now,
+      actualReturnDate,
+      actualReturnYmd,
+      todayYmd,
+      returnDaysBack,
+      validatedDateReason,
+    });
   });
 
-  void (async () => {
-    try {
-      const [customer, staffName] = await Promise.all([
-        models.Customer?.findByPk && returnMeta?.customer_id
-          ? models.Customer.findByPk(returnMeta.customer_id, {
-              attributes: ["customer_id", "first_name", "last_name", "company_name", "customer_type"],
-            })
-          : null,
-        lookupStaffName(models, userId),
-      ]);
-      const customerName = formatCustomerDisplay(customer);
-      const amount = Number(returnMeta?.finalPayment || 0) + Number(returnMeta?.totalLateFees || 0);
-      await notifyEvent(models, "return_processed", {
-        amount,
-        actorUserId: userId,
-        customerName,
-        vars: {
-          invoice_no: String(invoice_id),
+  if (!models?.ActivityEvent?.create) {
+    void (async () => {
+      try {
+        const [customer, staffName] = await Promise.all([
+          models.Customer?.findByPk && returnMeta?.customer_id
+            ? models.Customer.findByPk(returnMeta.customer_id, {
+                attributes: ["customer_id", "first_name", "last_name", "company_name", "customer_type"],
+              })
+            : null,
+          lookupStaffName(models, userId),
+        ]);
+        const customerName = formatCustomerDisplay(customer);
+        const amount = Number(returnMeta?.finalPayment || 0) + Number(returnMeta?.totalLateFees || 0);
+        await notifyEvent(models, "return_processed", {
           amount,
-          customer: customerName,
-          items: returnMeta?.finalStatus || "",
-          staff: staffName,
-        },
-        title: amount > 0
-          ? `Return on #${invoice_id} · LKR ${formatLkr(amount)}`
-          : `Return processed on #${invoice_id}`,
-        body: `${customerName} · ${returnMeta?.finalStatus || "Updated"} · by ${staffName}`,
-        titleNoAmount: `Return processed on #${invoice_id}`,
-        bodyNoAmount: `${customerName} · ${returnMeta?.finalStatus || "Updated"} · by ${staffName}`,
-        data: { type: "return_processed", invoice_id: String(invoice_id) },
-        link: "/invoices?mode=manage",
-      });
-    } catch {
-      // Push failures must never affect return processing
-    }
-  })();
+          actorUserId: userId,
+          customerName,
+          vars: {
+            invoice_no: String(payload.invoice_id),
+            amount,
+            customer: customerName,
+            items: returnMeta?.finalStatus || "",
+            staff: staffName,
+          },
+          title: amount > 0
+            ? `Return on #${payload.invoice_id} · LKR ${formatLkr(amount)}`
+            : `Return processed on #${payload.invoice_id}`,
+          body: `${customerName} · ${returnMeta?.finalStatus || "Updated"} · by ${staffName}`,
+          titleNoAmount: `Return processed on #${payload.invoice_id}`,
+          bodyNoAmount: `${customerName} · ${returnMeta?.finalStatus || "Updated"} · by ${staffName}`,
+          data: { type: "return_processed", invoice_id: String(payload.invoice_id) },
+          link: "/invoices?mode=manage",
+        });
+      } catch {
+        // Push failures must never affect return processing
+      }
+    })();
+  }
 
   return true;
+};
+
+/**
+ * Compute late fees for a proposed return date vs today without mutating anything.
+ */
+export const previewReturn = async (models, invoiceId, payload = {}) => {
+  const now = new Date();
+  const actualReturnDate = resolvePastOrTodayDate(payload.actual_return_date, "return date", now);
+  const actualReturnYmd = dayInShopTz(actualReturnDate);
+  const todayYmd = dayInShopTz(now);
+  const daysBack = Math.max(0, wholeDaysBetween(actualReturnYmd, todayYmd));
+
+  const invoice = await models.Invoice.findByPk(invoiceId, {
+    include: models.InvoiceLine ? [{ model: models.InvoiceLine, required: false }] : [],
+  });
+  if (!invoice) throw new AppError("Invoice not found.", 404);
+
+  const linesMap = new Map((invoice.InvoiceLines || []).map((l) => [Number(l.line_id), l]));
+  const linesReturned = Array.isArray(payload.lines_returned) ? payload.lines_returned : [];
+
+  let actualLateFees = 0;
+  let nowLateFees = 0;
+
+  for (const r of linesReturned) {
+    const line = linesMap.get(Number(r.line_id));
+    if (!line) continue;
+    const totalReturnedNow = (parseInt(r.good_qty, 10) || 0) + (parseInt(r.defective_qty, 10) || 0);
+    if (totalReturnedNow <= 0) continue;
+
+    const overdueEnabled = line.track_overdue !== false && r.track_overdue !== false;
+    const openEnded = isOpenEndedLine(line);
+    const extraDays = openEnded
+      ? openEndedExtraDays(line, lineOutMoment(line, invoice.issued_date), r.actual_return_at || actualReturnDate)
+      : overdueEnabled
+        ? chargeableLateDays(line, r.actual_return_date || actualReturnYmd)
+        : 0;
+    const nowExtraDays = openEnded
+      ? openEndedExtraDays(line, lineOutMoment(line, invoice.issued_date), now)
+      : overdueEnabled
+        ? chargeableLateDays(line, todayYmd)
+        : 0;
+
+    if (extraDays > 0) actualLateFees += extraDays * Number(line.locked_extra_daily_rate) * totalReturnedNow;
+    if (nowExtraDays > 0) nowLateFees += nowExtraDays * Number(line.locked_extra_daily_rate) * totalReturnedNow;
+  }
+
+  const late_fee_difference = Math.round((nowLateFees - actualLateFees) * 100) / 100;
+  return {
+    actual_return_date: actualReturnYmd,
+    days_back: daysBack,
+    actual_late_fees: Math.round(actualLateFees * 100) / 100,
+    now_late_fees: Math.round(nowLateFees * 100) / 100,
+    late_fee_difference,
+  };
 };
 
 const assertNotCompleted = (invoice, action) => {
@@ -747,6 +1136,18 @@ export const reopenInvoice = async (models, invoiceId, userId) =>
       { transaction: t },
     );
     await touchCustomerBrief(models, invoice.customer_id, { transaction: t });
+    await maybeRecordActivity(
+      models,
+      {
+        type: "invoice_reopened",
+        invoice_id: invoiceId,
+        customer_id: invoice.customer_id,
+        actor_user_id: userId,
+        amount: Number(invoice.total_amount || 0),
+        data: { next_status: status },
+      },
+      { transaction: t },
+    );
     return invoice;
   });
 
@@ -763,6 +1164,22 @@ export const addContinuousPayment = async (
     throw new AppError("Payment amount must be greater than 0.", 400);
   }
   const actualAmount = is_refund ? -numeric : numeric;
+
+  const now = new Date();
+  const paymentDate = resolvePastOrTodayDate(payload.payment_date, "payment date", now);
+  const paymentYmd = dayInShopTz(paymentDate);
+  const todayYmd = dayInShopTz(now);
+  const paymentDaysBack = Math.max(0, wholeDaysBetween(paymentYmd, todayYmd));
+
+  let validatedDateReason = null;
+  if (!is_refund && paymentDaysBack > 0) {
+    validatedDateReason = await validateReason(models, "backdate", payload.date_reason);
+  }
+
+  let refundReason = null;
+  if (is_refund && payload.reason) {
+    refundReason = await validateReason(models, "refund", payload.reason);
+  }
 
   const { payment, customerId } = await models.sequelize.transaction(async (t) => {
     const invoice = await models.Invoice.findByPk(invoiceId, {
@@ -792,6 +1209,8 @@ export const addContinuousPayment = async (
       {
         invoice_id: invoiceId,
         payment_amount: actualAmount,
+        payment_date: paymentDate,
+        entered_at: now,
         method: method || "Cash",
         received_by_user_id: userId,
       },
@@ -811,45 +1230,109 @@ export const addContinuousPayment = async (
 
     await touchCustomerBrief(models, invoice.customer_id, { transaction: t });
 
+    if (is_refund) {
+      await maybeRecordActivity(
+        models,
+        {
+          type: "refund",
+          invoice_id: invoiceId,
+          customer_id: invoice.customer_id,
+          actor_user_id: userId,
+          amount: numeric,
+          occurred_at: now,
+          data: {
+            method: method || "Cash",
+            ...(refundReason
+              ? {
+                  reason_key: refundReason.key,
+                  reason_note: refundReason.note,
+                  reason_label_en: refundReason.label_en,
+                  reason_label_si: refundReason.label_si,
+                }
+              : {}),
+          },
+        },
+        { transaction: t },
+      );
+    } else if (paymentDaysBack > 0) {
+      await maybeRecordActivity(
+        models,
+        {
+          type: "backdated_payment",
+          invoice_id: invoiceId,
+          customer_id: invoice.customer_id,
+          actor_user_id: userId,
+          amount: numeric,
+          occurred_at: now,
+          data: {
+            days_back: paymentDaysBack,
+            payment_date: paymentYmd,
+            method: method || "Cash",
+            reason_key: validatedDateReason?.key || null,
+            reason_note: validatedDateReason?.note || null,
+            reason_label_en: validatedDateReason?.label_en || null,
+            reason_label_si: validatedDateReason?.label_si || null,
+          },
+        },
+        { transaction: t },
+      );
+    } else {
+      await maybeRecordActivity(
+        models,
+        {
+          type: "payment",
+          invoice_id: invoiceId,
+          customer_id: invoice.customer_id,
+          actor_user_id: userId,
+          amount: numeric,
+          occurred_at: now,
+          data: { method: method || "Cash" },
+        },
+        { transaction: t },
+      );
+    }
+
     return { payment, customerId: invoice.customer_id };
   });
 
-  void (async () => {
-    try {
-      const [customer, staffName] = await Promise.all([
-        models.Customer?.findByPk && customerId
-          ? models.Customer.findByPk(customerId, {
-              attributes: ["customer_id", "first_name", "last_name", "company_name", "customer_type"],
-            })
-          : null,
-        lookupStaffName(models, userId),
-      ]);
-      const customerName = formatCustomerDisplay(customer);
-      const eventKey = is_refund ? "payment_voided" : "payment_received";
-      const label = is_refund ? "Refund" : "Payment";
-      await notifyEvent(models, eventKey, {
-        amount: numeric,
-        actorUserId: userId,
-        customerName,
-        vars: {
-          invoice_no: String(invoiceId),
+  if (!models?.ActivityEvent?.create) {
+    void (async () => {
+      try {
+        const [customer, staffName] = await Promise.all([
+          models.Customer?.findByPk && customerId
+            ? models.Customer.findByPk(customerId, {
+                attributes: ["customer_id", "first_name", "last_name", "company_name", "customer_type"],
+              })
+            : null,
+          lookupStaffName(models, userId),
+        ]);
+        const customerName = formatCustomerDisplay(customer);
+        const eventKey = is_refund ? "payment_voided" : "payment_received";
+        const label = is_refund ? "Refund" : "Payment";
+        await notifyEvent(models, eventKey, {
           amount: numeric,
-          customer: customerName,
-          staff: staffName,
-          date: new Date(),
-          time: new Date(),
-        },
-        title: `${label} on #${invoiceId} · LKR ${formatLkr(numeric)}`,
-        body: `${customerName} · ${method || "Cash"} · by ${staffName}`,
-        titleNoAmount: `${label} recorded on #${invoiceId}`,
-        bodyNoAmount: `${customerName} · ${method || "Cash"} · by ${staffName}`,
-        data: { type: eventKey, invoice_id: String(invoiceId) },
-        link: "/invoices?mode=manage",
-      });
-    } catch {
-      // Push failures must never affect payment recording
-    }
-  })();
+          actorUserId: userId,
+          customerName,
+          vars: {
+            invoice_no: String(invoiceId),
+            amount: numeric,
+            customer: customerName,
+            staff: staffName,
+            date: new Date(),
+            time: new Date(),
+          },
+          title: `${label} on #${invoiceId} · LKR ${formatLkr(numeric)}`,
+          body: `${customerName} · ${method || "Cash"} · by ${staffName}`,
+          titleNoAmount: `${label} recorded on #${invoiceId}`,
+          bodyNoAmount: `${customerName} · ${method || "Cash"} · by ${staffName}`,
+          data: { type: eventKey, invoice_id: String(invoiceId) },
+          link: "/invoices?mode=manage",
+        });
+      } catch {
+        // Push failures must never affect payment recording
+      }
+    })();
+  }
 
   return payment;
 };
@@ -891,6 +1374,31 @@ export const toggleVaultStatus = async (models, invoiceId, userId) => {
 
     await touchCustomerBrief(models, invoice.customer_id, { transaction: t });
 
+    if (newStatus === false) {
+      const paid =
+        Number(
+          await models.Payment?.sum?.("payment_amount", {
+            where: { invoice_id: invoiceId, is_voided: false },
+            transaction: t,
+          }),
+        ) || 0;
+      const balance = Math.round((liveTotalOf(invoice) - paid) * 100) / 100;
+      if (balance > BALANCE_TOLERANCE) {
+        await maybeRecordActivity(
+          models,
+          {
+            type: "id_card_released_unpaid",
+            invoice_id: invoiceId,
+            customer_id: invoice.customer_id,
+            actor_user_id: userId,
+            amount: balance,
+            data: { balance },
+          },
+          { transaction: t },
+        );
+      }
+    }
+
     return {
       is_id_retained_currently: newStatus,
       id_card_status: newStatus ? 1 : 0,
@@ -920,6 +1428,12 @@ export const updateInvoiceFees = async (models, invoiceId, payload, userId) => {
 
     if (newTransport < 0 || newDiscount < 0) throw new AppError("Discount and transport cannot be negative.", 400);
 
+    let validatedDiscountReason = null;
+    const discountChanged = payload.discount_amount !== undefined && newDiscount !== oldDiscount;
+    if (discountChanged && newDiscount > 0) {
+      validatedDiscountReason = await validateReason(models, "discount", payload.discount_reason, { transaction: t });
+    }
+
     // Recalculate the Grand Total with the new fees
     const newTotal =
       Number(invoice.total_amount) -
@@ -935,6 +1449,12 @@ export const updateInvoiceFees = async (models, invoiceId, payload, userId) => {
         transport_fee: newTransport,
         discount_amount: newDiscount,
         total_amount: newTotal,
+        ...(discountChanged
+          ? {
+              discount_reason_key: newDiscount > 0 ? validatedDiscountReason.key : null,
+              discount_reason_note: newDiscount > 0 ? validatedDiscountReason.note : null,
+            }
+          : {}),
       },
       { transaction: t },
     );
@@ -950,6 +1470,7 @@ export const updateInvoiceFees = async (models, invoiceId, payload, userId) => {
         state_payload: {
           transport_fee: newTransport,
           discount_amount: newDiscount,
+          ...(validatedDiscountReason ? { discount_reason: validatedDiscountReason } : {}),
         },
       },
       { transaction: t },
@@ -957,11 +1478,115 @@ export const updateInvoiceFees = async (models, invoiceId, payload, userId) => {
 
     await touchCustomerBrief(models, invoice.customer_id, { transaction: t });
 
+    if (discountChanged && newDiscount > 0 && validatedDiscountReason) {
+      const printCount = models.InvoicePrintLog?.count
+        ? await models.InvoicePrintLog.count({ where: { invoice_id: invoiceId }, transaction: t })
+        : 0;
+      const raisedAfterPrinting = printCount > 0 && newDiscount > oldDiscount;
+      const baseTotal = Number(invoice.sub_total || 0) + newTransport;
+      const discountPct = baseTotal > 0 ? Math.round((newDiscount / baseTotal) * 10000) / 100 : 0;
+
+      await maybeRecordActivity(
+        models,
+        {
+          type: "discount",
+          invoice_id: invoiceId,
+          customer_id: invoice.customer_id,
+          actor_user_id: userId,
+          amount: newDiscount,
+          data: {
+            old_amount: oldDiscount,
+            new_amount: newDiscount,
+            discount_pct: discountPct,
+            raised_after_printing: raisedAfterPrinting,
+            reason_key: validatedDiscountReason.key,
+            reason_note: validatedDiscountReason.note,
+            reason_label_en: validatedDiscountReason.label_en,
+            reason_label_si: validatedDiscountReason.label_si,
+          },
+        },
+        { transaction: t },
+      );
+    }
+
     return invoice;
   });
 };
 
-/** Read-only bill summary for an authenticated administrator's paired phone. */
+const redactAmounts = (text) =>
+  String(text || "")
+    .replace(/Rs\.?\s*[\d,]+(?:\.\d{1,2})?/gi, "Rs —")
+    .replace(/රු\.?\s*[\d,]+(?:\.\d{1,2})?/g, "රු. —");
+
+const formatTraceSentence = (trace, actorName, canSeeMoney) => {
+  const cat = String(trace.event_category || "").toUpperCase();
+  const act = String(trace.event_action || "").toUpperCase();
+  const payload = parseJsonField(trace.state_payload, {});
+  const who = actorName || "Staff";
+  const amt = payload?.amount ?? payload?.payment_amount ?? payload?.discount_amount;
+  const amtEn = canSeeMoney && amt != null ? ` Rs ${formatLkr(amt)}` : "";
+  const amtSi = canSeeMoney && amt != null ? ` රු. ${formatLkr(amt)}` : "";
+
+  if (cat === "INVOICE" && act === "CREATED") {
+    return {
+      sentence_en: `Bill created by ${who}`,
+      sentence_si: `${who} විසින් බිල්පත සාදන ලදී`,
+    };
+  }
+  if (cat === "PAYMENT" && act === "ADDED") {
+    return {
+      sentence_en: `Payment${amtEn} recorded by ${who}`,
+      sentence_si: `${who} විසින් ගෙවීම${amtSi} සටහන් කරන ලදී`,
+    };
+  }
+  if (cat === "PAYMENT" && act === "VOIDED") {
+    return {
+      sentence_en: `Payment${amtEn} voided by ${who}`,
+      sentence_si: `${who} විසින් ගෙවීම${amtSi} අවලංගු කරන ලදී`,
+    };
+  }
+  if (cat === "RETURN" && act === "PROCESSED") {
+    return {
+      sentence_en: `Equipment returned (${who})`,
+      sentence_si: `උපකරණ ආපසු භාර ගන්නා ලදී (${who})`,
+    };
+  }
+  if (cat === "FEES" && act === "UPDATED") {
+    return {
+      sentence_en: `Fees or discount updated by ${who}`,
+      sentence_si: `${who} විසින් ගාස්තු හෝ වට්ටම් යාවත්කාලීන කරන ලදී`,
+    };
+  }
+  if (cat === "INVOICE" && act === "DELETED") {
+    return {
+      sentence_en: `Bill deleted by ${who}`,
+      sentence_si: `${who} විසින් බිල්පත මකා දමන ලදී`,
+    };
+  }
+  if (cat === "INVOICE" && act === "RESTORED") {
+    return {
+      sentence_en: `Bill restored by ${who}`,
+      sentence_si: `${who} විසින් බිල්පත ප්‍රතිසාධනය කරන ලදී`,
+    };
+  }
+  if (cat === "INVOICE" && act === "COMPLETED") {
+    return {
+      sentence_en: `Bill completed by ${who}`,
+      sentence_si: `${who} විසින් බිල්පත සම්පූර්ණ කරන ලදී`,
+    };
+  }
+  if (cat === "INVOICE" && act === "REOPENED") {
+    return {
+      sentence_en: `Bill reopened by ${who}`,
+      sentence_si: `${who} විසින් බිල්පත නැවත විවෘත කරන ලදී`,
+    };
+  }
+  const fallback = trace.comments ? String(trace.comments) : `${cat} ${act} (${who})`;
+  const safeFallback = canSeeMoney ? fallback : redactAmounts(fallback);
+  return { sentence_en: safeFallback, sentence_si: safeFallback };
+};
+
+/** Complete bill summary for a paired phone (role money-visibility enforced). */
 export const getDeviceInvoiceSummary = async (models, device, invoiceId) => {
   const user =
     device?.user_id && models?.User?.findByPk
@@ -990,9 +1615,23 @@ export const getDeviceInvoiceSummary = async (models, device, invoiceId) => {
         })
       : null;
 
-  const canViewBill = isUserAdmin(user) || (await userHasPermission(models, user, "invoice:view"));
+  const isAdmin = isUserAdmin(user);
+  const canViewBill = isAdmin || (await userHasPermission(models, user, "invoice:view"));
   if (!canViewBill) {
     throw new AppError("You do not have permission to view bill summaries on a phone.", 403);
+  }
+
+  let canSeeMoney = true;
+  if (!isAdmin) {
+    try {
+      const roleIds = (user?.Roles || [])
+        .filter((r) => r.is_active !== false)
+        .map((r) => r.role_id);
+      const vis = await resolveUserActivityVisibility(models, device?.user_id, roleIds);
+      canSeeMoney = vis.seeAmounts !== false;
+    } catch {
+      canSeeMoney = true;
+    }
   }
 
   try {
@@ -1001,7 +1640,8 @@ export const getDeviceInvoiceSummary = async (models, device, invoiceId) => {
     // Non-fatal in minimal mock environments
   }
 
-  const invoice = await models.Invoice.findByPk(invoiceId, {
+  const invoiceFinder = models.Invoice?.unscoped ? models.Invoice.unscoped() : models.Invoice;
+  const invoice = await invoiceFinder.findByPk(invoiceId, {
     include: [
       ...(models.Customer ? [{ model: models.Customer }] : []),
       ...(models.InvoiceLine
@@ -1011,6 +1651,14 @@ export const getDeviceInvoiceSummary = async (models, device, invoiceId) => {
               include: models.Equipment
                 ? [{ model: models.Equipment, attributes: ["equipment_name"] }]
                 : [],
+            },
+          ]
+        : []),
+      ...(models.InvoiceSaleLine
+        ? [
+            {
+              model: models.InvoiceSaleLine,
+              required: false,
             },
           ]
         : []),
@@ -1031,40 +1679,290 @@ export const getDeviceInvoiceSummary = async (models, device, invoiceId) => {
     throw new AppError("Invoice not found.", 404);
   }
 
+  const round2 = (n) => Math.round(Number(n || 0) * 100) / 100;
   const total_amount = liveTotalOf(invoice);
-  const activePayments = (invoice.Payments || []).filter((p) => !p.is_voided);
+  const allPayments = invoice.Payments || [];
+  const activePayments = allPayments.filter((p) => !p.is_voided);
   const paid_amount = Math.max(
     0,
-    Math.round(activePayments.reduce((s, p) => s + Number(p.payment_amount || 0), 0) * 100) / 100,
+    round2(activePayments.reduce((s, p) => s + Number(p.payment_amount || 0), 0)),
   );
   const balance_due = owedAmount(total_amount, activePayments);
+  const returned_amount = round2(
+    activePayments
+      .filter((p) => Number(p.payment_amount || 0) < 0)
+      .reduce((s, p) => s + Math.abs(Number(p.payment_amount || 0)), 0),
+  );
 
   const issuer = invoice.User || null;
   const issued_by = issuer
     ? `${issuer.first_name || ""} ${issuer.last_name || ""}`.trim() || issuer.username || null
     : null;
 
+  const rentalLines = invoice.InvoiceLines || [];
+  const saleLinesRaw = invoice.InvoiceSaleLines || [];
+  const sale_lines = saleLinesRaw.map((sl) => ({
+    line_id: sl.sale_line_id ?? sl.line_id ?? null,
+    name: sl.item_name || sl.Equipment?.equipment_name || "Item",
+    quantity: Number(sl.quantity || 0),
+    unit: sl.unit || null,
+    unit_price: canSeeMoney ? round2(sl.unit_price || 0) : null,
+    line_total: canSeeMoney ? round2(sl.line_total_amount || 0) : null,
+    returned_qty: Number(sl.returned_qty || 0),
+  }));
+
+  const bill_kind =
+    rentalLines.length > 0 && sale_lines.length > 0
+      ? "mixed"
+      : sale_lines.length > 0 && rentalLines.length === 0
+        ? "sale"
+        : "rental";
+
+  const now = new Date();
+  const issuedAt = new Date(invoice.issued_date || invoice.createdAt || now);
+  const createdAt = invoice.createdAt ? new Date(invoice.createdAt) : issuedAt;
+  const dayDiff = (a, b) => {
+    const da = new Date(a);
+    const db = new Date(b);
+    if (Number.isNaN(da.getTime()) || Number.isNaN(db.getTime())) return 0;
+    const utcA = Date.UTC(da.getUTCFullYear(), da.getUTCMonth(), da.getUTCDate());
+    const utcB = Date.UTC(db.getUTCFullYear(), db.getUTCMonth(), db.getUTCDate());
+    return Math.max(0, Math.round((utcB - utcA) / 86_400_000));
+  };
+
+  // Staff name lookup cache for payments, traces, activities, and calls
+  const staffIds = new Set();
+  for (const p of allPayments) {
+    if (p.received_by_user_id) staffIds.add(Number(p.received_by_user_id));
+  }
+
+  let traces = [];
+  if (models.InvoiceTrace?.findAll) {
+    try {
+      traces = await models.InvoiceTrace.findAll({
+        where: { invoice_id: invoiceId },
+        order: [["occurred_at", "DESC"]],
+        limit: 100,
+      });
+      for (const tr of traces) {
+        if (tr.actor_user_id) staffIds.add(Number(tr.actor_user_id));
+      }
+    } catch {
+      traces = [];
+    }
+  }
+
+  let activities = [];
+  if (models.ActivityEvent?.findAll) {
+    try {
+      activities = await models.ActivityEvent.findAll({
+        where: { invoice_id: invoiceId },
+        order: [["occurred_at", "DESC"]],
+        limit: 100,
+      });
+      for (const ev of activities) {
+        if (ev.actor_user_id) staffIds.add(Number(ev.actor_user_id));
+        if (ev.checked_by) staffIds.add(Number(ev.checked_by));
+      }
+    } catch {
+      activities = [];
+    }
+  }
+
+  let calls = [];
+  if (models.CallLog?.findAll && invoice.customer_id) {
+    try {
+      const recentCalls = await models.CallLog.findAll({
+        where: { customer_id: invoice.customer_id },
+        include: models.CallNote ? [{ model: models.CallNote, required: false }] : [],
+        order: [["started_at", "DESC"]],
+        limit: 30,
+      });
+      for (const c of recentCalls) {
+        const logIds = parseJsonField(c.invoice_ids, []);
+        const notes = Array.isArray(c.CallNotes) ? c.CallNotes : c.CallNote ? [c.CallNote] : [];
+        const note = notes[0] || null;
+        const noteIds = note ? parseJsonField(note.invoice_ids, []) : [];
+        const matchesInvoice =
+          (Array.isArray(logIds) && logIds.map(Number).includes(Number(invoiceId))) ||
+          (Array.isArray(noteIds) && noteIds.map(Number).includes(Number(invoiceId)));
+        if (matchesInvoice) {
+          if (c.user_id) staffIds.add(Number(c.user_id));
+          if (note?.user_id) staffIds.add(Number(note.user_id));
+          calls.push({ c, note });
+        }
+      }
+    } catch {
+      calls = [];
+    }
+  }
+
+  const staffNameMap = new Map();
+  if (staffIds.size > 0 && models.User?.findAll) {
+    try {
+      const users = await models.User.findAll({
+        where: { user_id: { [Op.in]: [...staffIds] } },
+        attributes: ["user_id", "first_name", "last_name", "username"],
+      });
+      for (const u of users) {
+        const name = `${u.first_name || ""} ${u.last_name || ""}`.trim() || u.username || "Staff";
+        staffNameMap.set(Number(u.user_id), name);
+      }
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  const payments = allPayments
+    .map((p) => {
+      const amt = round2(p.payment_amount || 0);
+      return {
+        payment_id: p.payment_id ?? null,
+        amount: canSeeMoney ? amt : null,
+        method: p.method || "Cash",
+        payment_date: p.payment_date ? new Date(p.payment_date).toISOString() : null,
+        entered_at: p.entered_at
+          ? new Date(p.entered_at).toISOString()
+          : p.payment_date
+            ? new Date(p.payment_date).toISOString()
+            : null,
+        staff_name: p.received_by_user_id ? staffNameMap.get(Number(p.received_by_user_id)) || null : null,
+        is_voided: Boolean(p.is_voided),
+        is_refund: amt < 0,
+        settlement_id: p.settlement_id ?? null,
+      };
+    })
+    .sort((a, b) => new Date(b.payment_date || 0).getTime() - new Date(a.payment_date || 0).getTime());
+
+  const settlement_id =
+    payments.find((p) => p.settlement_id != null)?.settlement_id ??
+    rentalLines.find((l) => l.settlement_id != null)?.settlement_id ??
+    null;
+
+  const historyFromActivities = activities.map((ev) => {
+    const data = parseJsonField(ev.data, {});
+    const rawSentence =
+      data.sentence && typeof data.sentence === "object"
+        ? data.sentence
+        : { en: String(data.sentence || ev.type), si: String(data.sentence || ev.type) };
+    const en = canSeeMoney ? String(rawSentence.en || ev.type) : redactAmounts(rawSentence.en || ev.type);
+    const si = canSeeMoney ? String(rawSentence.si || en) : redactAmounts(rawSentence.si || en);
+    return {
+      id: `act-${ev.event_id}`,
+      source: "activity",
+      type: ev.type,
+      sentence_en: en,
+      sentence_si: si,
+      occurred_at: new Date(ev.occurred_at || ev.created_at || Date.now()).toISOString(),
+      actor_name: ev.actor_user_id ? staffNameMap.get(Number(ev.actor_user_id)) || null : null,
+      risk: ev.risk || "normal",
+      checked_at: ev.checked_at ? new Date(ev.checked_at).toISOString() : null,
+      checked_by_name: ev.checked_by ? staffNameMap.get(Number(ev.checked_by)) || null : null,
+    };
+  });
+
+  const historyFromTraces = traces.map((tr) => {
+    const actorName = tr.actor_user_id ? staffNameMap.get(Number(tr.actor_user_id)) || "Staff" : "Staff";
+    const { sentence_en, sentence_si } = formatTraceSentence(tr, actorName, canSeeMoney);
+    return {
+      id: `trace-${tr.trace_id}`,
+      source: "trace",
+      type: `${tr.event_category || ""}_${tr.event_action || ""}`.toLowerCase(),
+      sentence_en,
+      sentence_si,
+      occurred_at: new Date(tr.occurred_at || tr.createdAt || Date.now()).toISOString(),
+      actor_name: actorName,
+      risk: "normal",
+      checked_at: null,
+      checked_by_name: null,
+    };
+  });
+
+  const history = [...historyFromActivities, ...historyFromTraces].sort(
+    (a, b) => new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime(),
+  );
+
+  const items_amount = round2(
+    saleLinesRaw.reduce((s, sl) => s + Number(sl.line_total_amount || 0), 0),
+  );
+  const rent_amount = round2(Number(invoice.sub_total || 0) + Number(invoice.accrued_rental || 0));
+  const late_fees = round2(
+    Math.max(0, Number(invoice.accrued_charges || 0) - Number(invoice.accrued_rental || 0)),
+  );
+
+  const backdatedEv = activities.find((ev) => ev.type === "backdated_bill");
+  const backdatedEvDays = backdatedEv ? Number(parseJsonField(backdatedEv.data, {})?.days_back || 0) : 0;
+  const backdated_days = backdatedEvDays > 0 ? backdatedEvDays : dayDiff(issuedAt, createdAt);
+
   return {
     invoice_id: Number(invoice.invoice_id),
     invoice_number: `INV-${invoice.invoice_id}`,
-    status: String(invoice.status || ""),
-    issued_at: new Date(invoice.issued_date || invoice.createdAt || Date.now()).toISOString(),
+    status: invoice.is_deleted ? "Deleted" : String(invoice.status || ""),
+    is_deleted: Boolean(invoice.is_deleted),
+    bill_kind,
+    issued_at: issuedAt.toISOString(),
+    created_at: createdAt.toISOString(),
+    backdated_days,
+    can_see_money: canSeeMoney,
     customer: {
       customer_id: invoice.Customer?.customer_id ?? invoice.customer_id ?? null,
       name: formatCustomerDisplay(invoice.Customer),
       phone: invoice.Customer?.phone_number ?? null,
+      is_walk_in: Boolean(invoice.Customer?.is_walk_in || (!invoice.Customer && !invoice.customer_id)),
+      id_card_status: Number(invoice.id_card_status || 0),
     },
-    items: (invoice.InvoiceLines || []).map((line) => ({
-      name: line.Equipment?.equipment_name || `Equipment #${line.equipment_id}`,
-      quantity: Number(line.borrow_quantity || 0),
-      line_total:
-        Math.round(
-          (Number(line.line_total_amount || 0) + Number(line.accrued_charge || 0)) * 100,
-        ) / 100,
+    items: rentalLines.map((line) => {
+      const stillOut =
+        !line.actual_return_date &&
+        String(line.line_status || "").toLowerCase() !== "returned";
+      const days_late =
+        stillOut && line.expected_return_date
+          ? Math.max(0, wholeDaysBetween(new Date(line.expected_return_date), now))
+          : 0;
+      return {
+        line_id: line.line_id ?? null,
+        name: line.Equipment?.equipment_name || `Equipment #${line.equipment_id}`,
+        quantity: Number(line.borrow_quantity || 0),
+        borrow_date: line.borrow_date ?? null,
+        expected_return_date: line.expected_return_date ?? null,
+        actual_return_date: line.actual_return_date ?? null,
+        good_returned_qty: Number(line.good_returned_qty || 0),
+        defective_returned_qty: Number(line.defective_returned_qty || 0),
+        line_status: line.line_status || "Active",
+        days_late,
+        line_total: canSeeMoney
+          ? round2(Number(line.line_total_amount || 0) + Number(line.accrued_charge || 0))
+          : null,
+      };
+    }),
+    sale_lines,
+    total_amount: canSeeMoney ? total_amount : null,
+    paid_amount: canSeeMoney ? paid_amount : null,
+    balance_due: canSeeMoney ? balance_due : null,
+    rent_amount: canSeeMoney ? rent_amount : null,
+    items_amount: canSeeMoney ? items_amount : null,
+    transport_fee: canSeeMoney ? round2(invoice.transport_fee || 0) : null,
+    discount_amount: canSeeMoney ? round2(invoice.discount_amount || 0) : null,
+    discount_reason_key: invoice.discount_reason_key ?? null,
+    discount_reason_note: invoice.discount_reason_note ?? null,
+    late_fees: canSeeMoney ? late_fees : null,
+    returned_amount: canSeeMoney ? returned_amount : null,
+    payments,
+    settlement_id,
+    calls: calls.map(({ c, note }) => ({
+      call_id: c.call_id,
+      started_at: c.started_at ? new Date(c.started_at).toISOString() : null,
+      duration_seconds: Number(c.duration_seconds || 0),
+      direction: c.direction || "OUTGOING",
+      outcome: note?.outcome ?? null,
+      result: note?.result ?? null,
+      note: note?.note ?? null,
+      staff_name:
+        (note?.user_id && staffNameMap.get(Number(note.user_id))) ||
+        (c.user_id && staffNameMap.get(Number(c.user_id))) ||
+        null,
     })),
-    total_amount,
-    paid_amount,
-    balance_due,
+    history,
     issued_by,
   };
 };
