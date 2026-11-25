@@ -913,6 +913,7 @@ const formatShopDevice = async (
     planHasPhoneAssistant = true,
     contactCountMap = null,
     callCountMap = null,
+    lastRecordingMap = null,
     versionConfig = null,
   } = {},
 ) => {
@@ -988,6 +989,9 @@ const formatShopDevice = async (
     calls_logged_count: callCountMap
       ? callCountMap.get(Number(device.operator_device_id)) ?? 0
       : 0,
+    last_recording_received_at: lastRecordingMap
+      ? lastRecordingMap.get(Number(device.operator_device_id)) ?? null
+      : null,
     sim_filter: device.sim_filter ?? null,
     capabilities: granted,
     effective_capabilities: effective,
@@ -1061,6 +1065,7 @@ export const listShopDevices = async (
   const deviceIds = filtered.map((r) => r.operator_device_id);
   const contactCountMap = new Map();
   const callCountMap = new Map();
+  const lastRecordingMap = new Map();
 
   if (deviceIds.length > 0 && tenantModels.sequelize?.fn) {
     if (tenantModels.PhoneContact?.findAll) {
@@ -1099,6 +1104,26 @@ export const listShopDevices = async (
         // Ignore mock SQL errors
       }
     }
+    if (tenantModels.CallRecording?.findAll) {
+      try {
+        const recLatest = await tenantModels.CallRecording.findAll({
+          where: { device_id: { [Op.in]: deviceIds } },
+          attributes: [
+            "device_id",
+            [tenantModels.sequelize.fn("MAX", tenantModels.sequelize.col("uploaded_at")), "last_at"],
+          ],
+          group: ["device_id"],
+          raw: true,
+        });
+        for (const r of recLatest || []) {
+          if (r.last_at) {
+            lastRecordingMap.set(Number(r.device_id), new Date(r.last_at).toISOString());
+          }
+        }
+      } catch {
+        // Ignore mock SQL errors
+      }
+    }
   }
 
   const [{ policy }, plan, versionConfig] = await Promise.all([
@@ -1116,6 +1141,7 @@ export const listShopDevices = async (
         planHasPhoneAssistant,
         contactCountMap,
         callCountMap,
+        lastRecordingMap,
         versionConfig,
       }),
     );
