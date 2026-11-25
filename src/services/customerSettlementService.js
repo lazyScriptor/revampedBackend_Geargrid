@@ -1431,6 +1431,10 @@ export const saveSettlement = async (models, customerId, payload = {}, userId, {
           { transaction: t },
         );
 
+        const printCount = models.InvoicePrintLog?.count
+          ? await models.InvoicePrintLog.count({ where: { invoice_id: bill.invoice_id }, transaction: t })
+          : 0;
+        const raisedAfterPrinting = printCount > 0 && newDiscount > oldDiscount;
         const baseTotal = Number(inv.sub_total || 0) + Number(inv.transport_fee || 0);
         const discountPct = baseTotal > 0 ? Math.round((newDiscount / baseTotal) * 10000) / 100 : 0;
         await maybeRecordActivity(
@@ -1447,6 +1451,7 @@ export const saveSettlement = async (models, customerId, payload = {}, userId, {
               old_amount: oldDiscount,
               new_amount: newDiscount,
               discount_pct: discountPct,
+              raised_after_printing: raisedAfterPrinting,
               reason_key: r.key,
               reason_note: r.note,
               reason_label_en: r.label_en,
