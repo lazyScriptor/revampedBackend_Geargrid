@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Op } from "sequelize";
+import { getCollectionsSettings } from "./collectionsSettingsService.js";
 import AppError from "../utils/AppError.js";
 import { emitToUser } from "../sockets/emitters.js";
 import { liveTotalOf } from "../utils/invoiceBalance.js";
@@ -504,12 +505,28 @@ export const deleteOperatorSignature = async (models, userId) => {
 
 export const getRentalTerms = async (models) => {
   const config = await models.TenantConfig.findOne();
+  const baseMarkdown =
+    config?.rental_terms_markdown ||
+    "By signing, you acknowledge receipt of the rented equipment and agree to return it in the same condition.";
+  const settings = await getCollectionsSettings(models).catch(() => null);
+  const rec = settings?.call_recording;
+  const markdown =
+    rec?.termsLineEnabled && rec?.termsLine_en
+      ? `${baseMarkdown}\n\n${rec.termsLine_en}`
+      : baseMarkdown;
   return {
-    markdown:
-      config?.rental_terms_markdown ||
-      "By signing, you acknowledge receipt of the rented equipment and agree to return it in the same condition.",
+    markdown,
     version: Number(config?.rental_terms_version || 1),
     updated_at: config?.updatedAt || null,
+    ...(rec?.termsLineEnabled
+      ? {
+          call_recording_terms: {
+            enabled: true,
+            en: rec.termsLine_en,
+            si: rec.termsLine_si,
+          },
+        }
+      : {}),
   };
 };
 

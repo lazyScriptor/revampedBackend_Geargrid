@@ -3,6 +3,7 @@ import * as customerReportService from "../services/customerReportService.js";
 import * as equipmentReportService from "../services/equipmentReportService.js";
 import * as categoryReportService from "../services/categoryReportService.js";
 import * as invoiceReportService from "../services/invoiceReportService.js";
+import * as collectionsReportService from "../services/collectionsReportService.js";
 import * as pdfService from "../services/pdfService.js";
 import * as excelService from "../services/excelService.js";
 import { getCachedTenantConnection } from "../config/database.js";
@@ -151,6 +152,31 @@ export const getAllCustomers = catchAsync(async (req, res) => {
 
 export const getOutstandingBalances = catchAsync(async (req, res) => {
   const data = await customerReportService.getOutstandingBalances(getModels(req), tzFiltersFromReq(req));
+  res.status(200).json({ status: "success", data });
+});
+
+export const getCollectionsReport = catchAsync(async (req, res) => {
+  const data = await collectionsReportService.getCollectionsReport(
+    getModels(req),
+    tzFiltersFromReq(req, req.query),
+  );
+  res.status(200).json({ status: "success", data });
+});
+
+export const getCustomerCollectionsDetail = catchAsync(async (req, res) => {
+  const data = await collectionsReportService.getCustomerCollectionsDetail(
+    getModels(req),
+    req.params.customerId,
+    tzFiltersFromReq(req, req.query),
+  );
+  res.status(200).json({ status: "success", data });
+});
+
+export const getCallsReport = catchAsync(async (req, res) => {
+  const data = await collectionsReportService.getCallsReport(
+    getModels(req),
+    tzFiltersFromReq(req, req.query),
+  );
   res.status(200).json({ status: "success", data });
 });
 

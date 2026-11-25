@@ -42,6 +42,9 @@ router.get("/cash-flow", requireFeature("reports.financials"), requirePermission
 
 router.get("/customers/all", requireFeature("reports.customers"), requirePermission("inventory_permission"), reportController.getAllCustomers);
 router.get("/customers/outstanding", requireFeature("reports.customers"), requirePermission("inventory_permission"), reportController.getOutstandingBalances);
+router.get("/customers/collections", requireFeature("reports.customers"), requirePermission("inventory_permission"), reportController.getCollectionsReport);
+router.get("/customers/collections/:customerId", requireFeature("reports.customers"), requirePermission("inventory_permission"), reportController.getCustomerCollectionsDetail);
+router.get("/calls", requireFeature("reports.customers"), requirePermission("calls:view"), reportController.getCallsReport);
 
 router.get("/equipment/maintenance-by-unit", requireFeature("reports.equipment"), requirePermission("inventory_permission"), reportController.getEquipmentMaintenanceByUnit);
 
