@@ -7,8 +7,9 @@ import { lineAccrual, refreshAccruals } from "./accrualService.js";
 import { touchCustomerBrief } from "./customerBriefService.js";
 import { notifyEvent } from "./pushEventService.js";
 import { isUserAdmin, userHasPermission } from "./userService.js";
-import { recordActivity } from "./activityService.js";
+import { recordActivity, resolveUserActivityVisibility } from "./activityService.js";
 import { validateReason } from "./activitySettingsService.js";
+import { parseJsonField } from "../utils/jsonFields.js";
 
 const formatLkr = (n) => {
   const num = Number(n || 0);
@@ -1512,7 +1513,80 @@ export const updateInvoiceFees = async (models, invoiceId, payload, userId) => {
   });
 };
 
-/** Read-only bill summary for an authenticated administrator's paired phone. */
+const redactAmounts = (text) =>
+  String(text || "")
+    .replace(/Rs\.?\s*[\d,]+(?:\.\d{1,2})?/gi, "Rs —")
+    .replace(/රු\.?\s*[\d,]+(?:\.\d{1,2})?/g, "රු. —");
+
+const formatTraceSentence = (trace, actorName, canSeeMoney) => {
+  const cat = String(trace.event_category || "").toUpperCase();
+  const act = String(trace.event_action || "").toUpperCase();
+  const payload = parseJsonField(trace.state_payload, {});
+  const who = actorName || "Staff";
+  const amt = payload?.amount ?? payload?.payment_amount ?? payload?.discount_amount;
+  const amtEn = canSeeMoney && amt != null ? ` Rs ${formatLkr(amt)}` : "";
+  const amtSi = canSeeMoney && amt != null ? ` රු. ${formatLkr(amt)}` : "";
+
+  if (cat === "INVOICE" && act === "CREATED") {
+    return {
+      sentence_en: `Bill created by ${who}`,
+      sentence_si: `${who} විසින් බිල්පත සාදන ලදී`,
+    };
+  }
+  if (cat === "PAYMENT" && act === "ADDED") {
+    return {
+      sentence_en: `Payment${amtEn} recorded by ${who}`,
+      sentence_si: `${who} විසින් ගෙවීම${amtSi} සටහන් කරන ලදී`,
+    };
+  }
+  if (cat === "PAYMENT" && act === "VOIDED") {
+    return {
+      sentence_en: `Payment${amtEn} voided by ${who}`,
+      sentence_si: `${who} විසින් ගෙවීම${amtSi} අවලංගු කරන ලදී`,
+    };
+  }
+  if (cat === "RETURN" && act === "PROCESSED") {
+    return {
+      sentence_en: `Equipment returned (${who})`,
+      sentence_si: `උපකරණ ආපසු භාර ගන්නා ලදී (${who})`,
+    };
+  }
+  if (cat === "FEES" && act === "UPDATED") {
+    return {
+      sentence_en: `Fees or discount updated by ${who}`,
+      sentence_si: `${who} විසින් ගාස්තු හෝ වට්ටම් යාවත්කාලීන කරන ලදී`,
+    };
+  }
+  if (cat === "INVOICE" && act === "DELETED") {
+    return {
+      sentence_en: `Bill deleted by ${who}`,
+      sentence_si: `${who} විසින් බිල්පත මකා දමන ලදී`,
+    };
+  }
+  if (cat === "INVOICE" && act === "RESTORED") {
+    return {
+      sentence_en: `Bill restored by ${who}`,
+      sentence_si: `${who} විසින් බිල්පත ප්‍රතිසාධනය කරන ලදී`,
+    };
+  }
+  if (cat === "INVOICE" && act === "COMPLETED") {
+    return {
+      sentence_en: `Bill completed by ${who}`,
+      sentence_si: `${who} විසින් බිල්පත සම්පූර්ණ කරන ලදී`,
+    };
+  }
+  if (cat === "INVOICE" && act === "REOPENED") {
+    return {
+      sentence_en: `Bill reopened by ${who}`,
+      sentence_si: `${who} විසින් බිල්පත නැවත විවෘත කරන ලදී`,
+    };
+  }
+  const fallback = trace.comments ? String(trace.comments) : `${cat} ${act} (${who})`;
+  const safeFallback = canSeeMoney ? fallback : redactAmounts(fallback);
+  return { sentence_en: safeFallback, sentence_si: safeFallback };
+};
+
+/** Complete bill summary for a paired phone (role money-visibility enforced). */
 export const getDeviceInvoiceSummary = async (models, device, invoiceId) => {
   const user =
     device?.user_id && models?.User?.findByPk
@@ -1541,9 +1615,23 @@ export const getDeviceInvoiceSummary = async (models, device, invoiceId) => {
         })
       : null;
 
-  const canViewBill = isUserAdmin(user) || (await userHasPermission(models, user, "invoice:view"));
+  const isAdmin = isUserAdmin(user);
+  const canViewBill = isAdmin || (await userHasPermission(models, user, "invoice:view"));
   if (!canViewBill) {
     throw new AppError("You do not have permission to view bill summaries on a phone.", 403);
+  }
+
+  let canSeeMoney = true;
+  if (!isAdmin) {
+    try {
+      const roleIds = (user?.Roles || [])
+        .filter((r) => r.is_active !== false)
+        .map((r) => r.role_id);
+      const vis = await resolveUserActivityVisibility(models, device?.user_id, roleIds);
+      canSeeMoney = vis.seeAmounts !== false;
+    } catch {
+      canSeeMoney = true;
+    }
   }
 
   try {
@@ -1552,7 +1640,8 @@ export const getDeviceInvoiceSummary = async (models, device, invoiceId) => {
     // Non-fatal in minimal mock environments
   }
 
-  const invoice = await models.Invoice.findByPk(invoiceId, {
+  const invoiceFinder = models.Invoice?.unscoped ? models.Invoice.unscoped() : models.Invoice;
+  const invoice = await invoiceFinder.findByPk(invoiceId, {
     include: [
       ...(models.Customer ? [{ model: models.Customer }] : []),
       ...(models.InvoiceLine
@@ -1562,6 +1651,14 @@ export const getDeviceInvoiceSummary = async (models, device, invoiceId) => {
               include: models.Equipment
                 ? [{ model: models.Equipment, attributes: ["equipment_name"] }]
                 : [],
+            },
+          ]
+        : []),
+      ...(models.InvoiceSaleLine
+        ? [
+            {
+              model: models.InvoiceSaleLine,
+              required: false,
             },
           ]
         : []),
@@ -1582,40 +1679,290 @@ export const getDeviceInvoiceSummary = async (models, device, invoiceId) => {
     throw new AppError("Invoice not found.", 404);
   }
 
+  const round2 = (n) => Math.round(Number(n || 0) * 100) / 100;
   const total_amount = liveTotalOf(invoice);
-  const activePayments = (invoice.Payments || []).filter((p) => !p.is_voided);
+  const allPayments = invoice.Payments || [];
+  const activePayments = allPayments.filter((p) => !p.is_voided);
   const paid_amount = Math.max(
     0,
-    Math.round(activePayments.reduce((s, p) => s + Number(p.payment_amount || 0), 0) * 100) / 100,
+    round2(activePayments.reduce((s, p) => s + Number(p.payment_amount || 0), 0)),
   );
   const balance_due = owedAmount(total_amount, activePayments);
+  const returned_amount = round2(
+    activePayments
+      .filter((p) => Number(p.payment_amount || 0) < 0)
+      .reduce((s, p) => s + Math.abs(Number(p.payment_amount || 0)), 0),
+  );
 
   const issuer = invoice.User || null;
   const issued_by = issuer
     ? `${issuer.first_name || ""} ${issuer.last_name || ""}`.trim() || issuer.username || null
     : null;
 
+  const rentalLines = invoice.InvoiceLines || [];
+  const saleLinesRaw = invoice.InvoiceSaleLines || [];
+  const sale_lines = saleLinesRaw.map((sl) => ({
+    line_id: sl.sale_line_id ?? sl.line_id ?? null,
+    name: sl.item_name || sl.Equipment?.equipment_name || "Item",
+    quantity: Number(sl.quantity || 0),
+    unit: sl.unit || null,
+    unit_price: canSeeMoney ? round2(sl.unit_price || 0) : null,
+    line_total: canSeeMoney ? round2(sl.line_total_amount || 0) : null,
+    returned_qty: Number(sl.returned_qty || 0),
+  }));
+
+  const bill_kind =
+    rentalLines.length > 0 && sale_lines.length > 0
+      ? "mixed"
+      : sale_lines.length > 0 && rentalLines.length === 0
+        ? "sale"
+        : "rental";
+
+  const now = new Date();
+  const issuedAt = new Date(invoice.issued_date || invoice.createdAt || now);
+  const createdAt = invoice.createdAt ? new Date(invoice.createdAt) : issuedAt;
+  const dayDiff = (a, b) => {
+    const da = new Date(a);
+    const db = new Date(b);
+    if (Number.isNaN(da.getTime()) || Number.isNaN(db.getTime())) return 0;
+    const utcA = Date.UTC(da.getUTCFullYear(), da.getUTCMonth(), da.getUTCDate());
+    const utcB = Date.UTC(db.getUTCFullYear(), db.getUTCMonth(), db.getUTCDate());
+    return Math.max(0, Math.round((utcB - utcA) / 86_400_000));
+  };
+
+  // Staff name lookup cache for payments, traces, activities, and calls
+  const staffIds = new Set();
+  for (const p of allPayments) {
+    if (p.received_by_user_id) staffIds.add(Number(p.received_by_user_id));
+  }
+
+  let traces = [];
+  if (models.InvoiceTrace?.findAll) {
+    try {
+      traces = await models.InvoiceTrace.findAll({
+        where: { invoice_id: invoiceId },
+        order: [["occurred_at", "DESC"]],
+        limit: 100,
+      });
+      for (const tr of traces) {
+        if (tr.actor_user_id) staffIds.add(Number(tr.actor_user_id));
+      }
+    } catch {
+      traces = [];
+    }
+  }
+
+  let activities = [];
+  if (models.ActivityEvent?.findAll) {
+    try {
+      activities = await models.ActivityEvent.findAll({
+        where: { invoice_id: invoiceId },
+        order: [["occurred_at", "DESC"]],
+        limit: 100,
+      });
+      for (const ev of activities) {
+        if (ev.actor_user_id) staffIds.add(Number(ev.actor_user_id));
+        if (ev.checked_by) staffIds.add(Number(ev.checked_by));
+      }
+    } catch {
+      activities = [];
+    }
+  }
+
+  let calls = [];
+  if (models.CallLog?.findAll && invoice.customer_id) {
+    try {
+      const recentCalls = await models.CallLog.findAll({
+        where: { customer_id: invoice.customer_id },
+        include: models.CallNote ? [{ model: models.CallNote, required: false }] : [],
+        order: [["started_at", "DESC"]],
+        limit: 30,
+      });
+      for (const c of recentCalls) {
+        const logIds = parseJsonField(c.invoice_ids, []);
+        const notes = Array.isArray(c.CallNotes) ? c.CallNotes : c.CallNote ? [c.CallNote] : [];
+        const note = notes[0] || null;
+        const noteIds = note ? parseJsonField(note.invoice_ids, []) : [];
+        const matchesInvoice =
+          (Array.isArray(logIds) && logIds.map(Number).includes(Number(invoiceId))) ||
+          (Array.isArray(noteIds) && noteIds.map(Number).includes(Number(invoiceId)));
+        if (matchesInvoice) {
+          if (c.user_id) staffIds.add(Number(c.user_id));
+          if (note?.user_id) staffIds.add(Number(note.user_id));
+          calls.push({ c, note });
+        }
+      }
+    } catch {
+      calls = [];
+    }
+  }
+
+  const staffNameMap = new Map();
+  if (staffIds.size > 0 && models.User?.findAll) {
+    try {
+      const users = await models.User.findAll({
+        where: { user_id: { [Op.in]: [...staffIds] } },
+        attributes: ["user_id", "first_name", "last_name", "username"],
+      });
+      for (const u of users) {
+        const name = `${u.first_name || ""} ${u.last_name || ""}`.trim() || u.username || "Staff";
+        staffNameMap.set(Number(u.user_id), name);
+      }
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  const payments = allPayments
+    .map((p) => {
+      const amt = round2(p.payment_amount || 0);
+      return {
+        payment_id: p.payment_id ?? null,
+        amount: canSeeMoney ? amt : null,
+        method: p.method || "Cash",
+        payment_date: p.payment_date ? new Date(p.payment_date).toISOString() : null,
+        entered_at: p.entered_at
+          ? new Date(p.entered_at).toISOString()
+          : p.payment_date
+            ? new Date(p.payment_date).toISOString()
+            : null,
+        staff_name: p.received_by_user_id ? staffNameMap.get(Number(p.received_by_user_id)) || null : null,
+        is_voided: Boolean(p.is_voided),
+        is_refund: amt < 0,
+        settlement_id: p.settlement_id ?? null,
+      };
+    })
+    .sort((a, b) => new Date(b.payment_date || 0).getTime() - new Date(a.payment_date || 0).getTime());
+
+  const settlement_id =
+    payments.find((p) => p.settlement_id != null)?.settlement_id ??
+    rentalLines.find((l) => l.settlement_id != null)?.settlement_id ??
+    null;
+
+  const historyFromActivities = activities.map((ev) => {
+    const data = parseJsonField(ev.data, {});
+    const rawSentence =
+      data.sentence && typeof data.sentence === "object"
+        ? data.sentence
+        : { en: String(data.sentence || ev.type), si: String(data.sentence || ev.type) };
+    const en = canSeeMoney ? String(rawSentence.en || ev.type) : redactAmounts(rawSentence.en || ev.type);
+    const si = canSeeMoney ? String(rawSentence.si || en) : redactAmounts(rawSentence.si || en);
+    return {
+      id: `act-${ev.event_id}`,
+      source: "activity",
+      type: ev.type,
+      sentence_en: en,
+      sentence_si: si,
+      occurred_at: new Date(ev.occurred_at || ev.created_at || Date.now()).toISOString(),
+      actor_name: ev.actor_user_id ? staffNameMap.get(Number(ev.actor_user_id)) || null : null,
+      risk: ev.risk || "normal",
+      checked_at: ev.checked_at ? new Date(ev.checked_at).toISOString() : null,
+      checked_by_name: ev.checked_by ? staffNameMap.get(Number(ev.checked_by)) || null : null,
+    };
+  });
+
+  const historyFromTraces = traces.map((tr) => {
+    const actorName = tr.actor_user_id ? staffNameMap.get(Number(tr.actor_user_id)) || "Staff" : "Staff";
+    const { sentence_en, sentence_si } = formatTraceSentence(tr, actorName, canSeeMoney);
+    return {
+      id: `trace-${tr.trace_id}`,
+      source: "trace",
+      type: `${tr.event_category || ""}_${tr.event_action || ""}`.toLowerCase(),
+      sentence_en,
+      sentence_si,
+      occurred_at: new Date(tr.occurred_at || tr.createdAt || Date.now()).toISOString(),
+      actor_name: actorName,
+      risk: "normal",
+      checked_at: null,
+      checked_by_name: null,
+    };
+  });
+
+  const history = [...historyFromActivities, ...historyFromTraces].sort(
+    (a, b) => new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime(),
+  );
+
+  const items_amount = round2(
+    saleLinesRaw.reduce((s, sl) => s + Number(sl.line_total_amount || 0), 0),
+  );
+  const rent_amount = round2(Number(invoice.sub_total || 0) + Number(invoice.accrued_rental || 0));
+  const late_fees = round2(
+    Math.max(0, Number(invoice.accrued_charges || 0) - Number(invoice.accrued_rental || 0)),
+  );
+
+  const backdatedEv = activities.find((ev) => ev.type === "backdated_bill");
+  const backdatedEvDays = backdatedEv ? Number(parseJsonField(backdatedEv.data, {})?.days_back || 0) : 0;
+  const backdated_days = backdatedEvDays > 0 ? backdatedEvDays : dayDiff(issuedAt, createdAt);
+
   return {
     invoice_id: Number(invoice.invoice_id),
     invoice_number: `INV-${invoice.invoice_id}`,
-    status: String(invoice.status || ""),
-    issued_at: new Date(invoice.issued_date || invoice.createdAt || Date.now()).toISOString(),
+    status: invoice.is_deleted ? "Deleted" : String(invoice.status || ""),
+    is_deleted: Boolean(invoice.is_deleted),
+    bill_kind,
+    issued_at: issuedAt.toISOString(),
+    created_at: createdAt.toISOString(),
+    backdated_days,
+    can_see_money: canSeeMoney,
     customer: {
       customer_id: invoice.Customer?.customer_id ?? invoice.customer_id ?? null,
       name: formatCustomerDisplay(invoice.Customer),
       phone: invoice.Customer?.phone_number ?? null,
+      is_walk_in: Boolean(invoice.Customer?.is_walk_in || (!invoice.Customer && !invoice.customer_id)),
+      id_card_status: Number(invoice.id_card_status || 0),
     },
-    items: (invoice.InvoiceLines || []).map((line) => ({
-      name: line.Equipment?.equipment_name || `Equipment #${line.equipment_id}`,
-      quantity: Number(line.borrow_quantity || 0),
-      line_total:
-        Math.round(
-          (Number(line.line_total_amount || 0) + Number(line.accrued_charge || 0)) * 100,
-        ) / 100,
+    items: rentalLines.map((line) => {
+      const stillOut =
+        !line.actual_return_date &&
+        String(line.line_status || "").toLowerCase() !== "returned";
+      const days_late =
+        stillOut && line.expected_return_date
+          ? Math.max(0, wholeDaysBetween(new Date(line.expected_return_date), now))
+          : 0;
+      return {
+        line_id: line.line_id ?? null,
+        name: line.Equipment?.equipment_name || `Equipment #${line.equipment_id}`,
+        quantity: Number(line.borrow_quantity || 0),
+        borrow_date: line.borrow_date ?? null,
+        expected_return_date: line.expected_return_date ?? null,
+        actual_return_date: line.actual_return_date ?? null,
+        good_returned_qty: Number(line.good_returned_qty || 0),
+        defective_returned_qty: Number(line.defective_returned_qty || 0),
+        line_status: line.line_status || "Active",
+        days_late,
+        line_total: canSeeMoney
+          ? round2(Number(line.line_total_amount || 0) + Number(line.accrued_charge || 0))
+          : null,
+      };
+    }),
+    sale_lines,
+    total_amount: canSeeMoney ? total_amount : null,
+    paid_amount: canSeeMoney ? paid_amount : null,
+    balance_due: canSeeMoney ? balance_due : null,
+    rent_amount: canSeeMoney ? rent_amount : null,
+    items_amount: canSeeMoney ? items_amount : null,
+    transport_fee: canSeeMoney ? round2(invoice.transport_fee || 0) : null,
+    discount_amount: canSeeMoney ? round2(invoice.discount_amount || 0) : null,
+    discount_reason_key: invoice.discount_reason_key ?? null,
+    discount_reason_note: invoice.discount_reason_note ?? null,
+    late_fees: canSeeMoney ? late_fees : null,
+    returned_amount: canSeeMoney ? returned_amount : null,
+    payments,
+    settlement_id,
+    calls: calls.map(({ c, note }) => ({
+      call_id: c.call_id,
+      started_at: c.started_at ? new Date(c.started_at).toISOString() : null,
+      duration_seconds: Number(c.duration_seconds || 0),
+      direction: c.direction || "OUTGOING",
+      outcome: note?.outcome ?? null,
+      result: note?.result ?? null,
+      note: note?.note ?? null,
+      staff_name:
+        (note?.user_id && staffNameMap.get(Number(note.user_id))) ||
+        (c.user_id && staffNameMap.get(Number(c.user_id))) ||
+        null,
     })),
-    total_amount,
-    paid_amount,
-    balance_due,
+    history,
     issued_by,
   };
 };
