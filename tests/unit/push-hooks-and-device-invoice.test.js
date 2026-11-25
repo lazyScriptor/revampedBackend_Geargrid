@@ -433,10 +433,12 @@ describe("B4 — getDeviceInvoiceSummary", () => {
     const summary = await invoiceService.getDeviceInvoiceSummary(models, { user_id: 1 }, 42);
 
     expect(mockRefreshAccruals).toHaveBeenCalledWith(models, { invoiceIds: [42] });
-    expect(summary).toEqual({
+    expect(summary).toMatchObject({
       invoice_id: 42,
       invoice_number: "INV-42",
       status: "Active",
+      bill_kind: "rental",
+      can_see_money: true,
       issued_at: "2026-11-14T10:00:00.000Z",
       customer: { customer_id: 7, name: "Nimal Perera", phone: "0771234567" },
       items: [{ name: "Concrete Mixer", quantity: 2, line_total: 5500 }],
@@ -445,5 +447,105 @@ describe("B4 — getDeviceInvoiceSummary", () => {
       balance_due: 3500,
       issued_by: "Kasun Silva",
     });
+  });
+
+  it("returns full M1 bill details (discount reason, payments with dates, history newest first) and hides money for non-money roles", async () => {
+    const models = {
+      User: {
+        findByPk: vi.fn().mockResolvedValue({
+          user_id: 8,
+          is_active: true,
+          Roles: [
+            {
+              role_id: 4,
+              role_name: "Yard",
+              hierarchy_level: 20,
+              is_active: true,
+              Permissions: [{ permission_code: "invoice:view" }],
+            },
+          ],
+        }),
+        findAll: vi.fn().mockResolvedValue([
+          { user_id: 3, first_name: "Kasun", last_name: "Silva" },
+        ]),
+      },
+      Role: {},
+      Permission: {},
+      TenantConfig: {
+        findOne: vi.fn().mockResolvedValue({
+          custom_settings: {
+            activity_roles: {
+              "4": { types: ["invoice_created", "discount"], see_amounts: false },
+            },
+          },
+        }),
+      },
+      Customer: {},
+      InvoiceLine: {},
+      Equipment: {},
+      Payment: {},
+      InvoiceTrace: {
+        findAll: vi.fn().mockResolvedValue([
+          {
+            trace_id: 1,
+            invoice_id: 99,
+            actor_user_id: 3,
+            event_category: "INVOICE",
+            event_action: "CREATED",
+            occurred_at: "2026-11-20T08:00:00.000Z",
+          },
+        ]),
+      },
+      ActivityEvent: {
+        findAll: vi.fn().mockResolvedValue([
+          {
+            event_id: 10,
+            invoice_id: 99,
+            type: "discount",
+            risk: "high",
+            actor_user_id: 3,
+            occurred_at: "2026-11-20T09:00:00.000Z",
+            data: { sentence: { en: "Discount Rs 500 added by Kasun", si: "Kasun විසින් රු. 500 වට්ටමක්" } },
+          },
+        ]),
+      },
+      Invoice: {
+        unscoped: () => ({
+          findByPk: vi.fn().mockResolvedValue({
+            invoice_id: 99,
+            customer_id: 7,
+            status: "Active",
+            is_deleted: false,
+            issued_date: "2026-11-18T10:00:00.000Z",
+            createdAt: "2026-11-20T10:00:00.000Z",
+            total_amount: 4500,
+            discount_amount: 500,
+            discount_reason_key: "regular_customer",
+            discount_reason_note: "VIP",
+            Customer: { customer_id: 7, first_name: "Nimal", last_name: "Perera", phone_number: "0771234567" },
+            InvoiceLines: [
+              { line_id: 1, equipment_id: 10, borrow_quantity: 1, line_total_amount: 5000, accrued_charge: 0, settlement_id: 55, Equipment: { equipment_name: "Drill" } },
+            ],
+            Payments: [
+              { payment_id: 2, payment_amount: 2000, method: "Cash", payment_date: "2026-11-19T00:00:00.000Z", entered_at: "2026-11-20T09:30:00.000Z", received_by_user_id: 3, is_voided: false, settlement_id: 55 },
+            ],
+          }),
+        }),
+      },
+    };
+
+    const summary = await invoiceService.getDeviceInvoiceSummary(models, { user_id: 8 }, 99);
+    expect(summary.can_see_money).toBe(false);
+    expect(summary.total_amount).toBeNull();
+    expect(summary.balance_due).toBeNull();
+    expect(summary.discount_reason_key).toBe("regular_customer");
+    expect(summary.discount_reason_note).toBe("VIP");
+    expect(summary.settlement_id).toBe(55);
+    expect(summary.backdated_days).toBe(2);
+    expect(summary.payments[0].amount).toBeNull();
+    expect(summary.payments[0].staff_name).toBe("Kasun Silva");
+    expect(summary.history).toHaveLength(2);
+    expect(summary.history[0].source).toBe("activity");
+    expect(summary.history[0].sentence_en).not.toContain("500");
   });
 });
