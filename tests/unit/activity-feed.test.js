@@ -812,15 +812,21 @@ describe("Slice 1: Activity Feed, Reasons, Dates & Review Tags", () => {
   });
 
   it("includes activity summary in daily_summary push", async () => {
-    const models = makeFakeStore();
-    await recordActivity(models, { type: "discount", amount: 6000, data: { discount_pct: 20 } });
-    await recordActivity(models, { type: "discount", amount: 200, data: { discount_pct: 2 } });
-    await recordActivity(models, { type: "backdated_payment", amount: 1000, data: { days_back: 1 } });
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-25T10:00:00+05:30"));
+    try {
+      const models = makeFakeStore();
+      await recordActivity(models, { type: "discount", amount: 6000, data: { discount_pct: 20 } });
+      await recordActivity(models, { type: "discount", amount: 200, data: { discount_pct: 2 } });
+      await recordActivity(models, { type: "backdated_payment", amount: 1000, data: { days_back: 1 } });
 
-    const res = await sendDailySummaryPush(models);
-    expect(res.body).toContain("2 discounts (1 high)");
-    expect(res.body).toContain("1 back-dated payment");
-    expect(res.body).toContain("not checked: 3");
+      const res = await sendDailySummaryPush(models);
+      expect(res.body).toContain("2 discounts (1 high)");
+      expect(res.body).toContain("1 back-dated payment");
+      expect(res.body).toContain("not checked: 3");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("filters, aggregates summary buckets, and exports Excel accurately with per-role visibility", async () => {
