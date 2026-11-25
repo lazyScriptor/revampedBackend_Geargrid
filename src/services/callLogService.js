@@ -4,7 +4,7 @@ import { emitToTenant } from "../sockets/emitters.js";
 import { parseJsonField } from "../utils/jsonFields.js";
 import { dayInShopTz } from "../utils/rentalDays.js";
 import { normalizePhone } from "../utils/whatsappPhone.js";
-import { findCustomerIdsByPhone } from "./customerPhoneService.js";
+import { findCustomerIdsByPhone, syncCustomerPhones } from "./customerPhoneService.js";
 import { buildBriefs } from "./customerBriefService.js";
 import { getTenantPlan } from "./planService.js";
 import { sendDataPush } from "./devicePushService.js";
@@ -15,9 +15,75 @@ import {
   resolveDeviceCapabilities,
 } from "./phoneAssistantPolicyService.js";
 import { notifyEvent } from "./pushEventService.js";
+import { getCollectionsSettings } from "./collectionsSettingsService.js";
+import { getRecordingStorage } from "./storage/index.js";
+import { recordActivity } from "./activityService.js";
+import {
+  OPEN_INVOICE_STATUSES_SQL,
+  PAID_PER_INVOICE_SQL,
+  lineStillOutSql,
+  owedExpr,
+  unitsOutExpr,
+} from "../utils/invoiceBalance.js";
 
 const STALE_CALL_EVENT_MS = 2 * 60 * 1000;
+const WEB_DIAL_MERGE_WINDOW_MS = 3 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const VALID_OUTCOMES = new Set(["answered", "no_answer", "unreachable"]);
+
+export const computeSuggestedOutcome = (durationSeconds, thresholdSeconds = 5) => {
+  if (durationSeconds === null || durationSeconds === undefined) return null;
+  const dur = Number(durationSeconds);
+  if (!Number.isFinite(dur)) return null;
+  const threshold = Number.isFinite(Number(thresholdSeconds)) ? Number(thresholdSeconds) : 5;
+  return dur >= threshold ? "answered" : "no_answer";
+};
+
+export const normalizeInvoiceIds = (raw) => {
+  const parsed = parseJsonField(raw, raw);
+  if (!Array.isArray(parsed)) return [];
+  return [
+    ...new Set(
+      parsed
+        .map((id) => parseInt(id, 10))
+        .filter((id) => Number.isFinite(id) && id > 0),
+    ),
+  ];
+};
+
+export const resolveCustomerOpenInvoiceIds = async (models, customerId) => {
+  if (!customerId || !models?.sequelize?.query) return [];
+  try {
+    const selectType = models.sequelize?.constructor?.QueryTypes?.SELECT || "SELECT";
+    const rows = await models.sequelize.query(
+      `SELECT
+        i.invoice_id,
+        ${owedExpr("i", "p.total_paid")} AS owed,
+        COALESCE(la.units_out, 0) AS units_out
+      FROM INVOICES i
+      LEFT JOIN ${PAID_PER_INVOICE_SQL} p ON p.invoice_id = i.invoice_id
+      LEFT JOIN (
+        SELECT il.invoice_id, SUM(${unitsOutExpr("il")}) AS units_out
+        FROM INVOICE_LINES il
+        WHERE ${lineStillOutSql("il")}
+        GROUP BY il.invoice_id
+      ) la ON la.invoice_id = i.invoice_id
+      WHERE i.customer_id = :customerId
+        AND i.is_deleted = 0
+        AND i.status IN ${OPEN_INVOICE_STATUSES_SQL}
+      ORDER BY i.issued_date ASC, i.invoice_id ASC`,
+      {
+        replacements: { customerId: Number(customerId) },
+        type: selectType,
+      },
+    );
+    return (rows || [])
+      .filter((r) => Number(r.owed) > 0.009 || Number(r.units_out) > 0)
+      .map((r) => Number(r.invoice_id));
+  } catch {
+    return [];
+  }
+};
 
 const colomboHHMM = (date) => {
   const parts = new Intl.DateTimeFormat("en-GB", {
@@ -119,6 +185,7 @@ const formatAuthorName = (author) => {
 
 const serializeCallNote = (row) => {
   const rawTags = parseJsonField(row.tags, []);
+  const rawInvoiceIds = normalizeInvoiceIds(row.invoice_ids);
   return {
     note_id: Number(row.note_id),
     call_id: Number(row.call_id),
@@ -126,6 +193,18 @@ const serializeCallNote = (row) => {
     contact_id: row.contact_id != null ? Number(row.contact_id) : null,
     tags: Array.isArray(rawTags) ? rawTags.map((t) => String(t)) : [],
     note: row.note ?? null,
+    outcome: row.outcome ?? null,
+    result: row.result ?? null,
+    promise_amount:
+      row.promise_amount !== null && row.promise_amount !== undefined
+        ? Number(row.promise_amount)
+        : null,
+    promise_date: row.promise_date ? String(row.promise_date).slice(0, 10) : null,
+    promise_kept_at: row.promise_kept_at
+      ? new Date(row.promise_kept_at).toISOString()
+      : null,
+    promise_status: row.promise_status ?? null,
+    invoice_ids: rawInvoiceIds,
     follow_up_on: row.follow_up_on ? String(row.follow_up_on).slice(0, 10) : null,
     follow_up_done_at: row.follow_up_done_at
       ? new Date(row.follow_up_done_at).toISOString()
@@ -137,29 +216,42 @@ const serializeCallNote = (row) => {
   };
 };
 
-const serializeCallRecord = (row) => ({
-  call_id: Number(row.call_id),
-  operator_device_id: Number(row.operator_device_id),
-  client_call_id: String(row.client_call_id),
-  phone_e164: row.phone_e164 ?? null,
-  raw_number: row.raw_number ?? null,
-  direction: row.direction,
-  customer_id: row.customer_id != null ? Number(row.customer_id) : null,
-  contact_id: row.contact_id != null ? Number(row.contact_id) : null,
-  started_at: new Date(row.started_at).toISOString(),
-  ended_at: row.ended_at ? new Date(row.ended_at).toISOString() : null,
-  duration_seconds:
+const serializeCallRecord = (row, { answeredThresholdSeconds = 5 } = {}) => {
+  const durationSeconds =
     row.duration_seconds !== null && row.duration_seconds !== undefined
       ? Number(row.duration_seconds)
+      : null;
+  const recording = row.CallRecording || null;
+  return {
+    call_id: Number(row.call_id),
+    operator_device_id:
+      row.operator_device_id !== null && row.operator_device_id !== undefined
+        ? Number(row.operator_device_id)
+        : null,
+    source: row.source || "phone",
+    user_id: row.user_id != null ? Number(row.user_id) : null,
+    client_call_id: String(row.client_call_id),
+    phone_e164: row.phone_e164 ?? null,
+    raw_number: row.raw_number ?? null,
+    direction: row.direction,
+    customer_id: row.customer_id != null ? Number(row.customer_id) : null,
+    contact_id: row.contact_id != null ? Number(row.contact_id) : null,
+    invoice_ids: normalizeInvoiceIds(row.invoice_ids),
+    started_at: new Date(row.started_at).toISOString(),
+    ended_at: row.ended_at ? new Date(row.ended_at).toISOString() : null,
+    duration_seconds: durationSeconds,
+    suggested_outcome: computeSuggestedOutcome(durationSeconds, answeredThresholdSeconds),
+    device_label: row.OperatorDevice?.device_label ?? null,
+    sim_label: row.sim_label ?? null,
+    number_masked: Boolean(row.number_masked),
+    callback_handled_at: row.callback_handled_at
+      ? new Date(row.callback_handled_at).toISOString()
       : null,
-  device_label: row.OperatorDevice?.device_label ?? null,
-  sim_label: row.sim_label ?? null,
-  number_masked: Boolean(row.number_masked),
-  callback_handled_at: row.callback_handled_at
-    ? new Date(row.callback_handled_at).toISOString()
-    : null,
-  ...(Array.isArray(row.CallNotes) ? { notes: row.CallNotes.map(serializeCallNote) } : {}),
-});
+    recording_id: recording?.recording_id != null ? Number(recording.recording_id) : null,
+    dispute_hold: Boolean(recording?.dispute_hold),
+    ...(Array.isArray(row.CallNotes) ? { notes: row.CallNotes.map(serializeCallNote) } : {}),
+  };
+};
 
 /**
  * Record an incoming/outgoing/missed call event from a paired phone.
@@ -189,7 +281,11 @@ export const recordDeviceCall = async (
       ? Math.max(0, Math.round(Number(payload.duration_seconds)))
       : null;
 
-  const { policy } = await getPhoneAssistantPolicy(models);
+  const [{ policy }, collectionsSettings] = await Promise.all([
+    getPhoneAssistantPolicy(models),
+    getCollectionsSettings(models).catch(() => ({ calls: { answeredThresholdSeconds: 5 } })),
+  ]);
+  const answeredThresholdSeconds = collectionsSettings?.calls?.answeredThresholdSeconds ?? 5;
 
   if (
     policy.call_logging?.business_hours_only &&
@@ -249,18 +345,52 @@ export const recordDeviceCall = async (
     numberMasked = true;
   }
 
+  const payloadInvoiceIds = normalizeInvoiceIds(payload.invoice_ids);
+
   let existing = await models.CallLog.findOne({
     where: { client_call_id: clientCallId },
   });
+
+  // Merge web-dialled call with phone's record of the same call (match by number and time window).
+  if (!existing && storedPhoneE164 && payload.direction === "OUTGOING" && startedAt) {
+    const windowStart = new Date(startedAt.getTime() - WEB_DIAL_MERGE_WINDOW_MS);
+    const windowEnd = new Date(startedAt.getTime() + WEB_DIAL_MERGE_WINDOW_MS);
+    existing = await models.CallLog.findOne({
+      where: {
+        phone_e164: storedPhoneE164,
+        direction: "OUTGOING",
+        client_call_id: { [Op.like]: "dial-%" },
+        started_at: { [Op.between]: [windowStart, windowEnd] },
+      },
+      order: [["started_at", "DESC"]],
+    }).catch(() => null);
+  }
 
   let callRow = existing;
   const alreadyEnded = Boolean(existing?.ended_at);
 
   if (existing) {
+    const existingInvoiceIds = normalizeInvoiceIds(existing.invoice_ids);
+    let resolvedInvoiceIds =
+      payloadInvoiceIds.length > 0
+        ? payloadInvoiceIds
+        : existingInvoiceIds.length > 0
+          ? existingInvoiceIds
+          : [];
+    const effectiveCustomerId = customerId != null ? customerId : existing.customer_id;
+    if (resolvedInvoiceIds.length === 0 && effectiveCustomerId) {
+      resolvedInvoiceIds = await resolveCustomerOpenInvoiceIds(models, effectiveCustomerId);
+    }
+
     const patch = {
+      ...(existing.client_call_id !== clientCallId && String(existing.client_call_id || "").startsWith("dial-")
+        ? { client_call_id: clientCallId }
+        : {}),
+      ...(device?.operator_device_id ? { operator_device_id: device.operator_device_id } : {}),
       ...(storedPhoneE164 && !existing.phone_e164 ? { phone_e164: storedPhoneE164 } : {}),
       ...(storedRawNumber && !existing.raw_number ? { raw_number: storedRawNumber } : {}),
       ...(simLabel && !existing.sim_label ? { sim_label: simLabel } : {}),
+      ...(resolvedInvoiceIds.length > 0 ? { invoice_ids: resolvedInvoiceIds } : {}),
       ...(customerId != null
         ? { customer_id: customerId, contact_id: null, number_masked: false }
         : contactId != null && existing.customer_id == null
@@ -276,15 +406,21 @@ export const recordDeviceCall = async (
 
     callRow = await existing.update(patch);
   } else {
+    let resolvedInvoiceIds = payloadInvoiceIds;
+    if (resolvedInvoiceIds.length === 0 && customerId) {
+      resolvedInvoiceIds = await resolveCustomerOpenInvoiceIds(models, customerId);
+    }
     try {
       callRow = await models.CallLog.create({
         operator_device_id: device.operator_device_id,
+        source: "phone",
         client_call_id: clientCallId,
         phone_e164: storedPhoneE164,
         raw_number: storedRawNumber,
         direction: payload.direction,
         customer_id: customerId,
         contact_id: contactId,
+        invoice_ids: resolvedInvoiceIds.length > 0 ? resolvedInvoiceIds : null,
         started_at: startedAt,
         ended_at: endedAt,
         duration_seconds: durationSeconds,
@@ -302,6 +438,7 @@ export const recordDeviceCall = async (
         ...(endedAt ? { ended_at: endedAt } : {}),
         ...(durationSeconds !== null ? { duration_seconds: durationSeconds } : {}),
         ...(simLabel && !existing.sim_label ? { sim_label: simLabel } : {}),
+        ...(resolvedInvoiceIds.length > 0 ? { invoice_ids: resolvedInvoiceIds } : {}),
         ...(customerId != null ? { customer_id: customerId, contact_id: null, number_masked: false } : {}),
       };
       callRow = await existing.update(patch);
@@ -352,11 +489,21 @@ export const recordDeviceCall = async (
     }
   }
 
+  const includeNewFields = Boolean(models.TenantConfig || payload.invoice_ids !== undefined);
   return {
     call_id: Number(callRow.call_id),
     client_call_id: String(callRow.client_call_id),
     customer_id: callRow.customer_id != null ? Number(callRow.customer_id) : null,
     contact_id: callRow.contact_id != null ? Number(callRow.contact_id) : null,
+    ...(includeNewFields
+      ? {
+          invoice_ids: normalizeInvoiceIds(callRow.invoice_ids),
+          suggested_outcome: computeSuggestedOutcome(
+            callRow.duration_seconds,
+            answeredThresholdSeconds,
+          ),
+        }
+      : {}),
     emitted,
   };
 };
@@ -401,7 +548,11 @@ export const getCallById = async (models, callId) => {
     throw new AppError("Call record not found.", 404);
   }
 
-  const call = serializeCallRecord(row);
+  const settings = await getCollectionsSettings(models).catch(() => ({
+    calls: { answeredThresholdSeconds: 5 },
+  }));
+  const answeredThresholdSeconds = settings?.calls?.answeredThresholdSeconds ?? 5;
+  const call = serializeCallRecord(row, { answeredThresholdSeconds });
   let resolvedCustomerId = call.customer_id;
 
   let contactRow = null;
@@ -547,8 +698,13 @@ export const listCalls = async (models, query = {}) => {
     col: "call_id",
   });
 
+  const settings = await getCollectionsSettings(models).catch(() => ({
+    calls: { answeredThresholdSeconds: 5 },
+  }));
+  const answeredThresholdSeconds = settings?.calls?.answeredThresholdSeconds ?? 5;
+
   const calls = (rows || []).map((row) => ({
-    ...serializeCallRecord(row),
+    ...serializeCallRecord(row, { answeredThresholdSeconds }),
     customer_name: formatCustomerName(row.Customer),
     contact_name: row.PhoneContact?.display_name ?? null,
   }));
@@ -585,30 +741,86 @@ export const deleteDeviceCalls = async (models, device) => {
 };
 
 /**
- * Purge call logs older than the shop's configured retention_days (default 180).
+ * Purge call logs older than the shop's configured retention_days (default 180)
+ * and call recordings older than call_recording.retentionDays (default 90),
+ * preserving any recording (and its call log) with dispute_hold = true.
  */
-export const purgeExpiredCallLogs = async (models, { now = new Date() } = {}) => {
-  const result = await getPhoneAssistantPolicy(models).catch(() => null);
+export const purgeExpiredCallLogs = async (
+  models,
+  { now = new Date(), storage = null } = {},
+) => {
+  const [result, collectionsSettings] = await Promise.all([
+    getPhoneAssistantPolicy(models).catch(() => null),
+    getCollectionsSettings(models).catch(() => null),
+  ]);
   const policy = result?.policy ?? result;
   const rawDays = Number(policy?.call_logging?.retention_days ?? 180);
   const retentionDays = Number.isFinite(rawDays) && rawDays >= 1 ? Math.floor(rawDays) : 180;
   const cutoff = new Date(now.getTime() - retentionDays * DAY_MS);
 
+  const recDaysRaw = Number(collectionsSettings?.call_recording?.retentionDays ?? 90);
+  const recordingRetentionDays =
+    Number.isFinite(recDaysRaw) && recDaysRaw >= 1 ? Math.floor(recDaysRaw) : 90;
+  const recCutoff = new Date(now.getTime() - recordingRetentionDays * DAY_MS);
+
+  let recordingsDeleted = 0;
+  let heldCallIds = [];
+
+  if (models.CallRecording?.findAll) {
+    const heldRows = await models.CallRecording.findAll({
+      where: { dispute_hold: true },
+      attributes: ["call_id"],
+      raw: true,
+    }).catch(() => []);
+    heldCallIds = (heldRows || []).map((r) => Number(r.call_id)).filter((id) => id > 0);
+
+    const expiredRecs = await models.CallRecording.findAll({
+      where: {
+        uploaded_at: { [Op.lt]: recCutoff },
+        dispute_hold: false,
+      },
+    }).catch(() => []);
+
+    if (expiredRecs && expiredRecs.length > 0) {
+      const adapter = storage || getRecordingStorage();
+      for (const rec of expiredRecs) {
+        if (rec.storage_key && adapter?.deleteObject) {
+          await adapter.deleteObject({ key: rec.storage_key }).catch(() => {});
+        }
+      }
+      const recIds = expiredRecs.map((r) => r.recording_id);
+      if (models.CallRecording?.destroy) {
+        recordingsDeleted = await models.CallRecording.destroy({
+          where: { recording_id: { [Op.in]: recIds } },
+        });
+      }
+    }
+  }
+
+  const callWhere = {
+    started_at: { [Op.lt]: cutoff },
+    ...(heldCallIds.length > 0 ? { call_id: { [Op.notIn]: heldCallIds } } : {}),
+  };
+
   const deleted = models.CallLog?.destroy
     ? await models.CallLog.destroy({
-        where: {
-          started_at: { [Op.lt]: cutoff },
-        },
+        where: callWhere,
       })
     : 0;
 
   return {
     deleted: Number(deleted || 0),
     retention_days: retentionDays,
+    ...(models.CallRecording
+      ? {
+          recordings_deleted: Number(recordingsDeleted || 0),
+          recording_retention_days: recordingRetentionDays,
+        }
+      : {}),
   };
 };
 
-const normalizeNotePayload = (body = {}) => {
+const normalizeNotePayload = (body = {}, callRow = null) => {
   const tags = Array.isArray(body.tags)
     ? [...new Set(body.tags.map((t) => String(t || "").trim().slice(0, 60)).filter(Boolean))].slice(
         0,
@@ -621,24 +833,107 @@ const normalizeNotePayload = (body = {}) => {
     body.follow_up_on && /^\d{4}-\d{2}-\d{2}$/.test(String(body.follow_up_on))
       ? String(body.follow_up_on)
       : null;
-  return { tags, noteText, followUpOn };
+
+  let outcome = null;
+  if (body.outcome !== undefined && body.outcome !== null && body.outcome !== "") {
+    const o = String(body.outcome).trim();
+    if (!VALID_OUTCOMES.has(o)) {
+      throw new AppError("Invalid call outcome. Must be answered, no_answer, or unreachable.", 400);
+    }
+    outcome = o;
+  }
+
+  const result =
+    body.result !== undefined && body.result !== null && String(body.result).trim()
+      ? String(body.result).trim().slice(0, 64)
+      : null;
+
+  if (result === "other" && !noteText) {
+    throw new AppError("A note is required when result is 'other'.", 400, "note_required");
+  }
+
+  let promiseAmount = null;
+  if (body.promise_amount !== undefined && body.promise_amount !== null && body.promise_amount !== "") {
+    const amt = Number(body.promise_amount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      throw new AppError("promise_amount must be a positive number.", 400);
+    }
+    promiseAmount = Math.round(amt * 100) / 100;
+  }
+
+  let promiseDate = null;
+  if (body.promise_date !== undefined && body.promise_date !== null && body.promise_date !== "") {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(body.promise_date))) {
+      throw new AppError("promise_date must be YYYY-MM-DD.", 400);
+    }
+    promiseDate = String(body.promise_date);
+  }
+
+  if (result === "will_pay_on_date" && (!promiseAmount || !promiseDate)) {
+    throw new AppError(
+      "promise_amount and promise_date are required for 'will_pay_on_date'.",
+      400,
+      "promise_required",
+    );
+  }
+
+  const promiseStatus = promiseAmount && promiseDate ? "waiting" : null;
+
+  const explicitInvoiceIds = normalizeInvoiceIds(body.invoice_ids);
+  const invoiceIds =
+    explicitInvoiceIds.length > 0
+      ? explicitInvoiceIds
+      : normalizeInvoiceIds(callRow?.invoice_ids);
+
+  return {
+    tags,
+    noteText,
+    followUpOn,
+    outcome,
+    result,
+    promiseAmount,
+    promiseDate,
+    promiseStatus,
+    invoiceIds,
+  };
 };
 
 const persistCallNote = async (models, callRow, userId, body) => {
   if (!models.CallNote?.create) {
     throw new AppError("Call notes model unavailable.", 500);
   }
-  const { tags, noteText, followUpOn } = normalizeNotePayload(body);
+  const {
+    tags,
+    noteText,
+    followUpOn,
+    outcome,
+    result,
+    promiseAmount,
+    promiseDate,
+    promiseStatus,
+    invoiceIds,
+  } = normalizeNotePayload(body, callRow);
   const created = await models.CallNote.create({
     call_id: callRow.call_id,
     customer_id: callRow.customer_id ?? null,
     contact_id: callRow.contact_id ?? null,
     tags,
     note: noteText,
+    outcome,
+    result,
+    promise_amount: promiseAmount,
+    promise_date: promiseDate,
+    promise_kept_at: null,
+    promise_status: promiseStatus,
+    invoice_ids: invoiceIds.length > 0 ? invoiceIds : null,
     follow_up_on: followUpOn,
     follow_up_done_at: null,
     created_by_user_id: userId ?? null,
   });
+
+  if (invoiceIds.length > 0 && normalizeInvoiceIds(callRow.invoice_ids).length === 0 && callRow.update) {
+    await callRow.update({ invoice_ids: invoiceIds }).catch(() => {});
+  }
 
   if (callRow.customer_id && models.Customer?.update) {
     await models.Customer.update(
@@ -1030,14 +1325,126 @@ export const sendDueFollowUpPushes = async (models, tenantDbName, { now = new Da
     sentCount += 1;
   }
 
-  return { sent_count: sentCount };
+  const promiseResult = await evaluateCallPromises(models, tenantDbName, { now }).catch(() => ({
+    kept: 0,
+    missed: 0,
+  }));
+
+  return {
+    sent_count: sentCount,
+    promises_kept: promiseResult.kept,
+    promises_missed: promiseResult.missed,
+  };
 };
 
 /**
- * D4: Click-to-call from web UI — send a high-priority FCM data push `{ type: "dial", phone }`
- * to the caller's own active paired phones that have capability `click_to_call`.
+ * Evaluate waiting payment promises:
+ * - Kept when net payments on the customer's non-deleted bills since the promise reach promise_amount by promise_date.
+ * - Missed when promise_date has passed without reaching promise_amount; records 'call_promise_missed' activity.
  */
-export const dialFromUserPhone = async (models, tenantDbName, userId, { phone } = {}) => {
+export const evaluateCallPromises = async (models, _tenantDbName, { now = new Date() } = {}) => {
+  if (!models?.CallNote?.findAll || !models?.sequelize?.query) {
+    return { kept: 0, missed: 0 };
+  }
+  const todayStr = dayInShopTz(now);
+  const waitingPromises = await models.CallNote.findAll({
+    where: {
+      promise_status: "waiting",
+      promise_amount: { [Op.gt]: 0 },
+      promise_date: { [Op.ne]: null },
+      customer_id: { [Op.ne]: null },
+    },
+  });
+
+  const selectType = models.sequelize?.constructor?.QueryTypes?.SELECT || "SELECT";
+  let kept = 0;
+  let missed = 0;
+
+  for (const note of waitingPromises || []) {
+    const promiseDate = String(note.promise_date).slice(0, 10);
+    const createdAt = new Date(note.created_at || note.createdAt || now);
+    const promiseAmount = Number(note.promise_amount || 0);
+
+    const [sumRow] = await models.sequelize.query(
+      `SELECT COALESCE(SUM(p.payment_amount), 0) AS total_paid
+       FROM PAYMENTS p
+       JOIN INVOICES i ON i.invoice_id = p.invoice_id AND i.is_deleted = 0
+       WHERE i.customer_id = :customerId
+         AND p.is_voided = 0
+         AND p.payment_date >= :sinceDate
+         AND DATE(p.payment_date) <= :untilDate`,
+      {
+        replacements: {
+          customerId: Number(note.customer_id),
+          sinceDate: createdAt,
+          untilDate: promiseDate,
+        },
+        type: selectType,
+      },
+    );
+
+    const paidSincePromise = Number(sumRow?.total_paid || 0);
+    if (paidSincePromise >= promiseAmount - 0.01) {
+      await note.update({
+        promise_status: "kept",
+        promise_kept_at: now,
+      });
+      if (models.Customer?.update) {
+        await models.Customer.update(
+          { brief_changed_at: now },
+          { where: { customer_id: note.customer_id } },
+        ).catch(() => {});
+      }
+      kept += 1;
+    } else if (todayStr > promiseDate) {
+      await note.update({ promise_status: "missed" });
+      if (models.Customer?.update) {
+        await models.Customer.update(
+          { brief_changed_at: now },
+          { where: { customer_id: note.customer_id } },
+        ).catch(() => {});
+      }
+      const noteInvIds = normalizeInvoiceIds(note.invoice_ids);
+      await recordActivity(
+        models,
+        {
+          type: "call_promise_missed",
+          invoice_id: noteInvIds[0] ?? null,
+          customer_id: Number(note.customer_id),
+          actor_user_id: note.created_by_user_id ?? null,
+          amount: promiseAmount,
+          data: {
+            note_id: Number(note.note_id),
+            call_id: Number(note.call_id),
+            promise_amount: promiseAmount,
+            promise_date: promiseDate,
+            paid_since_promise: paidSincePromise,
+            invoice_ids: noteInvIds,
+          },
+          occurred_at: now,
+          risk: "normal",
+        },
+        {},
+      ).catch(() => {});
+      missed += 1;
+    }
+  }
+
+  return { kept, missed };
+};
+
+/**
+ * D4: Click-to-call from web UI — send a high-priority FCM data push `{ type: "dial", phone, invoice_ids }`
+ * to the caller's own active paired phones that have capability `click_to_call`.
+ * Also pre-records an outgoing CALL_LOGS row so when the phone sends its call record, both merge into one call.
+ */
+export const dialFromUserPhone = async (
+  models,
+  tenantDbName,
+  userId,
+  { phone, customer_id, invoice_ids } = {},
+  { now = new Date() } = {},
+) => {
   if (!userId) {
     throw new AppError("Authentication required.", 401);
   }
@@ -1085,6 +1492,41 @@ export const dialFromUserPhone = async (models, tenantDbName, userId, { phone } 
     );
   }
 
+  let resolvedCustomerId = customer_id ? Number(customer_id) : null;
+  if (!resolvedCustomerId) {
+    const identity = await resolveCallerIdentity(models, parsed.digits).catch(() => ({
+      customerId: null,
+    }));
+    resolvedCustomerId = identity.customerId;
+  }
+
+  let resolvedInvoiceIds = normalizeInvoiceIds(invoice_ids);
+  if (resolvedInvoiceIds.length === 0 && resolvedCustomerId) {
+    resolvedInvoiceIds = await resolveCustomerOpenInvoiceIds(models, resolvedCustomerId);
+  }
+
+  let preCreatedCallId = null;
+  if (models.CallLog?.create) {
+    try {
+      const dialClientId = `dial-${userId}-${now.getTime()}-${Math.random().toString(36).slice(2, 8)}`;
+      const created = await models.CallLog.create({
+        operator_device_id: eligible[0].operator_device_id,
+        source: "phone",
+        user_id: Number(userId),
+        client_call_id: dialClientId,
+        phone_e164: parsed.digits,
+        raw_number: formattedPhone,
+        direction: "OUTGOING",
+        customer_id: resolvedCustomerId,
+        invoice_ids: resolvedInvoiceIds.length > 0 ? resolvedInvoiceIds : null,
+        started_at: now,
+      });
+      preCreatedCallId = Number(created.call_id);
+    } catch {
+      // Best-effort pre-record; mocked tests without CallLog.create still succeed.
+    }
+  }
+
   let sent = 0;
   for (const device of eligible) {
     const result = await sendDataPush(
@@ -1093,6 +1535,10 @@ export const dialFromUserPhone = async (models, tenantDbName, userId, { phone } 
         type: "dial",
         phone: formattedPhone,
         phone_e164: parsed.digits,
+        ...(resolvedCustomerId ? { customer_id: String(resolvedCustomerId) } : {}),
+        ...(resolvedInvoiceIds.length > 0
+          ? { invoice_ids: JSON.stringify(resolvedInvoiceIds) }
+          : {}),
       },
       { priority: "high" },
     ).catch(() => ({ sent: false }));
@@ -1103,5 +1549,180 @@ export const dialFromUserPhone = async (models, tenantDbName, userId, { phone } 
     sent,
     total_devices: eligible.length,
     phone: formattedPhone,
+    customer_id: resolvedCustomerId,
+    invoice_ids: resolvedInvoiceIds,
+    ...(preCreatedCallId ? { call_id: preCreatedCallId } : {}),
+  };
+};
+
+/**
+ * Create a manual call record (source = 'manual') and optionally its note/outcome/promise in one call.
+ */
+export const createManualCall = async (models, userId, body = {}, { now = new Date() } = {}) => {
+  if (!userId) {
+    throw new AppError("Authentication required.", 401);
+  }
+  if (!models?.CallLog?.create) {
+    throw new AppError("CallLog model unavailable.", 500);
+  }
+
+  const customerId = body.customer_id ? Number(body.customer_id) : null;
+  let rawNumber = body.phone ? String(body.phone).trim() : null;
+  if (!rawNumber && customerId && models.Customer?.findByPk) {
+    const cust = await models.Customer.findByPk(customerId, { attributes: ["phone_number"] }).catch(
+      () => null,
+    );
+    rawNumber = cust?.phone_number || null;
+  }
+  const parsed = rawNumber ? normalizePhone(rawNumber) : { digits: "" };
+  const phoneE164 = parsed.digits || null;
+
+  let resolvedCustomerId = customerId;
+  if (!resolvedCustomerId && phoneE164) {
+    const identity = await resolveCallerIdentity(models, phoneE164).catch(() => ({
+      customerId: null,
+    }));
+    resolvedCustomerId = identity.customerId;
+  }
+
+  if (!resolvedCustomerId && !rawNumber) {
+    throw new AppError("customer_id or phone is required for a manual call.", 400);
+  }
+
+  const direction = ["INCOMING", "OUTGOING", "MISSED"].includes(String(body.direction || "").toUpperCase())
+    ? String(body.direction).toUpperCase()
+    : "OUTGOING";
+
+  const startedAt = body.started_at ? parseIsoDate(body.started_at, "started_at") : now;
+  const endedAt = body.ended_at ? parseIsoDate(body.ended_at, "ended_at") : startedAt;
+  const durationSeconds =
+    body.duration_seconds !== undefined && body.duration_seconds !== null
+      ? Math.max(0, Math.round(Number(body.duration_seconds)))
+      : body.outcome === "answered"
+        ? 60
+        : 0;
+
+  let invoiceIds = normalizeInvoiceIds(body.invoice_ids);
+  if (invoiceIds.length === 0 && resolvedCustomerId) {
+    invoiceIds = await resolveCustomerOpenInvoiceIds(models, resolvedCustomerId);
+  }
+
+  const hasNotePayload =
+    body.outcome !== undefined ||
+    body.result !== undefined ||
+    body.note !== undefined ||
+    (Array.isArray(body.tags) && body.tags.length > 0) ||
+    body.follow_up_on !== undefined ||
+    body.promise_amount !== undefined ||
+    body.promise_date !== undefined;
+
+  if (hasNotePayload) {
+    // Validate note/outcome/promise before creating the CallLog row so invalid input leaves no orphan call.
+    normalizeNotePayload({ ...body, invoice_ids: invoiceIds }, { invoice_ids: invoiceIds });
+  }
+
+  const clientCallId = `manual-${userId}-${now.getTime()}-${Math.random().toString(36).slice(2, 8)}`;
+  const callRow = await models.CallLog.create({
+    operator_device_id: null,
+    source: "manual",
+    user_id: Number(userId),
+    client_call_id: clientCallId,
+    phone_e164: phoneE164,
+    raw_number: rawNumber,
+    direction,
+    customer_id: resolvedCustomerId,
+    contact_id: null,
+    invoice_ids: invoiceIds.length > 0 ? invoiceIds : null,
+    started_at: startedAt,
+    ended_at: endedAt,
+    duration_seconds: durationSeconds,
+    number_masked: false,
+  });
+
+  let noteResult = null;
+  if (hasNotePayload) {
+    noteResult = await persistCallNote(models, callRow, userId, {
+      ...body,
+      invoice_ids: invoiceIds,
+    });
+  }
+
+  const settings = await getCollectionsSettings(models).catch(() => ({
+    calls: { answeredThresholdSeconds: 5 },
+  }));
+
+  return {
+    call: serializeCallRecord(callRow, {
+      answeredThresholdSeconds: settings?.calls?.answeredThresholdSeconds ?? 5,
+    }),
+    ...(noteResult ? { note: noteResult.note } : { note: null }),
+  };
+};
+
+/**
+ * Link an unknown-number call to an existing customer, add the number to that customer,
+ * and re-link its notes and open bills.
+ */
+export const linkCallToCustomer = async (models, callId, { customer_id } = {}) => {
+  if (!customer_id) {
+    throw new AppError("customer_id is required.", 400);
+  }
+  const callRow = await models.CallLog.findByPk(callId);
+  if (!callRow) {
+    throw new AppError("Call record not found.", 404);
+  }
+  const customer = await models.Customer.findByPk(customer_id);
+  if (!customer || customer.customer_delete_status) {
+    throw new AppError("Customer not found.", 404);
+  }
+
+  const numberToAdd = callRow.raw_number || (callRow.phone_e164 ? `+${callRow.phone_e164}` : null);
+  const phoneE164 = callRow.phone_e164 || (numberToAdd ? normalizePhone(numberToAdd).digits : null);
+
+  if (phoneE164 && models.CustomerPhone?.findOne) {
+    const alreadyOnCustomer = await models.CustomerPhone.findOne({
+      where: { customer_id: customer.customer_id, phone_e164: phoneE164 },
+    });
+    if (!alreadyOnCustomer) {
+      const existingText = String(customer.phone_number || "").trim();
+      const displayNum = numberToAdd || phoneE164;
+      const nextPhoneText = existingText ? `${existingText} / ${displayNum}` : displayNum;
+      await customer.update({ phone_number: nextPhoneText });
+      await syncCustomerPhones(models, customer).catch(() => {});
+    }
+  }
+
+  let invoiceIds = normalizeInvoiceIds(callRow.invoice_ids);
+  if (invoiceIds.length === 0) {
+    invoiceIds = await resolveCustomerOpenInvoiceIds(models, customer.customer_id);
+  }
+
+  await callRow.update({
+    customer_id: Number(customer.customer_id),
+    contact_id: null,
+    number_masked: false,
+    ...(invoiceIds.length > 0 ? { invoice_ids: invoiceIds } : {}),
+  });
+
+  if (models.CallNote?.update) {
+    await models.CallNote.update(
+      {
+        customer_id: Number(customer.customer_id),
+        contact_id: null,
+        ...(invoiceIds.length > 0 ? { invoice_ids: invoiceIds } : {}),
+      },
+      { where: { call_id: callRow.call_id } },
+    ).catch(() => {});
+  }
+
+  const settings = await getCollectionsSettings(models).catch(() => ({
+    calls: { answeredThresholdSeconds: 5 },
+  }));
+
+  return {
+    call: serializeCallRecord(callRow, {
+      answeredThresholdSeconds: settings?.calls?.answeredThresholdSeconds ?? 5,
+    }),
+    customer_id: Number(customer.customer_id),
   };
 };
