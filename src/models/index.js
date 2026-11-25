@@ -243,7 +243,13 @@ export const initTenantModels = (tenantConnection) => {
   PhoneContact.belongsTo(OperatorDevice, { foreignKey: "operator_device_id" });
   PhoneContact.belongsTo(Customer, { as: "LinkedCustomer", foreignKey: "linked_customer_id" });
   PhoneContact.belongsTo(User, { as: "LastUsedBy", foreignKey: "last_used_by_user_id" });
-  Customer.belongsTo(PhoneContact, { as: "SourceContact", foreignKey: "source_contact_id" });
+  // Break FK cycle (Customer <-> PhoneContact) so Sequelize sync() does not fall back to alter: true;
+  // the database FK constraint remains intact via migrations.
+  Customer.belongsTo(PhoneContact, {
+    as: "SourceContact",
+    foreignKey: "source_contact_id",
+    constraints: false,
+  });
 
   // ── Phone Assistant push preferences ──
   User.hasMany(PushPreference, { foreignKey: "user_id" });
