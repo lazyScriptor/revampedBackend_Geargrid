@@ -10,6 +10,11 @@ import {
   lineStillOutSql,
 } from "../utils/invoiceBalance.js";
 import AppError from "../utils/AppError.js";
+import {
+  computeCallFilterCounts,
+  loadCustomerCallSummaries,
+  matchesCallStateFilter,
+} from "./callSummaryHelper.js";
 
 // ============================================================================
 // WIDGET CATALOG — source of truth for all available widgets (code-defined,
@@ -385,12 +390,23 @@ export const deleteTemplate = async (models, templateId) => {
 const ALLOWED_OPEN_AGE_DAYS = new Set([0, 7, 14, 30, 90]);
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
+const ALLOWED_CALL_FILTERS = new Set([
+  "all",
+  "not_called_today",
+  "no_answer",
+  "promised",
+  "promise_missed",
+  "call_again_today",
+  "calls_to_note",
+]);
+
 const parseOpenInvoicesParams = ({
   view,
   olderThanDays = 7,
   onlyOverdue = 0,
   warehouseId = null,
   limit = 50,
+  callFilter = null,
 } = {}) => {
   if (view !== "money" && view !== "returns") {
     throw new AppError("Invalid view parameter. Expected 'money' or 'returns'.", 400);
@@ -427,12 +443,22 @@ const parseOpenInvoicesParams = ({
     }
   }
 
+  let normalizedCallFilter = null;
+  if (callFilter !== null && callFilter !== undefined && callFilter !== "") {
+    const cf = String(callFilter).trim();
+    if (!ALLOWED_CALL_FILTERS.has(cf)) {
+      throw new AppError("Invalid callFilter parameter.", 400);
+    }
+    normalizedCallFilter = cf === "all" ? null : cf;
+  }
+
   return {
     view,
     olderThanDays: rawAge,
     onlyOverdue: onlyOverdueBool,
     warehouseId: parsedWarehouseId,
     limit: rawLimit,
+    callFilter: normalizedCallFilter,
   };
 };
 
@@ -460,7 +486,8 @@ const buildAgingBuckets = (unpaidRows) => {
 };
 
 export const getOpenInvoices = async (models, params = {}) => {
-  const { view, olderThanDays, onlyOverdue, warehouseId, limit } = parseOpenInvoicesParams(params);
+  const { view, olderThanDays, onlyOverdue, warehouseId, limit, callFilter } =
+    parseOpenInvoicesParams(params);
   const today = tenantTodayYmd(params.tenantTz);
   const selectType = models.sequelize?.constructor?.QueryTypes?.SELECT || QueryTypes.SELECT;
 
@@ -598,7 +625,7 @@ export const getOpenInvoices = async (models, params = {}) => {
     },
   };
 
-  const targetRows =
+  const unsortedRows =
     view === "money"
       ? [...moneyRowsAll].sort(
           (a, b) =>
@@ -613,8 +640,34 @@ export const getOpenInvoices = async (models, params = {}) => {
             b.invoice_id - a.invoice_id,
         );
 
+  const customerIdsForCalls = unsortedRows.map((r) => r.customer.customer_id);
+  const callSummaryMap = await loadCustomerCallSummaries(models, customerIdsForCalls, {
+    tenantTz: params.tenantTz || "Asia/Colombo",
+  });
+  const callFilterCounts = computeCallFilterCounts(unsortedRows, callSummaryMap, {
+    todayYmd: today,
+  });
+
+  const targetRows = callFilter
+    ? unsortedRows.filter((r) =>
+        matchesCallStateFilter(callSummaryMap.get(r.customer.customer_id) || null, callFilter, {
+          todayYmd: today,
+        }),
+      )
+    : unsortedRows;
+
   const totalCount = targetRows.length;
   const pagedRows = targetRows.slice(0, limit);
+
+  for (const row of pagedRows) {
+    const summaryObj = callSummaryMap.get(row.customer.customer_id) || null;
+    if (summaryObj) {
+      const { _called_today, ...cleanSummary } = summaryObj;
+      row.last_call = cleanSummary;
+    } else {
+      row.last_call = null;
+    }
+  }
 
   if (pagedRows.length > 0) {
     const invoiceIds = pagedRows.map((r) => r.invoice_id);
@@ -657,5 +710,6 @@ export const getOpenInvoices = async (models, params = {}) => {
     buckets,
     rows: pagedRows,
     totalCount,
+    callFilterCounts,
   };
 };

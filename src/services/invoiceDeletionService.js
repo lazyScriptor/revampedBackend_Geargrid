@@ -4,6 +4,14 @@ import { createNotification } from "./notificationService.js";
 import { notifyEvent } from "./pushEventService.js";
 import { touchCustomerBrief } from "./customerBriefService.js";
 import { restoreForInvoice, voidForInvoice } from "../modules/retail/index.js";
+import { recordActivity } from "./activityService.js";
+
+const maybeRecordActivity = async (models, event, opts) => {
+  if (models?.ActivityEvent?.create) {
+    return recordActivity(models, event, opts);
+  }
+  return null;
+};
 
 const formatLkr = (n) => {
   const num = Number(n || 0);
@@ -184,6 +192,41 @@ export const deleteInvoice = async (models, invoiceId, actor, { reason, note } =
 
     await touchCustomerBrief(models, invoice.customer_id, { transaction: t });
 
+    await maybeRecordActivity(
+      models,
+      {
+        type: "invoice_deleted",
+        invoice_id: invoiceId,
+        customer_id: invoice.customer_id,
+        actor_user_id: actor.userId,
+        amount: deletedInvoiceTotal,
+        data: {
+          reason,
+          note: cleanNote || null,
+          flagged: !canAny,
+        },
+      },
+      { transaction: t },
+    );
+
+    if (payments.length > 0 && paidTotal > 0) {
+      await maybeRecordActivity(
+        models,
+        {
+          type: "payment_voided",
+          invoice_id: invoiceId,
+          customer_id: invoice.customer_id,
+          actor_user_id: actor.userId,
+          amount: paidTotal,
+          data: {
+            voided_count: payments.length,
+            reason: `${payments.length} payment(s) voided with bill deletion`,
+          },
+        },
+        { transaction: t },
+      );
+    }
+
     return { invoice_id: invoiceId, flagged: !canAny, paidTotal, voidedPayments: payments.length, unitsRestored, goodsVoided, walletRefunded: walletTotal };
   });
 
@@ -198,42 +241,44 @@ export const deleteInvoice = async (models, invoiceId, actor, { reason, note } =
     });
   }
 
-  const deletedCustomerLabel = await customerLabel(models, deletedCustomerId);
-  void notifyEvent(models, "invoice_deleted", {
-    amount: deletedInvoiceTotal,
-    actorUserId: actor.userId,
-    vars: {
-      invoice_no: String(invoiceId),
-      customer: deletedCustomerLabel,
-      reason: `${reason}${cleanNote ? ` — ${cleanNote}` : ""}`,
-      staff: actorName,
-    },
-    title: `Bill #${invoiceId} deleted · LKR ${formatLkr(deletedInvoiceTotal)}`,
-    body: `${reason}${cleanNote ? ` — ${cleanNote}` : ""} · by ${actorName}`,
-    titleNoAmount: `Bill #${invoiceId} deleted`,
-    bodyNoAmount: `${reason}${cleanNote ? ` — ${cleanNote}` : ""} · by ${actorName}`,
-    data: { type: "invoice_deleted", invoice_id: String(invoiceId) },
-    link: "/reports?category=invoices&report=deleted",
-  });
-
-  if (result.voidedPayments > 0 && result.paidTotal > 0) {
-    void notifyEvent(models, "payment_voided", {
-      amount: Number(result.paidTotal || 0),
+  if (!models?.ActivityEvent?.create) {
+    const deletedCustomerLabel = await customerLabel(models, deletedCustomerId);
+    void notifyEvent(models, "invoice_deleted", {
+      amount: deletedInvoiceTotal,
       actorUserId: actor.userId,
       vars: {
         invoice_no: String(invoiceId),
-        amount: Number(result.paidTotal || 0),
         customer: deletedCustomerLabel,
-        reason: `${result.voidedPayments} payment(s) voided with the bill`,
+        reason: `${reason}${cleanNote ? ` — ${cleanNote}` : ""}`,
         staff: actorName,
       },
-      title: `Payments voided on #${invoiceId} · LKR ${formatLkr(result.paidTotal)}`,
-      body: `${result.voidedPayments} payment(s) voided when bill #${invoiceId} was deleted by ${actorName}`,
-      titleNoAmount: `Payments voided on #${invoiceId}`,
-      bodyNoAmount: `${result.voidedPayments} payment(s) voided when bill #${invoiceId} was deleted by ${actorName}`,
-      data: { type: "payment_voided", invoice_id: String(invoiceId) },
+      title: `Bill #${invoiceId} deleted · LKR ${formatLkr(deletedInvoiceTotal)}`,
+      body: `${reason}${cleanNote ? ` — ${cleanNote}` : ""} · by ${actorName}`,
+      titleNoAmount: `Bill #${invoiceId} deleted`,
+      bodyNoAmount: `${reason}${cleanNote ? ` — ${cleanNote}` : ""} · by ${actorName}`,
+      data: { type: "invoice_deleted", invoice_id: String(invoiceId) },
       link: "/reports?category=invoices&report=deleted",
     });
+
+    if (result.voidedPayments > 0 && result.paidTotal > 0) {
+      void notifyEvent(models, "payment_voided", {
+        amount: Number(result.paidTotal || 0),
+        actorUserId: actor.userId,
+        vars: {
+          invoice_no: String(invoiceId),
+          amount: Number(result.paidTotal || 0),
+          customer: deletedCustomerLabel,
+          reason: `${result.voidedPayments} payment(s) voided with the bill`,
+          staff: actorName,
+        },
+        title: `Payments voided on #${invoiceId} · LKR ${formatLkr(result.paidTotal)}`,
+        body: `${result.voidedPayments} payment(s) voided when bill #${invoiceId} was deleted by ${actorName}`,
+        titleNoAmount: `Payments voided on #${invoiceId}`,
+        bodyNoAmount: `${result.voidedPayments} payment(s) voided when bill #${invoiceId} was deleted by ${actorName}`,
+        data: { type: "payment_voided", invoice_id: String(invoiceId) },
+        link: "/reports?category=invoices&report=deleted",
+      });
+    }
   }
 
   return result;
@@ -311,25 +356,39 @@ export const restoreInvoice = async (models, invoiceId, actor) => {
       { transaction: t },
     );
     await touchCustomerBrief(models, invoice.customer_id, { transaction: t });
+    await maybeRecordActivity(
+      models,
+      {
+        type: "invoice_restored",
+        invoice_id: invoiceId,
+        customer_id: invoice.customer_id,
+        actor_user_id: actor.userId,
+        amount: restoredInvoiceTotal,
+        data: { payments_restored: voided.length },
+      },
+      { transaction: t },
+    );
     return { invoice_id: invoiceId, paymentsRestored: voided.length };
   });
 
-  const restoredCustomerLabel = await customerLabel(models, restoredCustomerId);
-  void notifyEvent(models, "invoice_restored", {
-    amount: restoredInvoiceTotal,
-    actorUserId: actor.userId,
-    vars: {
-      invoice_no: String(invoiceId),
-      customer: restoredCustomerLabel,
-      staff: actorName,
-    },
-    title: `Bill #${invoiceId} restored · LKR ${formatLkr(restoredInvoiceTotal)}`,
-    body: `Restored by ${actorName}${result.paymentsRestored ? ` · ${result.paymentsRestored} payment(s) restored` : ""}`,
-    titleNoAmount: `Bill #${invoiceId} restored`,
-    bodyNoAmount: `Restored by ${actorName}${result.paymentsRestored ? ` · ${result.paymentsRestored} payment(s) restored` : ""}`,
-    data: { type: "invoice_restored", invoice_id: String(invoiceId) },
-    link: "/invoices?mode=manage",
-  });
+  if (!models?.ActivityEvent?.create) {
+    const restoredCustomerLabel = await customerLabel(models, restoredCustomerId);
+    void notifyEvent(models, "invoice_restored", {
+      amount: restoredInvoiceTotal,
+      actorUserId: actor.userId,
+      vars: {
+        invoice_no: String(invoiceId),
+        customer: restoredCustomerLabel,
+        staff: actorName,
+      },
+      title: `Bill #${invoiceId} restored · LKR ${formatLkr(restoredInvoiceTotal)}`,
+      body: `Restored by ${actorName}${result.paymentsRestored ? ` · ${result.paymentsRestored} payment(s) restored` : ""}`,
+      titleNoAmount: `Bill #${invoiceId} restored`,
+      bodyNoAmount: `Restored by ${actorName}${result.paymentsRestored ? ` · ${result.paymentsRestored} payment(s) restored` : ""}`,
+      data: { type: "invoice_restored", invoice_id: String(invoiceId) },
+      link: "/invoices?mode=manage",
+    });
+  }
 
   return result;
 };

@@ -51,6 +51,7 @@ router.get("/:id/sale-returns", requirePermission("invoice:view"), invoiceContro
 router.get("/:id/print-logs", requirePermission("invoice:print_log:view"), printLogController.getInvoicePrintLogs);
 
 // 2. OMS Actions
+router.post("/:id/return-preview", requirePermission("invoice:action:process_return"), invoiceController.previewReturnInvoice);
 router.post("/:id/return", requirePermission("invoice:action:process_return"), refuseDamagedWithoutMaintenance, invoiceController.processReturnInvoice);
 router.post("/:id/payments", requirePermission("invoice:action:add_payment"), invoiceController.addPayment); // <-- NEW
 router.post("/:id/complete", requirePermission("invoice:action:process_return"), invoiceController.completeInvoice);

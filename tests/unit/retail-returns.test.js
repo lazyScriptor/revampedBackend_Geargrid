@@ -58,7 +58,7 @@ const makeShop = (opts = {}) => {
 const sell = (h, over = {}) =>
   createDispatchInvoice(
     h.models,
-    { customer_id: 5, sale_items: [{ product_id: 1, qty: 3 }], fees: { discount: 100 }, payment: { amount: 1100 }, effectivePermissions: ["retail:add_unlisted"], ...over },
+    { customer_id: 5, sale_items: [{ product_id: 1, qty: 3 }], fees: { discount: 100 }, discount_reason: { key: "regular_customer" },  payment: { amount: 1100 }, effectivePermissions: ["retail:add_unlisted"], ...over },
     1,
   );
 

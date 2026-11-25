@@ -534,6 +534,7 @@ describe("R3-backend: Retail sales on a bill", () => {
           { product_id: 2, line_kind: "item", qty: 1, unit_price: 150, line_discount: 0, approval_tokens: { price_change: t2 } },
         ],
         fees: { transport: 500, discount: 10, advance: 2000, advance_payment_method: "Cash" },
+        discount_reason: { key: "regular_customer" },
         payment: { amount: 2000, method: "Cash" },
         settle_now: true,
       },

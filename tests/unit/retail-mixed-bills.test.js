@@ -59,6 +59,7 @@ const mixedPayload = (over = {}) => ({
     { product_id: 2, qty: 1 },
   ],
   fees: { transport: 50, discount: 100.01, advance: 500 },
+  discount_reason: { key: "regular_customer" }, 
   effectivePermissions: ["retail:add_unlisted"],
   ...over,
 });
@@ -192,7 +193,7 @@ describe("R4-backend: rental_total stays right", () => {
     const h = makeShop();
     const bill = await createDispatchInvoice(
       h.models,
-      { customer_id: 5, items: [machine({ borrow_quantity: 2 })], fees: { transport: 100, discount: 150, advance: 0 } },
+      { discount_reason: { key: "regular_customer" }, customer_id: 5, items: [machine({ borrow_quantity: 2 })], fees: { transport: 100, discount: 150, advance: 0 } },
       1,
     );
     expect(bill.bill_kind).toBe("rental");
@@ -210,6 +211,7 @@ describe("R4-backend: rental_total stays right", () => {
         customer_id: 5,
         items: [machine({ borrow_date: "2026-11-20", expected_return_date: "2026-11-20", track_overdue: false })],
         fees: { transport: 0, discount: 100, advance: 0 },
+        discount_reason: { key: "regular_customer" },
       },
       1,
     );
@@ -235,7 +237,7 @@ describe("R4-backend: rental_total stays right", () => {
     const bill = await createDispatchInvoice(h.models, mixedPayload({ fees: { transport: 50, discount: 100.01, advance: 0 } }), 1);
     const shares = h.saleLineRecords.map((l) => l.bill_discount_share);
 
-    await updateInvoiceFees(h.models, bill.invoice_id, { discount_amount: 150 }, 1);
+    await updateInvoiceFees(h.models, bill.invoice_id, { discount_amount: 150, discount_reason: { key: "regular_customer" }, }, 1);
     expect(bill.discount_amount).toBe(150);
     expect(bill.rental_total).toBe(900);
     expect(bill.sale_total).toBe(950);
@@ -251,7 +253,7 @@ describe("R4-backend: rental_total stays right", () => {
   it("5d. a discount bigger than what is left of the rental part is refused (409) on a mixed bill", async () => {
     const h = makeShop();
     const bill = await createDispatchInvoice(h.models, mixedPayload({ fees: { transport: 0, discount: 0, advance: 0 } }), 1);
-    await expect(updateInvoiceFees(h.models, bill.invoice_id, { discount_amount: 1200 }, 1)).rejects.toMatchObject({ statusCode: 409 });
+    await expect(updateInvoiceFees(h.models, bill.invoice_id, { discount_amount: 1200, discount_reason: { key: "regular_customer" }, }, 1)).rejects.toMatchObject({ statusCode: 409 });
     expect(bill.discount_amount).toBe(0);
     expect(bill.total_amount).toBe(2000);
   });
@@ -259,7 +261,7 @@ describe("R4-backend: rental_total stays right", () => {
   it("5e. a rental-only bill's discount edit moves rental_total too", async () => {
     const h = makeShop();
     const bill = await createDispatchInvoice(h.models, { customer_id: 5, items: [machine()], fees: { transport: 0, discount: 0, advance: 0 } }, 1);
-    await updateInvoiceFees(h.models, bill.invoice_id, { discount_amount: 200 }, 1);
+    await updateInvoiceFees(h.models, bill.invoice_id, { discount_amount: 200, discount_reason: { key: "regular_customer" }, }, 1);
     expect(bill.rental_total).toBe(800);
     expect(bill.total_amount).toBe(800);
   });
@@ -273,10 +275,10 @@ describe("R4-backend: rental_total stays right", () => {
     );
     const before = Number(bill.sale_total);
     expect(Number(bill.total_amount)).toBe(before);
-    await updateInvoiceFees(h.models, bill.invoice_id, { discount_amount: 50 }, 1);
+    await updateInvoiceFees(h.models, bill.invoice_id, { discount_amount: 50, discount_reason: { key: "regular_customer" }, }, 1);
     expect(Number(bill.sale_total)).toBe(before - 50);
     expect(Number(bill.total_amount)).toBe(before - 50);
-    await expect(updateInvoiceFees(h.models, bill.invoice_id, { discount_amount: before + 1 }, 1)).rejects.toMatchObject({ statusCode: 400 });
+    await expect(updateInvoiceFees(h.models, bill.invoice_id, { discount_amount: before + 1, discount_reason: { key: "regular_customer" }, }, 1)).rejects.toMatchObject({ statusCode: 400 });
   });
 });
 

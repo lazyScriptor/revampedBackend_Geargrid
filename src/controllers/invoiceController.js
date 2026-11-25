@@ -28,6 +28,7 @@ export const createInvoice = catchAsync(async (req, res, next) => {
     borrowed_on_behalf_of_customer_id,
     discount,
     discount_amount,
+    discount_reason,
     warehouse_id,
   } = req.body;
   const userId = req.user.userId;
@@ -49,6 +50,7 @@ export const createInvoice = catchAsync(async (req, res, next) => {
       borrowed_on_behalf_of_customer_id,
       discount,
       discount_amount,
+      discount_reason,
       warehouse_id,
       effectivePermissions: req.effectivePermissions,
     },
@@ -90,6 +92,11 @@ export const processReturnInvoice = catchAsync(async (req, res, next) => {
     status: "success",
     message: "Return processed and inventory updated successfully.",
   });
+});
+
+export const previewReturnInvoice = catchAsync(async (req, res) => {
+  const data = await invoiceService.previewReturn(getModels(req), req.params.id, req.body || {});
+  res.status(200).json({ status: "success", data });
 });
 
 export const getInvoiceById = catchAsync(async (req, res, next) => {

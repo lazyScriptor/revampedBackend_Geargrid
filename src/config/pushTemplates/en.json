@@ -34,5 +34,45 @@
   "daily_summary": {
     "title": "Daily summary",
     "body": "{date}[ · {shop}]"
+  },
+  "discount": {
+    "title": "Discount given on #{invoice_no}",
+    "body": "{customer}[ · {amount}][ · {reason}]"
+  },
+  "refund": {
+    "title": "Refund on #{invoice_no}",
+    "body": "{customer}[ · {amount}][ · {reason}]"
+  },
+  "backdated_payment": {
+    "title": "Back-dated payment on #{invoice_no}",
+    "body": "{customer}[ · {amount}][ · {reason}]"
+  },
+  "backdated_bill": {
+    "title": "Back-dated bill #{invoice_no}",
+    "body": "{customer}[ · {amount}]"
+  },
+  "backdated_return": {
+    "title": "Back-dated return on #{invoice_no}",
+    "body": "{customer}[ · {reason}]"
+  },
+  "invoice_reopened": {
+    "title": "Bill #{invoice_no} reopened",
+    "body": "{customer}[ · {staff}]"
+  },
+  "id_card_released_unpaid": {
+    "title": "ID card released unpaid on #{invoice_no}",
+    "body": "{customer}[ · {amount}]"
+  },
+  "review": {
+    "title": "Customer review on #{invoice_no}",
+    "body": "{customer}[ · {staff}]"
+  },
+  "customer_payment": {
+    "title": "Customer payment",
+    "body": "{customer}[ · {amount}]"
+  },
+  "call_promise_missed": {
+    "title": "Promise missed",
+    "body": "{customer}[ · {amount}]"
   }
 }

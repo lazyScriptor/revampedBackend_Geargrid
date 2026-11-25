@@ -12,6 +12,8 @@ import {
 } from '../controllers/customerController.js';
 import { protect, requirePermission } from '../middlewares/authMiddleware.js';
 import { freshAccruals } from "../services/accrualService.js";
+import * as settlementController from '../controllers/customerSettlementController.js';
+import { settlementIdempotency } from '../middlewares/settlementIdempotency.js';
 
 const router = express.Router();
 
@@ -53,6 +55,34 @@ router.get(
   '/:id/invoices',
   requirePermission("customer:view"),
   getCustomerInvoices,
+);
+
+// Customer settlement (Release 4 Slice 3)
+router.get(
+  '/:id/settlement/overview',
+  requirePermission("customer:view", "invoice:view"),
+  settlementController.getOverview,
+);
+router.get(
+  '/:id/open-bills',
+  requirePermission("customer:view", "invoice:view"),
+  settlementController.getOpenBills,
+);
+router.post(
+  '/:id/settlement/preview',
+  requirePermission("invoice:action:process_return", "invoice:action:add_payment"),
+  settlementController.preview,
+);
+router.post(
+  '/:id/settlement',
+  requirePermission("invoice:action:process_return", "invoice:action:add_payment"),
+  settlementIdempotency({ scope: (req) => `POST:/api/customers/${req.params.id}/settlement` }),
+  settlementController.save,
+);
+router.post(
+  '/:id/settlement/complete-bills',
+  requirePermission("invoice:action:process_return"),
+  settlementController.completeBills,
 );
 
 // GET    /api/customers/5

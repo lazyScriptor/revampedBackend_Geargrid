@@ -69,12 +69,21 @@ export const findCustomerIdsBySearch = async (models, term) => {
   }
 
   const nicNorm = trimmed.replace(/\s+/g, "").toLowerCase();
-  if (nicNorm.length >= 5) {
-    orClauses.push(
-      sqlWhere(fn("LOWER", fn("REPLACE", col("nic_number"), " ", "")), {
-        [Op.like]: `%${nicNorm}%`,
-      }),
-    );
+  const nicStem = nicNorm.replace(/[vx]$/, "");
+  if (nicStem.length >= 5) {
+    if (nicNorm !== nicStem) {
+      orClauses.push(
+        sqlWhere(fn("LOWER", fn("REPLACE", col("nic_number"), " ", "")), {
+          [Op.or]: [{ [Op.like]: `%${nicNorm}%` }, { [Op.like]: `%${nicStem}%` }],
+        }),
+      );
+    } else {
+      orClauses.push(
+        sqlWhere(fn("LOWER", fn("REPLACE", col("nic_number"), " ", "")), {
+          [Op.like]: `%${nicNorm}%`,
+        }),
+      );
+    }
   }
 
   const core = phoneSearchCore(trimmed);

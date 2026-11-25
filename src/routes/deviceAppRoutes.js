@@ -1,4 +1,5 @@
 import express from "express";
+import multer from "multer";
 import rateLimit from "express-rate-limit";
 import {
   RegisterDeviceContract,
@@ -27,6 +28,7 @@ import { deviceAuth } from "../middlewares/deviceAuth.js";
 import { requireFeature } from "../middlewares/planMiddleware.js";
 import { registerContract } from "../utils/contractAdapter.js";
 import { getMasterModels } from "../models/master/index.js";
+import * as activityService from "../services/activityService.js";
 import AppError from "../utils/AppError.js";
 import { userHasPermission } from "../services/userService.js";
 import { sendDataPush } from "../services/devicePushService.js";
@@ -42,6 +44,13 @@ import * as pushEventService from "../services/pushEventService.js";
 import * as invoiceService from "../services/invoiceService.js";
 import * as customerBriefService from "../services/customerBriefService.js";
 import * as callLogService from "../services/callLogService.js";
+import * as callRecordingService from "../services/callRecordingService.js";
+import catchAsync from "../utils/catchAsync.js";
+
+const recordingUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: callRecordingService.MAX_RECORDING_BYTES },
+});
 
 const router = express.Router();
 
@@ -213,7 +222,36 @@ registerContract(router, DeleteDeviceCallsContract, {
   handler: ({ req }) => callLogService.deleteDeviceCalls(req.tenantModels, req.device),
 });
 
-registerContract(router, PostDeviceCallNoteContract, {
+// The shared contract lists only tags, note and follow_up_on and strips the rest, so the call card's
+// outcome, result, promise and bills pass through here. callLogService validates each of them.
+const DeviceCallNoteContract = {
+  ...PostDeviceCallNoteContract,
+  body: PostDeviceCallNoteContract.body.passthrough(),
+};
+
+router.get(
+  "/calls/to-note",
+  requireDeviceCapability("call_logging"),
+  catchAsync(async (req, res) => {
+    const data = await callLogService.listDeviceCallsToNote(req.tenantModels, req.device);
+    res.status(200).json({ status: "success", data });
+  }),
+);
+
+router.get(
+  "/calls/:clientCallId/card",
+  requireDeviceCapability("call_logging"),
+  catchAsync(async (req, res) => {
+    const data = await callLogService.getDeviceCallCard(
+      req.tenantModels,
+      req.device,
+      req.params.clientCallId,
+    );
+    res.status(200).json({ status: "success", data });
+  }),
+);
+
+registerContract(router, DeviceCallNoteContract, {
   basePath: "/device",
   middlewares: [requireDeviceCapability("call_logging")],
   handler: ({ params, body, req }) =>
@@ -263,5 +301,126 @@ registerContract(router, CreateDeviceLeadContactContract, {
   handler: ({ body, req }) =>
     phoneContactService.createLeadContact(req.tenantModels, body, { device: req.device }),
 });
+
+// Activity feed endpoints for paired mobile app (Slice 1 / M3)
+router.get("/activity/summary", requireDevicePermission("activity:view"), async (req, res, next) => {
+  try {
+    const canCheck = await userHasPermission(req.tenantModels, req.deviceUser, "activity:check");
+    const data = await activityService.getActivitySummary(req.tenantModels, req.query, {
+      userId: req.device.user_id,
+      canCheck,
+    });
+    // The phone has no signed-in web user, so it learns from here whether to show the Checked tick.
+    res.status(200).json({ status: "success", data: { ...data, can_check: canCheck } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/activity", requireDevicePermission("activity:view"), async (req, res, next) => {
+  try {
+    const data = await activityService.listActivity(req.tenantModels, req.query, {
+      userId: req.device.user_id,
+    });
+    res.status(200).json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/activity/read", requireDevicePermission("activity:view"), async (req, res, next) => {
+  try {
+    const data = await activityService.markRead(
+      req.tenantModels,
+      req.body?.event_ids || req.body?.ids || [],
+      req.device.user_id,
+    );
+    res.status(200).json({ status: "success", data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/activity/:id/check", requireDevicePermission("activity:check"), async (req, res, next) => {
+  try {
+    const event = await activityService.checkEvent(req.tenantModels, Number(req.params.id), req.device.user_id);
+    res.status(200).json({
+      status: "success",
+      data: { event_id: event.event_id, checked_by: event.checked_by, checked_at: event.checked_at },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete("/activity/:id/check", requireDevicePermission("activity:check"), async (req, res, next) => {
+  try {
+    const event = await activityService.uncheckEvent(req.tenantModels, Number(req.params.id));
+    res.status(200).json({
+      status: "success",
+      data: { event_id: event.event_id, checked_by: null, checked_at: null },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/activity/:id/comments", requireDevicePermission("activity:view"), async (req, res, next) => {
+  try {
+    const comments = await activityService.listComments(req.tenantModels, Number(req.params.id));
+    res.status(200).json({ status: "success", data: { comments } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/activity/:id/comments", requireDevicePermission("activity:view"), async (req, res, next) => {
+  try {
+    const comment = await activityService.addComment(
+      req.tenantModels,
+      Number(req.params.id),
+      req.device.user_id,
+      req.body?.body,
+    );
+    res.status(201).json({ status: "success", data: { comment } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post(
+  "/calls/:clientCallId/recording",
+  requireDeviceCapability("call_logging"),
+  (req, res, next) => {
+    recordingUpload.any()(req, res, (err) => {
+      if (err) {
+        if (err.code === "LIMIT_FILE_SIZE") {
+          return next(
+            new AppError("Recording exceeds maximum size of 50 MB.", 413, "recording_too_large"),
+          );
+        }
+        return next(new AppError(err.message || "Invalid recording upload.", 400));
+      }
+      return next();
+    });
+  },
+  catchAsync(async (req, res) => {
+    const file =
+      req.file ||
+      (Array.isArray(req.files)
+        ? req.files.find((f) => f.fieldname === "recording" || f.fieldname === "file") ||
+          req.files[0]
+        : null);
+    const data = await callRecordingService.uploadDeviceCallRecording(
+      req.tenantModels,
+      req.tenantDbName,
+      req.device,
+      req.params.clientCallId,
+      file,
+      req.body,
+    );
+    res.status(201).json({ status: "success", data });
+  }),
+);
 
 export default router;

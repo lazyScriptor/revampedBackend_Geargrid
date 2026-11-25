@@ -4,6 +4,7 @@ import { Op } from "sequelize";
 import { initMasterModels } from "../models/master/index.js";
 import { initTenantModels } from "../models/index.js";
 import { getTenantPlan } from "../services/planService.js";
+import { runCallRetentionJob, runFollowUpJob } from "../services/scheduledJobs.js";
 import { checkStockIntegrity } from "../modules/retail/index.js";
 
 export const runNightlyStockIntegrityCheck = async () => {
@@ -75,11 +76,17 @@ export const cleanupExpiredIdempotencyKeys = async () => {
         t.encrypted_db_pass,
         t.db_host,
       );
-      const { IdempotencyKey } = initTenantModels(conn);
+      const { IdempotencyKey, SettlementIdempotencyKey } = initTenantModels(conn);
       const deleted = await IdempotencyKey.destroy({
         where: { created_at: { [Op.lt]: cutoff } },
       });
       totalDeleted += deleted;
+      // Release 4 settlement keys carry their own expiry.
+      if (SettlementIdempotencyKey?.destroy) {
+        totalDeleted += await SettlementIdempotencyKey.destroy({
+          where: { expires_at: { [Op.lt]: new Date() } },
+        }).catch(() => 0);
+      }
     } catch {
       // Skip tenants whose DB isn't migrated yet
     }
@@ -124,6 +131,24 @@ const setupCronJobs = () => {
       console.error("❌ Nightly retail stock integrity check failed:", error.message);
     }
   });
+
+  // 09:00 is inside shop hours, so a "promise missed" event isn't marked as after-hours.
+  // FUTURE (super admin setting): reminder and clean-up times, per shop time zone.
+  cron.schedule("0 9 * * *", () => runLogged("follow-up", runFollowUpJob), SHOP_TZ);
+  cron.schedule("30 2 * * *", () => runLogged("call retention", runCallRetentionJob), SHOP_TZ);
+};
+
+const SHOP_TZ = { timezone: "Asia/Colombo" };
+
+const runLogged = async (name, job) => {
+  console.log(`🕒 Running daily ${name} job...`);
+  try {
+    const results = await job();
+    const failed = results.filter((r) => !r.ok).length;
+    console.log(`✅ Daily ${name} job done: ${results.length - failed} shop(s) ok, ${failed} failed.`);
+  } catch (error) {
+    console.error(`❌ Daily ${name} job failed:`, error.message);
+  }
 };
 
 export default setupCronJobs;

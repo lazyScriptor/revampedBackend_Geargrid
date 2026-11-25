@@ -1,4 +1,5 @@
 import express from "express";
+import * as tenantConfigController from "../controllers/tenantConfigController.js";
 import {
   getConfig,
   updateConfig,
@@ -6,6 +7,8 @@ import {
   updateBillDetails,
 } from "../controllers/tenantConfigController.js";
 import * as signatureService from "../services/signatureService.js";
+import * as collectionsSettingsService from "../services/collectionsSettingsService.js";
+import catchAsync from "../utils/catchAsync.js";
 import { protect, requirePermission } from "../middlewares/authMiddleware.js";
 import { registerContract } from "../utils/contractAdapter.js";
 import { getCachedTenantConnection } from "../config/database.js";
@@ -46,5 +49,27 @@ registerContract(router, UpdateRentalTermsContract, {
   handler: ({ body, req }) =>
     signatureService.updateRentalTerms(resolveTenantModels(req), body.markdown),
 });
+
+router
+  .route("/collections")
+  .get(
+    requirePermission("config:view"),
+    catchAsync(async (req, res) => {
+      const settings = await collectionsSettingsService.getCollectionsSettings(
+        resolveTenantModels(req),
+      );
+      res.status(200).json({ status: "success", data: settings });
+    }),
+  )
+  .put(
+    requirePermission("config:manage"),
+    catchAsync(async (req, res) => {
+      const settings = await collectionsSettingsService.updateCollectionsSettings(
+        resolveTenantModels(req),
+        req.body,
+      );
+      res.status(200).json({ status: "success", data: settings });
+    }),
+  );
 
 export default router;

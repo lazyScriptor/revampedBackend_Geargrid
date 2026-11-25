@@ -40,6 +40,8 @@ export default (sequelize) => {
         allowNull: false,
         defaultValue: 0.0,
       },
+      discount_reason_key: { type: DataTypes.STRING(100), allowNull: true },
+      discount_reason_note: { type: DataTypes.STRING(500), allowNull: true },
       sub_total: {
         type: DataTypes.DECIMAL(12, 2),
         allowNull: false,
