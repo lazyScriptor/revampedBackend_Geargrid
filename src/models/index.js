@@ -32,6 +32,8 @@ import PhoneContactFactory from "./PhoneContact.js";
 import PushPreferenceFactory from "./PushPreference.js";
 import CallLogFactory from "./CallLog.js";
 import CallNoteFactory from "./CallNote.js";
+import CallRecordingFactory from "./CallRecording.js";
+import CallRecordingListenFactory from "./CallRecordingListen.js";
 import DeviceAuditLogFactory from "./DeviceAuditLog.js";
 import PushTemplateFactory from "./PushTemplate.js";
 
@@ -70,6 +72,8 @@ export const initTenantModels = (tenantConnection) => {
   const PushPreference = PushPreferenceFactory(tenantConnection);
   const CallLog = CallLogFactory(tenantConnection);
   const CallNote = CallNoteFactory(tenantConnection);
+  const CallRecording = CallRecordingFactory(tenantConnection);
+  const CallRecordingListen = CallRecordingListenFactory(tenantConnection);
   const DeviceAuditLog = DeviceAuditLogFactory(tenantConnection);
   const PushTemplate = PushTemplateFactory(tenantConnection);
 
@@ -270,6 +274,12 @@ export const initTenantModels = (tenantConnection) => {
   CallNote.belongsTo(PhoneContact, { foreignKey: "contact_id" });
   User.hasMany(CallNote, { foreignKey: "created_by_user_id", onDelete: "SET NULL" });
   CallNote.belongsTo(User, { as: "Author", foreignKey: "created_by_user_id" });
+  CallLog.belongsTo(User, { as: "ManualUser", foreignKey: "user_id", constraints: false });
+  CallLog.hasOne(CallRecording, { foreignKey: "call_id", onDelete: "CASCADE" });
+  CallRecording.belongsTo(CallLog, { foreignKey: "call_id" });
+  CallRecording.hasMany(CallRecordingListen, { foreignKey: "recording_id", onDelete: "CASCADE" });
+  CallRecordingListen.belongsTo(CallRecording, { foreignKey: "recording_id" });
+  CallRecordingListen.belongsTo(User, { as: "Listener", foreignKey: "user_id" });
 
   // ── Cash locker ──
   CashLockerCount.belongsTo(User, { as: "CountedBy", foreignKey: "counted_by_user_id" });
@@ -310,6 +320,8 @@ export const initTenantModels = (tenantConnection) => {
     PushPreference,
     CallLog,
     CallNote,
+    CallRecording,
+    CallRecordingListen,
     DeviceAuditLog,
     PushTemplate,
     sequelize: tenantConnection,
