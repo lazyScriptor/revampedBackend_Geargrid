@@ -59,7 +59,24 @@ import ActivityEventReadFactory from "./ActivityEventRead.js";
 import CustomerSettlementFactory from "./CustomerSettlement.js";
 import SettlementIdempotencyKeyFactory from "./SettlementIdempotencyKey.js";
 
+// Building ~80 models and their associations is expensive (milliseconds of pure CPU). It used to
+// run on every request and every 2 s per shop in the bulk-job worker, which kept the live server
+// busy even when idle (CPU profile, 2026-11-26). The models for a connection never change, so they
+// are built once per connection and reused.
+const tenantModelsByConnection = new WeakMap();
+
 export const initTenantModels = (tenantConnection) => {
+  if (tenantConnection && typeof tenantConnection === "object") {
+    const cached = tenantModelsByConnection.get(tenantConnection);
+    if (cached) return cached;
+    const built = buildTenantModels(tenantConnection);
+    tenantModelsByConnection.set(tenantConnection, built);
+    return built;
+  }
+  return buildTenantModels(tenantConnection);
+};
+
+const buildTenantModels = (tenantConnection) => {
   const User = UserFactory(tenantConnection);
   const Role = RoleFactory(tenantConnection);
   const Permission = PermissionFactory(tenantConnection);
