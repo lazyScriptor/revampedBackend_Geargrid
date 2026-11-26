@@ -15,7 +15,7 @@ const PORT = process.env.PORT || 8086;
 const startServer = async () => {
   try {
     // =================================================================
-    // 1. SYNC THE MASTER DATABASE
+    // 1. CONNECT TO THE MASTER DATABASE
     // =================================================================
     await masterSequelize.authenticate();
     console.log("✅ Successfully connected to the geargrid_master database.");
@@ -23,11 +23,11 @@ const startServer = async () => {
     // Register Master DB ORM models (SuperAdmin, Tenant, GlobalUser, AuditLog)
     initMasterModels(masterSequelize);
 
-    // NOTE: Do NOT use { alter: true } — every restart adds another UNIQUE index
-    // on columns marked unique, hitting MySQL's 64-index-per-column limit (ER_TOO_MANY_KEYS).
-    // sync() only creates missing tables/columns. Use manual ALTER for type/index changes.
-    await masterSequelize.sync();
-    console.log("✅ Master Database structure synced.");
+    // No sequelize.sync() here, for the master or any tenant (root CLAUDE.md rule 1). Schema changes
+    // are Umzug migrations, which the deploy runs (`npm run db:migrate`) before PM2 restarts us.
+    // The startup sync used to check every model's table and indexes in every tenant before we
+    // listened, which kept api.geargrid.live on 502 for ~2.5 minutes per restart, and it failed
+    // part-way on tenants with legacy zero dates, leaving later tables (BULK_JOBS) uncreated.
 
     // Build combined CORS allow-list from platform-config + every tenant's whitelist
     try {
@@ -38,41 +38,35 @@ const startServer = async () => {
     }
 
     // =================================================================
-    // 2. FIND ALL TENANTS AND SYNC THEIR DATABASES
+    // 2. OPEN (AND CACHE) A CONNECTION TO EVERY TENANT DATABASE
     // =================================================================
-    // Look inside the master DB to find every client you have
+    // Requests from already-signed-in users and the bulk job worker use getCachedTenantConnection(),
+    // so the cache must be filled before we listen. This is one quick authenticate() per tenant.
     const tenants = await masterSequelize.query(
       "SELECT db_name, db_user, encrypted_db_pass, db_host FROM TENANTS",
       { type: QueryTypes.SELECT },
     );
 
-    console.log(
-      `🔄 Found ${tenants.length} tenant(s). Synchronizing tenant databases...`,
-    );
+    console.log(`🔄 Found ${tenants.length} tenant(s). Connecting to tenant databases...`);
 
-    // Loop through each client's database one by one
-    for (const tenant of tenants) {
-      try {
-        // Create a connection to this specific client's DB
+    const results = await Promise.allSettled(
+      tenants.map(async (tenant) => {
         const tenantConnection = await getTenantConnection(
           tenant.db_name,
           tenant.db_user,
           tenant.encrypted_db_pass,
           tenant.db_host,
         );
-
-        // Load the models into this connection so Sequelize knows the table structures
         initTenantModels(tenantConnection);
-
-        // Give Sequelize authority to alter this specific client's tables
-        await tenantConnection.sync();
-        console.log(`***Successfully synced: ${tenant.db_name}`);
-      } catch (tenantErr) {
-        console.error(`❌Failed to sync: ${tenant.db_name}`, tenantErr.message);
+      }),
+    );
+    results.forEach((r, i) => {
+      if (r.status === "rejected") {
+        console.error(`❌Failed to connect: ${tenants[i].db_name}`, r.reason?.message);
       }
-    }
-
-    console.log("🎉 All database schemas are up to date!");
+    });
+    const connected = results.filter((r) => r.status === "fulfilled").length;
+    console.log(`✅ Connected to ${connected}/${tenants.length} tenant database(s).`);
 
     // =================================================================
     // 3. START EXPRESS SERVER + SOCKET.IO + BULK JOB WORKER
