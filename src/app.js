@@ -41,6 +41,7 @@ import { retailRoutes, approvalRoutes } from "./modules/retail/index.js";
 import activityRoutes from "./routes/activityRoutes.js";
 import settlementRoutes from "./routes/settlementRoutes.js";
 import { corsOrigins } from "./config/cors-config.js";
+import { dataChangeNotifier } from "./middlewares/dataChangeNotifier.js";
 
 const app = express();
 
@@ -62,6 +63,8 @@ app.use(
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 app.use(cookieParser());
+// After a successful save, tell the shop's open screens which data changed (see the middleware).
+app.use("/api", dataChangeNotifier);
 
 // Serve uploaded files (tenant logos, etc.)
 app.use("/uploads", express.static("uploads"));
