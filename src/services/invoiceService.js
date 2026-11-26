@@ -727,8 +727,12 @@ export const getAllInvoices = async (models, queryParams) => {
           ],
           required: false,
         },
+        // Lists are fetched on their own (separate: true) for just this page of bills, instead of
+        // one join that multiplied lines x sale lines x payments x history for every bill.
         {
           model: models.InvoiceLine,
+          separate: true,
+          order: [["line_id", "ASC"]],
           include: [
             {
               model: models.Equipment,
@@ -740,16 +744,21 @@ export const getAllInvoices = async (models, queryParams) => {
           model: models.InvoiceSaleLine,
           as: "SaleLines",
           required: false,
+          separate: true,
+          order: [["sale_line_id", "ASC"]],
         },
         {
           model: models.Payment,
-          attributes: ["payment_id", "payment_amount", "payment_date", "method"],
+          // invoice_id is needed so separate rows can be matched back to their bill.
+          attributes: ["payment_id", "invoice_id", "payment_amount", "payment_date", "method"],
+          separate: true,
+          order: [["payment_id", "ASC"]],
         },
-        { model: models.InvoiceTrace },
+        { model: models.InvoiceTrace, separate: true, order: [["createdAt", "ASC"], ["trace_id", "ASC"]] },
       ],
       limit,
       offset,
-      order: [["issued_date", "DESC"]],
+      order: [["issued_date", "DESC"], ["invoice_id", "DESC"]],
     }),
   ]);
 
@@ -794,8 +803,12 @@ export const getInvoiceById = async (models, invoiceId) => {
         ],
         required: false,
       },
+      // Each list is fetched on its own (separate: true). Joined together, lines x sale lines x
+      // payments x history multiplied into hundreds of rows per bill and made opening a bill slow.
       {
         model: models.InvoiceLine,
+        separate: true,
+        order: [["line_id", "ASC"]],
         include: [
           {
             model: models.Equipment,
@@ -807,13 +820,14 @@ export const getInvoiceById = async (models, invoiceId) => {
         model: models.InvoiceSaleLine,
         as: "SaleLines",
         required: false,
+        separate: true,
+        order: [["sale_line_id", "ASC"]],
       },
-      { model: models.Payment },
-      { model: models.InvoiceTrace },
+      { model: models.Payment, separate: true, order: [["payment_id", "ASC"]] },
+      { model: models.InvoiceTrace, separate: true, order: [["createdAt", "DESC"], ["trace_id", "DESC"]] },
       // who issued the bill: the cashier named on receipts (read by Invoice.toJSON as `issued_by`)
       ...(models.User ? [{ model: models.User, attributes: ["user_id", "first_name", "last_name", "username"], required: false }] : []),
     ],
-    order: [[models.InvoiceTrace, "createdAt", "DESC"]],
   });
 
   if (!invoice) throw new AppError("Invoice not found", 404);
