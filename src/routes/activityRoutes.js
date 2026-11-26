@@ -11,6 +11,9 @@ router.use(protect);
 router.get("/settings", activityController.getActivitySettings);
 router.put("/settings", requirePermission("config:manage"), activityController.updateActivitySettings);
 
+router.get("/saved-filters", requirePermission("activity:view"), activityController.listSavedFilters);
+router.post("/saved-filters", requirePermission("activity:view"), activityController.createSavedFilter);
+router.delete("/saved-filters/:id", requirePermission("activity:view"), activityController.deleteSavedFilter);
 router.get("/summary", requirePermission("activity:view"), activityController.getActivitySummary);
 router.get("/export", requirePermission("activity:view"), activityController.exportActivity);
 router.post("/read", requirePermission("activity:view"), activityController.markRead);

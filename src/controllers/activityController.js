@@ -1,5 +1,6 @@
 import * as activityService from "../services/activityService.js";
 import * as activitySettingsService from "../services/activitySettingsService.js";
+import * as activitySavedFiltersService from "../services/activitySavedFiltersService.js";
 import { getCachedTenantConnection } from "../config/database.js";
 import { initTenantModels } from "../models/index.js";
 import catchAsync from "../utils/catchAsync.js";
@@ -111,4 +112,20 @@ export const updateActivitySettings = catchAsync(async (req, res) => {
     req.body || {},
   );
   res.status(200).json({ status: "success", data: settings });
+});
+
+// ── Saved views on the Activity page (per user) ──
+export const listSavedFilters = catchAsync(async (req, res) => {
+  const filters = await activitySavedFiltersService.listSavedFilters(getModels(req), req.user.userId);
+  res.status(200).json({ status: "success", data: { filters } });
+});
+
+export const createSavedFilter = catchAsync(async (req, res) => {
+  const filter = await activitySavedFiltersService.createSavedFilter(getModels(req), req.user.userId, req.body || {});
+  res.status(201).json({ status: "success", data: { filter } });
+});
+
+export const deleteSavedFilter = catchAsync(async (req, res) => {
+  const data = await activitySavedFiltersService.deleteSavedFilter(getModels(req), req.user.userId, req.params.id);
+  res.status(200).json({ status: "success", data });
 });
